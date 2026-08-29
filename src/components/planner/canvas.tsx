@@ -2,10 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 
 import { Grid } from './grid.tsx'
-import { FurnitureShape, RoomShape } from './shapes.tsx'
+import {
+  FurnitureShape,
+  OpeningShape,
+  OpeningTarget,
+  RoomShape,
+} from './shapes.tsx'
 import {
   DraftOverlay,
   FurnitureEditor,
+  OpeningEditor,
   RectPreview,
   RoomEditor,
   RoomLabels,
@@ -14,6 +20,16 @@ import {
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
 import { wallLabels } from '#/lib/planner/dimensions.ts'
+import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
+import {
+  clampT,
+  fittedWidth,
+  nearestWall,
+  openingEnds,
+  openingWall,
+  projectT,
+  wallAt,
+} from '#/lib/planner/openings.ts'
 import {
   distance,
   polygonBounds,
@@ -21,14 +37,23 @@ import {
   rotationFor,
   screenToWorld,
   snapPoint,
+  snapValue,
   translatePolygon,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 
-import type { Furniture, Handle, Point, Room } from '#/lib/planner/types.ts'
+import type {
+  Furniture,
+  Handle,
+  Opening,
+  Point,
+  Room,
+} from '#/lib/planner/types.ts'
 
 /** How close, in screen pixels, a click must be to close the polygon. */
 const CLOSE_PX = 12
+/** How near a wall the pointer must come, in screen pixels, to open it up. */
+const WALL_REACH_PX = 44
 
 type Drag =
   | {
@@ -43,6 +68,8 @@ type Drag =
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string }
   | { mode: 'vertex'; roomId: string; index: number }
+  | { mode: 'opening'; id: string }
+  | { mode: 'opening-end'; id: string; end: 'start' | 'end' }
   | { mode: 'rect' }
 
 export function Canvas() {
@@ -53,8 +80,10 @@ export function Canvas() {
   const {
     rooms,
     furniture,
+    openings,
     selection,
     tool,
+    openingKind,
     units,
     viewport,
     draft,
@@ -64,6 +93,12 @@ export function Canvas() {
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
+  /** The wall the opening tool is hovering, and where along it. */
+  const [ghost, setGhost] = useState<{
+    roomId: string
+    wall: number
+    t: number
+  } | null>(null)
 
   const actions = plannerStore.actions
 
@@ -164,6 +199,15 @@ export function Canvas() {
       if (event.key === 'v' || event.key === 'V') return a.setTool('select')
       if (event.key === 'r' || event.key === 'R') return a.setTool('room')
       if (event.key === 'e' || event.key === 'E') return a.setTool('rect')
+      if (event.key === 'd' || event.key === 'D') {
+        return a.setOpeningTool('door')
+      }
+      if (event.key === 'w' || event.key === 'W') {
+        return a.setOpeningTool('window')
+      }
+      if (event.key === 'o' || event.key === 'O') {
+        return a.setOpeningTool('opening')
+      }
 
       const step = (activeSnapStep(state) ?? 1) * (event.shiftKey ? 10 : 1)
       const nudge: Record<string, [number, number] | undefined> = {
@@ -212,6 +256,25 @@ export function Canvas() {
     }
     if (event.button !== 0) return
 
+    // Opening tool: the click lands on whichever wall the ghost has found.
+    if (state.tool === 'opening') {
+      const spot = nearestWall(
+        state.rooms,
+        toWorld(event),
+        WALL_REACH_PX / state.viewport.scale,
+      )
+      if (spot) {
+        actions.addOpening(
+          state.openingKind,
+          spot.roomId,
+          spot.wall,
+          snapAlong(spot.roomId, spot.wall, spot.t),
+        )
+        setGhost(null)
+      }
+      return
+    }
+
     // Rectangle tool: drag out the two opposite corners in one gesture.
     if (state.tool === 'rect') {
       actions.beginRect(maybeSnap(toWorld(event)))
@@ -231,9 +294,36 @@ export function Canvas() {
     actions.addDraftPoint(maybeSnap(toWorld(event)))
   }
 
+  /**
+   * Where along a wall a fraction lands once the snap step has had its say.
+   * An opening slides along one line, so the step is applied to the distance
+   * from the wall's first corner rather than to a point on the grid.
+   */
+  function snapAlong(roomId: string, wall: number, t: number): number {
+    const state = plannerStore.state
+    const room = state.rooms.find((r) => r.id === roomId)
+    const frame = room && wallAt(room.points, wall)
+    const step = activeSnapStep(state)
+    if (!frame || step === null) return t
+    return snapValue(t * frame.length, step) / frame.length
+  }
+
   function onPointerMove(event: React.PointerEvent) {
     const state = plannerStore.state
     if (state.tool === 'room') setCursor(maybeSnap(toWorld(event)))
+    if (state.tool === 'opening') {
+      const spot = nearestWall(
+        state.rooms,
+        toWorld(event),
+        WALL_REACH_PX / state.viewport.scale,
+      )
+      setGhost(
+        spot && {
+          ...spot,
+          t: snapAlong(spot.roomId, spot.wall, spot.t),
+        },
+      )
+    }
 
     const drag = dragRef.current
     if (!drag) return
@@ -310,6 +400,35 @@ export function Canvas() {
         actions.moveVertex(drag.roomId, drag.index, maybeSnap(world))
         break
       }
+      case 'opening': {
+        const opening = state.openings.find((o) => o.id === drag.id)
+        const wall = opening && openingWall(state.rooms, opening)
+        if (!opening || !wall) break
+        actions.updateOpening(drag.id, {
+          t: snapAlong(opening.roomId, opening.wall, projectT(wall, world)),
+        })
+        break
+      }
+      case 'opening-end': {
+        // One jamb follows the pointer and the other stays where it is, so the
+        // width and the centre both come out of where the two now stand.
+        const opening = state.openings.find((o) => o.id === drag.id)
+        const wall = opening && openingWall(state.rooms, opening)
+        if (!opening || !wall) break
+        const ends = openingEnds(wall, opening)
+        const fixed =
+          projectT(wall, drag.end === 'start' ? ends.end : ends.start) *
+          wall.length
+        const step = activeSnapStep(state)
+        const moved = projectT(wall, world) * wall.length
+        const along = step === null ? moved : snapValue(moved, step)
+        const width = fittedWidth(Math.abs(along - fixed), wall.length)
+        actions.updateOpening(drag.id, {
+          width,
+          t: clampT((along + fixed) / 2 / wall.length, width, wall.length),
+        })
+        break
+      }
       case 'rect': {
         actions.updateRect(maybeSnap(world))
         break
@@ -384,6 +503,23 @@ export function Canvas() {
     capture(event.pointerId)
   }
 
+  function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
+    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button !== 0) return
+    event.stopPropagation()
+    actions.select({ type: 'opening', id: opening.id })
+    dragRef.current = { mode: 'opening', id: opening.id }
+    capture(event.pointerId)
+  }
+
+  function onOpeningEndDown(end: 'start' | 'end', event: React.PointerEvent) {
+    event.stopPropagation()
+    const current = plannerStore.state.selection
+    if (current?.type !== 'opening') return
+    dragRef.current = { mode: 'opening-end', id: current.id, end }
+    capture(event.pointerId)
+  }
+
   function onVertexDown(index: number, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
@@ -410,6 +546,21 @@ export function Canvas() {
       ? furniture.find((f) => f.id === selection.id)
       : undefined
 
+  // Every opening paired with the wall it is drawn along; one whose wall has
+  // gone — a room mid-edit — simply drops out of the drawing.
+  const placed = openings.flatMap((opening) => {
+    const wall = openingWall(rooms, opening)
+    return wall ? [{ opening, wall }] : []
+  })
+  const selectedOpening =
+    selection?.type === 'opening'
+      ? placed.find(({ opening }) => opening.id === selection.id)
+      : undefined
+
+  const ghostWall =
+    ghost &&
+    wallAt(rooms.find((r) => r.id === ghost.roomId)?.points ?? [], ghost.wall)
+
   const nearFirst =
     !!draft &&
     draft.length >= 3 &&
@@ -421,7 +572,14 @@ export function Canvas() {
 
   // One layout, shared: the wall dimensions are drawn from it, and the
   // selection's own readout reads it to keep out of their way.
-  const dimensions = wallLabels(rooms, furniture, viewport, units, size)
+  const dimensions = wallLabels(
+    rooms,
+    furniture,
+    openings,
+    viewport,
+    units,
+    size,
+  )
 
   const cursorClass = panning
     ? 'cursor-grabbing'
@@ -439,6 +597,7 @@ export function Canvas() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => setGhost(null)}
       onDoubleClick={onDoubleClick}
     >
       <Grid viewport={viewport} units={units} />
@@ -451,8 +610,22 @@ export function Canvas() {
           <RoomShape
             key={room.id}
             room={room}
+            openings={openings.filter((o) => o.roomId === room.id)}
             selected={room.id === selection?.id}
             onPointerDown={(event) => onRoomPointerDown(room, event)}
+          />
+        ))}
+        {/*
+          Openings are picked up from under the furniture but drawn over it: a
+          sofa against a wall keeps its own clicks, while the swing it is
+          standing in stays in plain sight.
+        */}
+        {placed.map(({ opening, wall }) => (
+          <OpeningTarget
+            key={opening.id}
+            opening={opening}
+            wall={wall}
+            onPointerDown={(event) => onOpeningPointerDown(opening, event)}
           />
         ))}
         {furniture.map((item) => (
@@ -463,6 +636,32 @@ export function Canvas() {
             onPointerDown={(event) => onFurniturePointerDown(item, event)}
           />
         ))}
+        <g className="pointer-events-none">
+          {placed.map(({ opening, wall }) => (
+            <OpeningShape
+              key={opening.id}
+              opening={opening}
+              wall={wall}
+              selected={opening.id === selection?.id}
+            />
+          ))}
+          {ghost && ghostWall && (
+            <OpeningShape
+              ghost
+              wall={ghostWall}
+              opening={{
+                id: 'ghost',
+                kind: openingKind,
+                roomId: ghost.roomId,
+                wall: ghost.wall,
+                t: ghost.t,
+                width: OPENING_PRESETS[openingKind].width,
+                hinge: 'start',
+                swing: 'in',
+              }}
+            />
+          )}
+        </g>
       </g>
 
       <RoomLabels rooms={rooms} viewport={viewport} units={units} />
@@ -484,6 +683,16 @@ export function Canvas() {
           avoid={dimensions.map((label) => label.box)}
           onHandleDown={onResizeHandleDown}
           onRotateDown={onRotateHandleDown}
+        />
+      )}
+      {tool === 'select' && selectedOpening && (
+        <OpeningEditor
+          opening={selectedOpening.opening}
+          wall={selectedOpening.wall}
+          viewport={viewport}
+          units={units}
+          avoid={dimensions.map((label) => label.box)}
+          onEndDown={onOpeningEndDown}
         />
       )}
       {rectDraft && (

@@ -1,0 +1,240 @@
+import { distance, outwardSign } from './geometry.ts'
+import { MIN_SIZE } from './types.ts'
+
+import type { Opening, Point, Room } from './types.ts'
+
+/**
+ * Doors and windows do not float in the plan: each rides on one wall, and
+ * everything about it is read through that wall's own frame. Position is kept
+ * as a fraction along the wall so it survives the room being stretched or
+ * reshaped, and is turned back into centimetres only where a person meets it —
+ * the inspector's fields, and the step a drag snaps to.
+ */
+
+export type Wall = {
+  a: Point
+  b: Point
+  length: number
+  /** Unit vector from `a` towards `b`. */
+  tangent: Point
+  /** Unit vector across the wall, pointing out of the room. */
+  normal: Point
+}
+
+/** The wall running from `points[index]` to the point after it. */
+export function wallAt(points: Array<Point>, index: number): Wall | null {
+  if (index < 0 || index >= points.length) return null
+  const a = points[index]
+  const b = points[(index + 1) % points.length]
+  const length = distance(a, b)
+  if (length === 0) return null
+  const tangent = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
+  const sign = outwardSign(points)
+  return {
+    a,
+    b,
+    length,
+    tangent,
+    normal: { x: tangent.y * sign, y: -tangent.x * sign },
+  }
+}
+
+/** The wall an opening hangs on, or null once its room or corner has gone. */
+export function openingWall(rooms: Array<Room>, opening: Opening): Wall | null {
+  const room = rooms.find((r) => r.id === opening.roomId)
+  return room ? wallAt(room.points, opening.wall) : null
+}
+
+/** A wall only holds so much: a wider opening is trimmed down to fit it. */
+export function fittedWidth(width: number, length: number): number {
+  return Math.max(Math.min(MIN_SIZE, length), Math.min(width, length))
+}
+
+/** Hold the whole opening on its wall, both jambs included. */
+export function clampT(t: number, width: number, length: number): number {
+  const half = fittedWidth(width, length) / 2 / length
+  return Math.min(1 - half, Math.max(half, t))
+}
+
+export function pointOnWall(wall: Wall, t: number): Point {
+  return {
+    x: wall.a.x + (wall.b.x - wall.a.x) * t,
+    y: wall.a.y + (wall.b.y - wall.a.y) * t,
+  }
+}
+
+/** Centre and jambs of an opening, in world coordinates, fitted to its wall. */
+export function openingEnds(
+  wall: Wall,
+  opening: Pick<Opening, 't' | 'width'>,
+): { centre: Point; start: Point; end: Point; width: number } {
+  const width = fittedWidth(opening.width, wall.length)
+  const centre = pointOnWall(
+    wall,
+    clampT(opening.t, opening.width, wall.length),
+  )
+  const half = width / 2
+  return {
+    width,
+    centre,
+    start: {
+      x: centre.x - wall.tangent.x * half,
+      y: centre.y - wall.tangent.y * half,
+    },
+    end: {
+      x: centre.x + wall.tangent.x * half,
+      y: centre.y + wall.tangent.y * half,
+    },
+  }
+}
+
+/** Where along the wall `p` falls, as a fraction, clamped to the wall itself. */
+export function projectT(wall: Wall, p: Point): number {
+  const along =
+    (p.x - wall.a.x) * wall.tangent.x + (p.y - wall.a.y) * wall.tangent.y
+  return Math.min(1, Math.max(0, along / wall.length))
+}
+
+export function wallDistance(wall: Wall, p: Point): number {
+  return distance(p, pointOnWall(wall, projectT(wall, p)))
+}
+
+/** The wall nearest `p` within `reach`, for dropping a new opening onto. */
+export function nearestWall(
+  rooms: Array<Room>,
+  p: Point,
+  reach: number,
+): { roomId: string; wall: number; t: number } | null {
+  let best: { roomId: string; wall: number; t: number; d: number } | null = null
+  for (const room of rooms) {
+    for (let i = 0; i < room.points.length; i++) {
+      const wall = wallAt(room.points, i)
+      if (!wall) continue
+      const d = wallDistance(wall, p)
+      if (d <= reach && (!best || d < best.d)) {
+        best = { roomId: room.id, wall: i, t: projectT(wall, p), d }
+      }
+    }
+  }
+  return best && { roomId: best.roomId, wall: best.wall, t: best.t }
+}
+
+/**
+ * Keep a room's openings where they look like they are after its corner list
+ * changes. Adding or removing a corner renumbers every wall after it and splits
+ * or merges the ones around it, so each opening is read back from where it was
+ * standing: whichever wall of the new outline passes nearest to it takes it on.
+ *
+ * Only for changes to the list of corners. Moving one is left alone, so that a
+ * dragged corner stretches its walls and takes their openings along.
+ */
+export function reattachOpenings(
+  openings: Array<Opening>,
+  roomId: string,
+  before: Array<Point>,
+  after: Array<Point>,
+): Array<Opening> {
+  return openings.map((opening) => {
+    if (opening.roomId !== roomId) return opening
+    const was = wallAt(before, opening.wall)
+    if (!was) return opening
+    const { centre } = openingEnds(was, opening)
+
+    let best: { index: number; wall: Wall; d: number } | null = null
+    for (let i = 0; i < after.length; i++) {
+      const wall = wallAt(after, i)
+      if (!wall) continue
+      const d = wallDistance(wall, centre)
+      if (!best || d < best.d) best = { index: i, wall, d }
+    }
+    if (!best) return opening
+
+    return {
+      ...opening,
+      wall: best.index,
+      t: clampT(projectT(best.wall, centre), opening.width, best.wall.length),
+    }
+  })
+}
+
+/** The stretches of a wall still standing once its openings are cut out. */
+export function wallSegments(
+  wall: Wall,
+  openings: Array<Opening>,
+): Array<[Point, Point]> {
+  const gaps = openings
+    .map((opening): [number, number] => {
+      const half = fittedWidth(opening.width, wall.length) / 2 / wall.length
+      const t = clampT(opening.t, opening.width, wall.length)
+      return [t - half, t + half]
+    })
+    .sort((a, b) => a[0] - b[0])
+
+  const segments: Array<[Point, Point]> = []
+  let from = 0
+  for (const [start, end] of gaps) {
+    if (start > from) {
+      segments.push([pointOnWall(wall, from), pointOnWall(wall, start)])
+    }
+    from = Math.max(from, end)
+  }
+  if (from < 1) segments.push([pointOnWall(wall, from), pointOnWall(wall, 1)])
+  return segments
+}
+
+function samePoint(a: Point, b: Point): boolean {
+  return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6
+}
+
+/**
+ * The room's outline as SVG path data, with the pen lifted at every opening.
+ *
+ * Walls that run into each other unbroken stay in one subpath, so a corner
+ * between two solid walls keeps its mitre; only an opening starts a new one. A
+ * room with nothing cut into it comes out as the closed loop it was before.
+ */
+export function outlinePath(
+  points: Array<Point>,
+  openings: Array<Opening>,
+): string {
+  const lines: Array<Array<Point>> = []
+  let run: Array<Point> | null = null
+
+  for (let i = 0; i < points.length; i++) {
+    const wall = wallAt(points, i)
+    if (!wall) continue
+    for (const [a, b] of wallSegments(
+      wall,
+      openings.filter((opening) => opening.wall === i),
+    )) {
+      if (run && samePoint(run[run.length - 1], a)) run.push(b)
+      else {
+        if (run) lines.push(run)
+        run = [a, b]
+      }
+    }
+  }
+  if (run) lines.push(run)
+  if (lines.length === 0) return ''
+
+  // The walk began part-way along the first wall's run, so the stretch that
+  // came back round past the last corner is the front of it.
+  const first = lines[0]
+  const last = lines[lines.length - 1]
+  const loops = samePoint(last[last.length - 1], first[0])
+  if (loops && lines.length > 1) {
+    lines[0] = [...last.slice(0, -1), ...first]
+    lines.pop()
+  }
+
+  return lines
+    .map((line, index) => {
+      const closed = loops && lines.length === 1 && index === 0
+      const draw = closed ? line.slice(0, -1) : line
+      return (
+        draw.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') +
+        (closed ? ' Z' : '')
+      )
+    })
+    .join(' ')
+}

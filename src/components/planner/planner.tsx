@@ -16,7 +16,13 @@ export function Planner() {
   // localStorage is client-only, so restore and start autosaving after mount.
   useEffect(() => {
     const stored = loadStoredPlan()
-    if (stored) plannerStore.actions.loadPlan(stored.rooms, stored.furniture)
+    if (stored) {
+      plannerStore.actions.loadPlan(
+        stored.rooms,
+        stored.furniture,
+        stored.openings,
+      )
+    }
     const prefs = loadStoredPrefs()
     if (prefs) plannerStore.actions.setUnits(prefs.units)
     return startAutosave()

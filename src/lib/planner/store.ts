@@ -1,6 +1,6 @@
 import { createStore } from '@tanstack/store'
 
-import { DEFAULT_ROOM, FURNITURE_PRESETS } from './presets.ts'
+import { DEFAULT_ROOM, FURNITURE_PRESETS, OPENING_PRESETS } from './presets.ts'
 import {
   clampScale,
   fitViewport,
@@ -11,12 +11,21 @@ import {
   translatePolygon,
   zoomAt,
 } from './geometry.ts'
+import {
+  clampT,
+  fittedWidth,
+  openingWall,
+  reattachOpenings,
+  wallAt,
+} from './openings.ts'
 import { SNAP_STEP } from './units.ts'
 import { DEFAULT_SCALE, MIN_SIZE, PlanSchema, PrefsSchema } from './types.ts'
 
 import type {
   Furniture,
   FurnitureKind,
+  Opening,
+  OpeningKind,
   Point,
   Prefs,
   RectDraft,
@@ -30,8 +39,12 @@ import type {
 export type PlannerState = {
   rooms: Array<Room>
   furniture: Array<Furniture>
+  /** Doors, windows and gaps, each attached to one wall of one room. */
+  openings: Array<Opening>
   selection: Selection
   tool: Tool
+  /** What the opening tool is about to place. */
+  openingKind: OpeningKind
   snap: boolean
   /** Display only: the plan itself is always stored in centimetres. */
   units: Units
@@ -47,8 +60,10 @@ export type PlannerState = {
 const initialState: PlannerState = {
   rooms: [],
   furniture: [],
+  openings: [],
   selection: null,
   tool: 'select',
+  openingKind: 'door',
   snap: true,
   units: 'metric',
   viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE },
@@ -89,6 +104,23 @@ function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
     rect: null,
     tool: 'select',
     selection: { type: 'room', id: room.id },
+  }
+}
+
+/**
+ * Swap in a new corner list for a room. Renumbering the walls would otherwise
+ * leave its doors and windows pointing at the wrong ones, so they are read back
+ * onto the new outline in the same move.
+ */
+function reshaped(
+  state: PlannerState,
+  room: Room,
+  points: Array<Point>,
+): PlannerState {
+  return {
+    ...state,
+    rooms: state.rooms.map((r) => (r.id === room.id ? { ...r, points } : r)),
+    openings: reattachOpenings(state.openings, room.id, room.points, points),
   }
 }
 
@@ -199,6 +231,64 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     }))
   },
 
+  /** Arm the opening tool with the kind the next click will place. */
+  setOpeningTool(kind: OpeningKind) {
+    setState((s) => ({
+      ...s,
+      tool: 'opening',
+      openingKind: kind,
+      draft: null,
+      rect: null,
+    }))
+  },
+
+  /**
+   * Cut an opening into a wall and hand the tool back, the way finishing a room
+   * does: the new door lands selected, with its handles up, ready to be sized.
+   */
+  addOpening(kind: OpeningKind, roomId: string, wall: number, t: number) {
+    const state = get()
+    const room = state.rooms.find((r) => r.id === roomId)
+    const frame = room ? wallAt(room.points, wall) : null
+    if (!frame) return
+    const width = fittedWidth(OPENING_PRESETS[kind].width, frame.length)
+    const opening: Opening = {
+      id: newId(),
+      kind,
+      roomId,
+      wall,
+      t: clampT(t, width, frame.length),
+      width,
+      hinge: 'start',
+      swing: 'in',
+    }
+    setState((s) => ({
+      ...s,
+      openings: [...s.openings, opening],
+      selection: { type: 'opening', id: opening.id },
+      tool: 'select',
+    }))
+  },
+
+  /**
+   * Every route into an opening — a drag, a nudge, a typed width — comes
+   * through here, so the wall it sits on gets the last word on how wide it can
+   * be and how far along it may go.
+   */
+  updateOpening(id: string, patch: Partial<Opening>) {
+    setState((s) => ({
+      ...s,
+      openings: s.openings.map((o) => {
+        if (o.id !== id) return o
+        const next = { ...o, ...patch }
+        const wall = openingWall(s.rooms, next)
+        if (!wall) return next
+        const width = fittedWidth(next.width, wall.length)
+        return { ...next, width, t: clampT(next.t, width, wall.length) }
+      }),
+    }))
+  },
+
   updateFurniture(id: string, patch: Partial<Furniture>) {
     setState((s) => ({
       ...s,
@@ -225,26 +315,25 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   insertVertex(roomId: string, afterIndex: number, point: Point) {
-    setState((s) => ({
-      ...s,
-      rooms: s.rooms.map((r) => {
-        if (r.id !== roomId) return r
-        const points = [...r.points]
-        points.splice(afterIndex + 1, 0, point)
-        return { ...r, points }
-      }),
-    }))
+    setState((s) => {
+      const room = s.rooms.find((r) => r.id === roomId)
+      if (!room) return s
+      const points = [...room.points]
+      points.splice(afterIndex + 1, 0, point)
+      return reshaped(s, room, points)
+    })
   },
 
   deleteVertex(roomId: string, index: number) {
-    setState((s) => ({
-      ...s,
-      rooms: s.rooms.map((r) =>
-        r.id !== roomId || r.points.length <= 3
-          ? r
-          : { ...r, points: r.points.filter((_, i) => i !== index) },
-      ),
-    }))
+    setState((s) => {
+      const room = s.rooms.find((r) => r.id === roomId)
+      if (!room || room.points.length <= 3) return s
+      return reshaped(
+        s,
+        room,
+        room.points.filter((_, i) => i !== index),
+      )
+    })
   },
 
   deleteSelected() {
@@ -258,6 +347,10 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           type === 'furniture'
             ? s.furniture.filter((f) => f.id !== id)
             : s.furniture,
+        // A room takes its doors and windows down with it.
+        openings: s.openings.filter((o) =>
+          type === 'room' ? o.roomId !== id : o.id !== id,
+        ),
         selection: null,
       }
     })
@@ -267,6 +360,25 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
+      if (type === 'opening') {
+        // An opening has one degree of freedom, so an arrow key is read as how
+        // far it pushes the opening along its own wall.
+        const opening = s.openings.find((o) => o.id === id)
+        const wall = opening && openingWall(s.rooms, opening)
+        if (!opening || !wall) return s
+        const along = dx * wall.tangent.x + dy * wall.tangent.y
+        return {
+          ...s,
+          openings: s.openings.map((o) =>
+            o.id === id
+              ? {
+                  ...o,
+                  t: clampT(o.t + along / wall.length, o.width, wall.length),
+                }
+              : o,
+          ),
+        }
+      }
       if (type === 'room') {
         return {
           ...s,
@@ -349,8 +461,12 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({ ...s, rect: null }))
   },
 
-  loadPlan(rooms: Array<Room>, furniture: Array<Furniture>) {
-    setState((s) => ({ ...s, rooms, furniture, selection: null }))
+  loadPlan(
+    rooms: Array<Room>,
+    furniture: Array<Furniture>,
+    openings: Array<Opening>,
+  ) {
+    setState((s) => ({ ...s, rooms, furniture, openings, selection: null }))
   },
 }))
 
@@ -367,13 +483,24 @@ const PREFS_KEY = 'rmplnr.prefs.v1'
 export function loadStoredPlan(): {
   rooms: Array<Room>
   furniture: Array<Furniture>
+  openings: Array<Opening>
 } | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = PlanSchema.safeParse(JSON.parse(raw))
     if (!parsed.success) return null
-    return { rooms: parsed.data.rooms, furniture: parsed.data.furniture }
+    const { rooms, furniture, openings } = parsed.data
+    return {
+      rooms,
+      furniture,
+      // An opening whose room or wall is no longer there has nothing to hang
+      // on, and would otherwise sit in the plan doing nothing for ever.
+      openings: openings.filter((o) => {
+        const room = rooms.find((r) => r.id === o.roomId)
+        return room !== undefined && o.wall < room.points.length
+      }),
+    }
   } catch {
     return null
   }
@@ -401,11 +528,11 @@ export function startAutosave(debounceMs = 300): () => void {
   const subscription = plannerStore.subscribe(() => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      const { rooms, furniture, units } = plannerStore.state
+      const { rooms, furniture, openings, units } = plannerStore.state
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ version: 1, rooms, furniture }),
+          JSON.stringify({ version: 1, rooms, furniture, openings }),
         )
         localStorage.setItem(PREFS_KEY, JSON.stringify({ version: 1, units }))
       } catch {

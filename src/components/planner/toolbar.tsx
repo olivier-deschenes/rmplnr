@@ -15,7 +15,12 @@ import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 
-import { FURNITURE_KINDS, FURNITURE_PRESETS } from '#/lib/planner/presets.ts'
+import {
+  FURNITURE_KINDS,
+  FURNITURE_PRESETS,
+  OPENING_PRESETS,
+  OPENING_TOOLS,
+} from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
 import {
   UNITS,
@@ -24,7 +29,7 @@ import {
   formatSnapStep,
 } from '#/lib/planner/units.ts'
 
-import type { Tool, Units } from '#/lib/planner/types.ts'
+import type { OpeningKind, Tool, Units } from '#/lib/planner/types.ts'
 
 /** Fill the active tool solid black; the default muted grey reads as disabled. */
 const SELECTED_TOOL =
@@ -63,8 +68,16 @@ function OptionsMenu() {
   )
 }
 
+/** Shortcut key for each kind the toolbar offers, for its tooltip. */
+const OPENING_KEYS: Record<string, string> = {
+  door: 'D',
+  window: 'W',
+  opening: 'O',
+}
+
 export function Toolbar() {
   const tool = useSelector(plannerStore, (s) => s.tool)
+  const openingKind = useSelector(plannerStore, (s) => s.openingKind)
   const snap = useSelector(plannerStore, (s) => s.snap)
   const units = useSelector(plannerStore, (s) => s.units)
   const scale = useSelector(plannerStore, (s) => s.viewport.scale)
@@ -100,6 +113,33 @@ export function Toolbar() {
         >
           Rectangle
         </ToggleGroupItem>
+      </ToggleGroup>
+
+      <Separator orientation="vertical" className="h-5" />
+
+      {/*
+        Openings are placed on a wall rather than dropped on the floor, so they
+        are tools of their own: pick one, then click the wall to cut it in.
+      */}
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={tool === 'opening' ? openingKind : ''}
+        onValueChange={(value) =>
+          value && actions.setOpeningTool(value as OpeningKind)
+        }
+      >
+        {OPENING_TOOLS.map((kind) => (
+          <ToggleGroupItem
+            key={kind}
+            value={kind}
+            className={SELECTED_TOOL}
+            title={`Place ${OPENING_PRESETS[kind].label.toLowerCase()} on a wall (${OPENING_KEYS[kind]})`}
+          >
+            {OPENING_PRESETS[kind].label}
+          </ToggleGroupItem>
+        ))}
       </ToggleGroup>
 
       <Separator orientation="vertical" className="h-5" />

@@ -30,10 +30,44 @@ export const FurnitureSchema = z.object({
   rotation: z.number(),
 })
 
+export const OpeningKindSchema = z.enum([
+  'door',
+  'double-door',
+  'sliding-door',
+  'window',
+  'opening',
+])
+
+/**
+ * A break in a wall: a door, a window, or a plain gap.
+ *
+ * An opening belongs to one wall of one room — the edge running from
+ * `points[wall]` to the point after it — and holds its place along that wall as
+ * a fraction of its length, so it stays where it was put when the room is
+ * resized or a corner is dragged. Its width, like every other length here, is
+ * in centimetres.
+ */
+export const OpeningSchema = z.object({
+  id: z.string(),
+  kind: OpeningKindSchema,
+  roomId: z.string(),
+  wall: z.number().int().min(0),
+  /** Centre of the opening, as a fraction along its wall. */
+  t: z.number().min(0).max(1),
+  /** Clear width between the jambs. */
+  width: z.number().positive(),
+  /** The end of the wall a door is hinged at. */
+  hinge: z.enum(['start', 'end']),
+  /** The side of the wall a door swings towards. */
+  swing: z.enum(['in', 'out']),
+})
+
 export const PlanSchema = z.object({
   version: z.literal(1),
   rooms: z.array(RoomSchema),
   furniture: z.array(FurnitureSchema),
+  /** Missing from plans saved before walls could be broken into. */
+  openings: z.array(OpeningSchema).default([]),
 })
 
 export const UnitsSchema = z.enum(['metric', 'imperial'])
@@ -48,15 +82,20 @@ export type Point = z.infer<typeof PointSchema>
 export type Room = z.infer<typeof RoomSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
+export type OpeningKind = z.infer<typeof OpeningKindSchema>
+export type Opening = z.infer<typeof OpeningSchema>
 export type Plan = z.infer<typeof PlanSchema>
 export type Units = z.infer<typeof UnitsSchema>
 export type Prefs = z.infer<typeof PrefsSchema>
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
-export type Selection = { type: 'room' | 'furniture'; id: string } | null
+export type Selection = {
+  type: 'room' | 'furniture' | 'opening'
+  id: string
+} | null
 
-export type Tool = 'select' | 'room' | 'rect'
+export type Tool = 'select' | 'room' | 'rect' | 'opening'
 
 /** The two opposite corners of a rectangle room being dragged out. */
 export type RectDraft = { start: Point; end: Point }

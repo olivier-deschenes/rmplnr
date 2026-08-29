@@ -113,6 +113,21 @@ export function polygonCentroid(points: Array<Point>): Point {
   return { x: cx * k, y: cy * k }
 }
 
+/**
+ * +1 when the polygon winds so that turning an edge's direction to `(dy, -dx)`
+ * points out of the room, -1 when it winds the other way. For a simple polygon
+ * the winding alone settles this, concave corners included.
+ */
+export function outwardSign(points: Array<Point>): number {
+  let sum = 0
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]
+    const b = points[(i + 1) % points.length]
+    sum += a.x * b.y - b.x * a.y
+  }
+  return sum >= 0 ? 1 : -1
+}
+
 /** The four corners, clockwise, of the box spanned by two opposite points. */
 export function rectPolygon(a: Point, b: Point): Array<Point> {
   const x0 = Math.min(a.x, b.x)

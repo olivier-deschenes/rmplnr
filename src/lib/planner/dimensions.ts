@@ -1,12 +1,23 @@
 import {
   distance,
+  outwardSign,
   polygonArea,
   polygonCentroid,
   worldToScreen,
 } from './geometry.ts'
+import { openingEnds, openingWall } from './openings.ts'
 import { formatArea, formatLength } from './units.ts'
+import { HINGED_KINDS } from './presets.ts'
 
-import type { Furniture, Point, Rect, Room, Units, Viewport } from './types.ts'
+import type {
+  Furniture,
+  Opening,
+  Point,
+  Rect,
+  Room,
+  Units,
+  Viewport,
+} from './types.ts'
 
 /**
  * Layout for the wall dimensions the plan carries at all times.
@@ -55,6 +66,8 @@ const MARGIN = 2
 const MIN_WALL_PX = 18
 /** The width a wall line is treated as having when labels dodge it. */
 const WALL_THICKNESS = 4
+/** How far off the wall a window or a plain gap is treated as reaching. */
+const PANE_DEPTH = 10
 /**
  * How far past the canvas edge a wall still gets a label. A big plan is mostly
  * off-screen and the layout is redone on every frame of a pan, so the work is
@@ -191,6 +204,38 @@ function roomLabelBox(room: Room, vp: Viewport, units: Units): Box {
   }
 }
 
+/**
+ * The room an opening takes up on the drawing. A door is the one that really
+ * asks for space: its arc sweeps a whole quarter circle off the wall, and a
+ * number landing inside that is unreadable.
+ */
+function openingBox(
+  opening: Opening,
+  rooms: Array<Room>,
+  vp: Viewport,
+): Box | null {
+  const wall = openingWall(rooms, opening)
+  if (!wall) return null
+  const { centre, width } = openingEnds(wall, opening)
+  const swings = HINGED_KINDS.includes(opening.kind)
+  const depth = swings ? width : PANE_DEPTH
+  // Push the box off the wall onto the side the door actually opens into.
+  const side = swings ? (opening.swing === 'out' ? 1 : -1) : 0
+  const off = (depth / 2) * side
+  return {
+    centre: worldToScreen(
+      {
+        x: centre.x + wall.normal.x * off,
+        y: centre.y + wall.normal.y * off,
+      },
+      vp,
+    ),
+    w: width * vp.scale,
+    h: Math.max(depth * vp.scale, WALL_THICKNESS),
+    angle: (Math.atan2(wall.tangent.y, wall.tangent.x) * 180) / Math.PI,
+  }
+}
+
 /** A wall drawn as the thin box a label has to keep off. */
 function wallBox(a: Point, b: Point): Box {
   return {
@@ -201,23 +246,8 @@ function wallBox(a: Point, b: Point): Box {
   }
 }
 
-/**
- * +1 when the polygon winds so that turning an edge's direction to `(dy, -dx)`
- * points out of the room, -1 when it winds the other way. For a simple polygon
- * the winding alone settles this, concave corners included.
- */
-function outwardSign(points: Array<Point>): number {
-  let sum = 0
-  for (let i = 0; i < points.length; i++) {
-    const a = points[i]
-    const b = points[(i + 1) % points.length]
-    sum += a.x * b.y - b.x * a.y
-  }
-  return sum >= 0 ? 1 : -1
-}
-
 /** The wall's own angle, folded into the half-turn that reads right way up. */
-function uprightAngle(dir: Point): number {
+export function uprightAngle(dir: Point): number {
   const deg = (Math.atan2(dir.y, dir.x) * 180) / Math.PI
   if (deg > 90) return deg - 180
   if (deg < -90) return deg + 180
@@ -281,6 +311,7 @@ function wallSlots(candidate: Candidate, width: number): Array<Slot> {
 export function wallLabels(
   rooms: Array<Room>,
   furniture: Array<Furniture>,
+  openings: Array<Opening>,
   viewport: Viewport,
   units: Units,
   size: { width: number; height: number },
@@ -301,6 +332,10 @@ export function wallLabels(
   const taken: Array<Box> = [
     ...furniture.map((item) => furnitureBox(item, viewport)),
     ...rooms.map((room) => roomLabelBox(room, viewport, units)),
+    ...openings.flatMap((opening) => {
+      const box = openingBox(opening, rooms, viewport)
+      return box ? [box] : []
+    }),
   ].filter((box) => inView(box, consulted))
 
   const candidates: Array<Candidate> = []

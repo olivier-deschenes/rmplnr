@@ -6,12 +6,14 @@ import {
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
-import { STEP, findSpot } from '#/lib/planner/dimensions.ts'
+import { STEP, findSpot, uprightAngle } from '#/lib/planner/dimensions.ts'
+import { openingEnds } from '#/lib/planner/openings.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
   Furniture,
   Handle,
+  Opening,
   Point,
   RectDraft,
   Room,
@@ -19,6 +21,7 @@ import type {
   Viewport,
 } from '#/lib/planner/types.ts'
 import type { Box, WallLabel } from '#/lib/planner/dimensions.ts'
+import type { Wall } from '#/lib/planner/openings.ts'
 
 const HANDLE_SIZE = 8
 const ROTATE_OFFSET = 26
@@ -277,6 +280,85 @@ export function FurnitureEditor({
       {readout && (
         <g className="pointer-events-none">
           <Plate box={readout.box} text={formatSize(item.w, item.h, units)} />
+        </g>
+      )}
+    </g>
+  )
+}
+
+/**
+ * A selected opening: a handle on each jamb, which widen it from that end, and
+ * its clear width on a plate beside it.
+ *
+ * The opening itself is dragged by its own band on the canvas, so there is no
+ * handle for that here — an opening can only ever run along its wall.
+ */
+export function OpeningEditor({
+  opening,
+  wall,
+  viewport,
+  units,
+  avoid,
+  onEndDown,
+}: {
+  opening: Opening
+  wall: Wall
+  viewport: Viewport
+  units: Units
+  /** Boxes the width readout backs away from: the wall dimensions on show. */
+  avoid: Array<Box>
+  onEndDown: (end: 'start' | 'end', event: React.PointerEvent) => void
+}) {
+  const { start, end, centre, width } = openingEnds(wall, opening)
+  const angle = (Math.atan2(wall.tangent.y, wall.tangent.x) * 180) / Math.PI
+  const at = worldToScreen(centre, viewport)
+  const normal = {
+    x: wall.normal.x * viewport.scale,
+    y: wall.normal.y * viewport.scale,
+  }
+  const length = Math.hypot(normal.x, normal.y) || 1
+
+  const text = formatLength(width, units)
+  // Either side of the wall will do, so the readout tries both in turn and
+  // steps further out each time round, the way a wall's own dimension does.
+  const readout = findSpot(
+    [1, 2, 3, 4].flatMap((ring) =>
+      [1, -1].map((side) => ({
+        x: at.x + (normal.x / length) * STEP * ring * side,
+        y: at.y + (normal.y / length) * STEP * ring * side,
+      })),
+    ),
+    text,
+    uprightAngle(wall.tangent),
+    avoid,
+  )
+
+  const jambs = {
+    start: worldToScreen(start, viewport),
+    end: worldToScreen(end, viewport),
+  }
+
+  return (
+    <g>
+      <line
+        x1={jambs.start.x}
+        y1={jambs.start.y}
+        x2={jambs.end.x}
+        y2={jambs.end.y}
+        className="stroke-foreground pointer-events-none"
+        strokeWidth={1}
+      />
+      {(['start', 'end'] as const).map((which) => (
+        <Square
+          key={which}
+          at={jambs[which]}
+          className={resizeCursor({ x: 1, y: 0 }, angle)}
+          onPointerDown={(event) => onEndDown(which, event)}
+        />
+      ))}
+      {readout && (
+        <g className="pointer-events-none">
+          <Plate box={readout.box} text={text} />
         </g>
       )}
     </g>
