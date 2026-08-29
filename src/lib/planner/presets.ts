@@ -31,7 +31,11 @@ export const OPENING_PRESETS: Record<
 export const OPENING_KINDS = Object.keys(OPENING_PRESETS) as Array<OpeningKind>
 
 /** The three the toolbar draws with; the rest are a menu away in the inspector. */
-export const OPENING_TOOLS: Array<OpeningKind> = ['door', 'window', 'opening']
+export const OPENING_TOOLS = [
+  'door',
+  'window',
+  'opening',
+] as const satisfies ReadonlyArray<OpeningKind>
 
 /** Kinds hung on a hinge, which sweep an arc and can be hung from either end. */
 export const HINGED_KINDS: Array<OpeningKind> = ['door', 'double-door']

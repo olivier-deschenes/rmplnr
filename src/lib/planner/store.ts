@@ -177,6 +177,15 @@ function reshaped(
   }
 }
 
+/**
+ * Zoom the view without moving what is in the middle of the canvas, which is
+ * what the toolbar's zoom controls want: there is no pointer to zoom towards.
+ */
+function zoomCentred(state: PlannerState, nextScale: number): Viewport {
+  const anchor = { x: state.size.width / 2, y: state.size.height / 2 }
+  return zoomAt(state.viewport, anchor, clampScale(nextScale))
+}
+
 export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   setTool(tool: Tool) {
     setState((s) => ({
@@ -218,19 +227,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({ ...s, viewport: zoomAt(s.viewport, anchor, nextScale) }))
   },
 
-  /** Zoom about the middle of the canvas, for the toolbar buttons. */
+  /** Step the zoom, about the middle of the canvas. */
   zoomBy(factor: number) {
-    setState((s) => {
-      const anchor = { x: s.size.width / 2, y: s.size.height / 2 }
-      return {
-        ...s,
-        viewport: zoomAt(
-          s.viewport,
-          anchor,
-          clampScale(s.viewport.scale * factor),
-        ),
-      }
-    })
+    setState((s) => ({
+      ...s,
+      viewport: zoomCentred(s, s.viewport.scale * factor),
+    }))
+  },
+
+  /** Go to an exact zoom, for the readout that resets it to life size. */
+  zoomTo(scale: number) {
+    setState((s) => ({ ...s, viewport: zoomCentred(s, scale) }))
   },
 
   fit() {

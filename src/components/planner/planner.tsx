@@ -5,6 +5,8 @@ import { Canvas } from './canvas.tsx'
 import { Inspector } from './inspector.tsx'
 import { Toolbar } from './toolbar.tsx'
 
+import { TooltipProvider } from '#/components/ui/tooltip.tsx'
+
 import {
   loadStoredPlan,
   loadStoredPrefs,
@@ -49,14 +51,18 @@ export function Planner() {
   }, [width])
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
-      <Toolbar />
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          <Canvas />
+    // Long enough a delay that sweeping across the toolbar does not set off
+    // every tooltip on the way past.
+    <TooltipProvider delayDuration={400}>
+      <div className="flex h-dvh flex-col overflow-hidden">
+        <Toolbar />
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1">
+            <Canvas />
+          </div>
+          <Inspector />
         </div>
-        <Inspector />
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
