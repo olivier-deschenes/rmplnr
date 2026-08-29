@@ -6,7 +6,9 @@ import {
   FurnitureShape,
   OpeningShape,
   OpeningTarget,
-  RoomShape,
+  RoomFloor,
+  RoomWalls,
+  SharedWalls,
 } from './shapes.tsx'
 import {
   DraftOverlay,
@@ -15,11 +17,14 @@ import {
   RectPreview,
   RoomEditor,
   RoomLabels,
+  SnapGuides,
   WallDimensions,
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
 import { wallLabels } from '#/lib/planner/dimensions.ts'
+import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
+import { SNAP_REACH_PX, alignTo, snapTargets } from '#/lib/planner/snapping.ts'
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import {
   clampT,
@@ -49,6 +54,7 @@ import type {
   Point,
   Room,
 } from '#/lib/planner/types.ts'
+import type { Guide } from '#/lib/planner/snapping.ts'
 
 /** How close, in screen pixels, a click must be to close the polygon. */
 const CLOSE_PX = 12
@@ -93,6 +99,8 @@ export function Canvas() {
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
+  /** The lines the thing being dragged has locked onto, while it is dragged. */
+  const [guides, setGuides] = useState<Array<Guide>>([])
   /** The wall the opening tool is hovering, and where along it. */
   const [ghost, setGhost] = useState<{
     roomId: string
@@ -114,12 +122,36 @@ export function Canvas() {
   const toWorld = (event: { clientX: number; clientY: number }): Point =>
     screenToWorld(toScreen(event), plannerStore.state.viewport)
 
-  const maybeSnap = (p: Point): Point =>
-    snapPoint(p, activeSnapStep(plannerStore.state))
+  /**
+   * Where a point of the plan's own geometry lands: onto the nearest wall line
+   * already in the plan if one is within reach, and onto the grid otherwise —
+   * per axis, so a corner can go flush with a neighbour one way while still
+   * sitting on a round number the other. `exclude` is the room the point
+   * belongs to, which must not pull on itself.
+   */
+  const settle = (p: Point, exclude?: string): Point => {
+    const state = plannerStore.state
+    const fit = alignTo(
+      [p],
+      snapTargets(state.rooms, exclude),
+      SNAP_REACH_PX / state.viewport.scale,
+    )
+    setGuides(fit.guides)
+    const step = activeSnapStep(state)
+    const grid = snapPoint(p, step)
+    return {
+      x: fit.dx === null ? grid.x : p.x + fit.dx,
+      y: fit.dy === null ? grid.y : p.y + fit.dy,
+    }
+  }
 
   const capture = (pointerId: number) => {
     svgRef.current?.setPointerCapture(pointerId)
   }
+
+  // The room tool leaves its guides up between clicks, which is what makes them
+  // useful while a polygon is being traced. Putting the tool down clears them.
+  useEffect(() => setGuides([]), [tool])
 
   useEffect(() => {
     const el = svgRef.current
@@ -277,7 +309,7 @@ export function Canvas() {
 
     // Rectangle tool: drag out the two opposite corners in one gesture.
     if (state.tool === 'rect') {
-      actions.beginRect(maybeSnap(toWorld(event)))
+      actions.beginRect(settle(toWorld(event)))
       dragRef.current = { mode: 'rect' }
       capture(event.pointerId)
       return
@@ -291,7 +323,7 @@ export function Canvas() {
         return
       }
     }
-    actions.addDraftPoint(maybeSnap(toWorld(event)))
+    actions.addDraftPoint(settle(toWorld(event)))
   }
 
   /**
@@ -310,7 +342,7 @@ export function Canvas() {
 
   function onPointerMove(event: React.PointerEvent) {
     const state = plannerStore.state
-    if (state.tool === 'room') setCursor(maybeSnap(toWorld(event)))
+    if (state.tool === 'room') setCursor(settle(toWorld(event)))
     if (state.tool === 'opening') {
       const spot = nearestWall(
         state.rooms,
@@ -359,22 +391,34 @@ export function Canvas() {
         break
       }
       case 'move-room': {
-        let points = translatePolygon(
+        // The whole outline is offered to the plan at once, so any of the
+        // room's corners or faces may be the one that finds a line to lock
+        // onto — which is what lets a room be dragged up against a neighbour
+        // by whichever of its edges happens to be facing it.
+        const points = translatePolygon(
           drag.origin,
           world.x - drag.grab.x,
           world.y - drag.grab.y,
         )
+        const fit = alignTo(
+          points,
+          snapTargets(state.rooms, drag.id),
+          SNAP_REACH_PX / state.viewport.scale,
+        )
+        setGuides(fit.guides)
         const step = activeSnapStep(state)
-        if (step !== null) {
-          const bounds = polygonBounds(points)
-          const snapped = snapPoint({ x: bounds.x, y: bounds.y }, step)
-          points = translatePolygon(
+        const bounds = polygonBounds(points)
+        const grid =
+          step === null
+            ? { x: bounds.x, y: bounds.y }
+            : snapPoint({ x: bounds.x, y: bounds.y }, step)
+        actions.updateRoom(drag.id, {
+          points: translatePolygon(
             points,
-            snapped.x - bounds.x,
-            snapped.y - bounds.y,
-          )
-        }
-        actions.updateRoom(drag.id, { points })
+            fit.dx ?? grid.x - bounds.x,
+            fit.dy ?? grid.y - bounds.y,
+          ),
+        })
         break
       }
       case 'resize': {
@@ -397,7 +441,7 @@ export function Canvas() {
         break
       }
       case 'vertex': {
-        actions.moveVertex(drag.roomId, drag.index, maybeSnap(world))
+        actions.moveVertex(drag.roomId, drag.index, settle(world, drag.roomId))
         break
       }
       case 'opening': {
@@ -430,7 +474,7 @@ export function Canvas() {
         break
       }
       case 'rect': {
-        actions.updateRect(maybeSnap(world))
+        actions.updateRect(settle(world))
         break
       }
     }
@@ -445,6 +489,7 @@ export function Canvas() {
     if (drag?.mode === 'rect') actions.commitRect()
     dragRef.current = null
     setPanning(false)
+    setGuides([])
     if (svgRef.current?.hasPointerCapture(event.pointerId)) {
       svgRef.current.releasePointerCapture(event.pointerId)
     }
@@ -532,7 +577,7 @@ export function Canvas() {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'room') return
-    actions.insertVertex(current.id, index, maybeSnap(toWorld(event)))
+    actions.insertVertex(current.id, index, settle(toWorld(event), current.id))
     dragRef.current = { mode: 'vertex', roomId: current.id, index: index + 1 }
     capture(event.pointerId)
   }
@@ -581,6 +626,15 @@ export function Canvas() {
     size,
   )
 
+  // Every room's walls, with the openings of any room sharing them already cut
+  // through. Recomputed each render, as the dimensions are: the plans this
+  // holds are a handful of rooms, and walls that lagged a drag by a frame would
+  // read as the rooms coming apart.
+  const walls = rooms.map((room) => ({
+    id: room.id,
+    d: wallPath(rooms, openings, room),
+  }))
+
   const cursorClass = panning
     ? 'cursor-grabbing'
     : tool === 'select'
@@ -597,7 +651,10 @@ export function Canvas() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onPointerLeave={() => setGhost(null)}
+      onPointerLeave={() => {
+        setGhost(null)
+        setGuides([])
+      }}
       onDoubleClick={onDoubleClick}
     >
       <Grid viewport={viewport} units={units} />
@@ -606,11 +663,17 @@ export function Canvas() {
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
         className={tool === 'select' ? undefined : 'pointer-events-none'}
       >
+        {/*
+          Floors first, all of them, and the walls afterwards in one pass over
+          the lot. A wall belongs to the plan rather than to a room — the one
+          between two rooms is a single wall — so it must never be painted over
+          by a neighbour's floor, which is what drawing each room whole in turn
+          would do.
+        */}
         {rooms.map((room) => (
-          <RoomShape
+          <RoomFloor
             key={room.id}
             room={room}
-            openings={openings.filter((o) => o.roomId === room.id)}
             selected={room.id === selection?.id}
             onPointerDown={(event) => onRoomPointerDown(room, event)}
           />
@@ -636,6 +699,23 @@ export function Canvas() {
             onPointerDown={(event) => onFurniturePointerDown(item, event)}
           />
         ))}
+        {/*
+          The walls go down over the furniture too. The band's inner face is
+          where a room really stops, so a sofa shoved against a wall wants
+          trimming by it rather than sitting on top of it.
+        */}
+        <g className="pointer-events-none">
+          {walls.map((wall) => (
+            <RoomWalls key={wall.id} d={wall.d} scale={viewport.scale} />
+          ))}
+          {selectedRoom && (
+            <SharedWalls
+              room={selectedRoom}
+              spans={sharedSpansOf(rooms, openings, selectedRoom.id)}
+              scale={viewport.scale}
+            />
+          )}
+        </g>
         <g className="pointer-events-none">
           {placed.map(({ opening, wall }) => (
             <OpeningShape
@@ -666,6 +746,7 @@ export function Canvas() {
 
       <RoomLabels rooms={rooms} viewport={viewport} units={units} />
       <WallDimensions labels={dimensions} />
+      <SnapGuides guides={guides} viewport={viewport} />
 
       {tool === 'select' && selectedRoom && (
         <RoomEditor

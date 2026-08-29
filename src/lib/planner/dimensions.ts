@@ -8,6 +8,7 @@ import {
 import { openingEnds, openingWall } from './openings.ts'
 import { formatArea, formatLength } from './units.ts'
 import { HINGED_KINDS } from './presets.ts'
+import { WALL_THICKNESS } from './walls.ts'
 
 import type {
   Furniture,
@@ -64,8 +65,8 @@ const SLIDES = [0, 0.5, -0.5, 1, -1]
 const MARGIN = 2
 /** Walls this short on screen go unlabelled rather than crowd the drawing. */
 const MIN_WALL_PX = 18
-/** The width a wall line is treated as having when labels dodge it. */
-const WALL_THICKNESS = 4
+/** The least a wall is treated as taking up when labels dodge it, in pixels. */
+const WALL_MARK = 4
 /** How far off the wall a window or a plain gap is treated as reaching. */
 const PANE_DEPTH = 10
 /**
@@ -231,17 +232,17 @@ function openingBox(
       vp,
     ),
     w: width * vp.scale,
-    h: Math.max(depth * vp.scale, WALL_THICKNESS),
+    h: Math.max(depth * vp.scale, WALL_THICKNESS * vp.scale, WALL_MARK),
     angle: (Math.atan2(wall.tangent.y, wall.tangent.x) * 180) / Math.PI,
   }
 }
 
-/** A wall drawn as the thin box a label has to keep off. */
-function wallBox(a: Point, b: Point): Box {
+/** A wall drawn as the box a label has to keep off, its own thickness and all. */
+function wallBox(a: Point, b: Point, scale: number): Box {
   return {
     centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
     w: Math.hypot(b.x - a.x, b.y - a.y),
-    h: WALL_THICKNESS,
+    h: Math.max(WALL_MARK, WALL_THICKNESS * scale),
     angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
   }
 }
@@ -339,6 +340,10 @@ export function wallLabels(
   ].filter((box) => inView(box, consulted))
 
   const candidates: Array<Candidate> = []
+  // Walls already spoken for. Two rooms that share a wall each carry their own
+  // copy of it, and one wall wants one number, so the second room's copy is
+  // passed over: same line, same length, already labelled.
+  const numbered: Array<{ mid: Point; length: number }> = []
 
   for (const room of rooms) {
     const sign = outwardSign(room.points)
@@ -348,17 +353,33 @@ export function wallLabels(
       const next = (i + 1) % room.points.length
       const a = screen[i]
       const b = screen[next]
-      const wall = wallBox(a, b)
+      const wall = wallBox(a, b, viewport.scale)
       if (!inView(wall, consulted)) continue
       taken.push(wall)
 
       const length = Math.hypot(b.x - a.x, b.y - a.y)
       if (length < MIN_WALL_PX || !inView(wall, laidOut)) continue
 
+      const world = distance(room.points[i], room.points[next])
+      const mid = {
+        x: (room.points[i].x + room.points[next].x) / 2,
+        y: (room.points[i].y + room.points[next].y) / 2,
+      }
+      if (
+        numbered.some(
+          (done) =>
+            Math.abs(done.length - world) < 1 &&
+            distance(done.mid, mid) < WALL_THICKNESS,
+        )
+      ) {
+        continue
+      }
+      numbered.push({ mid, length: world })
+
       const tangent = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
       candidates.push({
         key: `${room.id}:${i}`,
-        text: formatLength(distance(room.points[i], room.points[next]), units),
+        text: formatLength(world, units),
         mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
         normal: { x: tangent.y * sign, y: -tangent.x * sign },
         tangent,

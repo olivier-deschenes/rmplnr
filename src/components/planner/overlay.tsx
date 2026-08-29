@@ -21,6 +21,7 @@ import type {
   Viewport,
 } from '#/lib/planner/types.ts'
 import type { Box, WallLabel } from '#/lib/planner/dimensions.ts'
+import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
 const HANDLE_SIZE = 8
@@ -66,6 +67,55 @@ function resizeCursor(dir: Point, rotation: number): string {
     (Math.atan2(dir.y, dir.x) * 180) / Math.PI + rotation,
   )
   return RESIZE_CURSORS[Math.round(deg / 45) % 4]
+}
+
+/**
+ * How far a guide runs on past the things it lines up, in screen pixels. A room
+ * that has gone flush buries the guide under the wall it just landed on, so the
+ * overhang is the whole of what there is to see: it has to be worth seeing.
+ */
+const GUIDE_OVERHANG = 26
+
+/**
+ * The lines a room has just locked onto. They are drawn only while something is
+ * being dragged, and they say what the drag found: this edge and that one are
+ * now the same line, which is what it takes for two rooms to share a wall.
+ */
+export function SnapGuides({
+  guides,
+  viewport,
+}: {
+  guides: Array<Guide>
+  viewport: Viewport
+}) {
+  return (
+    <g className="pointer-events-none">
+      {guides.map((guide) => {
+        const along = (at: number): Point =>
+          guide.axis === 'x'
+            ? { x: guide.value, y: at }
+            : { x: at, y: guide.value }
+        const a = worldToScreen(along(guide.from), viewport)
+        const b = worldToScreen(along(guide.to), viewport)
+        const overhang =
+          guide.axis === 'x'
+            ? { x: 0, y: GUIDE_OVERHANG }
+            : { x: GUIDE_OVERHANG, y: 0 }
+        return (
+          <line
+            key={`${guide.axis}-${guide.value}`}
+            x1={a.x - overhang.x}
+            y1={a.y - overhang.y}
+            x2={b.x + overhang.x}
+            y2={b.y + overhang.y}
+            className="stroke-snap"
+            strokeWidth={1}
+            strokeDasharray="5 4"
+          />
+        )
+      })}
+    </g>
+  )
 }
 
 export function RoomLabels({

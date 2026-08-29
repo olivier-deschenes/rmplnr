@@ -1,43 +1,104 @@
-import { openingEnds, outlinePath } from '#/lib/planner/openings.ts'
+import { openingEnds, pointOnWall, wallAt } from '#/lib/planner/openings.ts'
+import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
 import type { Furniture, Opening, Point, Room } from '#/lib/planner/types.ts'
-import type { Wall } from '#/lib/planner/openings.ts'
+import type { Span, Wall } from '#/lib/planner/openings.ts'
 
-type RoomShapeProps = {
-  room: Room
-  /** This room's openings, which are cut out of the walls drawn here. */
-  openings: Array<Opening>
-  selected: boolean
-  onPointerDown: (event: React.PointerEvent) => void
+/** A wall never thins below this on screen, however far the plan is zoomed out. */
+const MIN_WALL_PX = 2
+
+/** How thick a wall should be drawn at this zoom, in world centimetres. */
+function wallWidth(scale: number): number {
+  return Math.max(WALL_THICKNESS, MIN_WALL_PX / scale)
 }
 
 /**
- * A room is a filled polygon so its floor occludes the grid and its interior is
- * clickable, with the walls stroked over it as a separate path: they carry the
- * heaviest line in the drawing, and they are the part a door has to interrupt.
+ * A room's floor: the polygon its wall centrelines enclose, filled so it
+ * occludes the grid and so the room's interior is what a click lands on.
+ *
+ * The walls are not drawn here. They belong to the plan rather than to any one
+ * room — the wall between two rooms is a single wall — so they go down in one
+ * pass of their own, over every floor.
  */
-export function RoomShape({
+export function RoomFloor({
   room,
-  openings,
   selected,
   onPointerDown,
-}: RoomShapeProps) {
+}: {
+  room: Room
+  selected: boolean
+  onPointerDown: (event: React.PointerEvent) => void
+}) {
   return (
-    <g onPointerDown={onPointerDown} className="cursor-move">
-      <polygon
-        points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
-        className="fill-background"
-        stroke="none"
-      />
-      <path
-        d={outlinePath(room.points, openings)}
-        fill="none"
-        className="stroke-foreground"
-        strokeWidth={selected ? 3 : 2}
-        strokeLinejoin="round"
-        strokeLinecap="square"
-        vectorEffect="non-scaling-stroke"
-      />
+    <polygon
+      points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
+      className={`cursor-move ${selected ? 'fill-muted' : 'fill-background'}`}
+      stroke="none"
+      onPointerDown={onPointerDown}
+    />
+  )
+}
+
+/**
+ * The walls of one room, stroked at the wall's own thickness in world units so
+ * that the band straddles the centreline. Two rooms sitting flush lay identical
+ * bands over each other and come out as the one wall they share; nothing has to
+ * be merged for that to happen, which is the whole reason walls are drawn this
+ * way rather than as outlines.
+ *
+ * Butt caps, so an opening's gap is cut square at its jambs rather than being
+ * closed back up by the cap, and mitred joins so corners come to a point.
+ */
+export function RoomWalls({ d, scale }: { d: string; scale: number }) {
+  return (
+    <path
+      d={d}
+      fill="none"
+      className="stroke-foreground"
+      strokeWidth={wallWidth(scale)}
+      strokeLinejoin="miter"
+      strokeMiterlimit={8}
+      strokeLinecap="butt"
+    />
+  )
+}
+
+/**
+ * The stretches of a selected room's walls that a neighbour also owns, laid
+ * over the wall in outline. This is the plan saying which rooms are joined:
+ * without it a party wall looks exactly like a wall that happens to have
+ * another room behind it.
+ */
+export function SharedWalls({
+  room,
+  spans,
+  scale,
+}: {
+  room: Room
+  spans: Array<{ wall: number; span: Span }>
+  scale: number
+}) {
+  return (
+    <g className="pointer-events-none">
+      {spans.map(({ wall, span }, i) => {
+        const frame = wallAt(room.points, wall)
+        if (!frame) return null
+        const a = pointOnWall(frame, span[0])
+        const b = pointOnWall(frame, span[1])
+        return (
+          <line
+            key={`${wall}-${i}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            className="stroke-snap"
+            strokeWidth={wallWidth(scale)}
+            strokeLinecap="butt"
+            opacity={0.55}
+          />
+        )
+      })}
     </g>
   )
 }
@@ -113,12 +174,15 @@ function SofaGlyph({ left, top, w, h }: GlyphProps) {
 
 // --- openings ---------------------------------------------------------------
 
-/** Length of the tick drawn across a wall at each jamb, in centimetres. */
-const JAMB = 12
-/** How far a window's glazing sits either side of the wall line. */
-const PANE = 4
-/** How far a sliding panel stands off the wall it runs along. */
-const SLIDE = 8
+/**
+ * The symbols are all sized off the wall itself, so that they read as things
+ * cut into a wall with body rather than as marks laid beside a line: the jamb
+ * tick spans the wall's full thickness, the glazing lines carry its two faces
+ * across the gap, and a sliding panel stands clear on the far side of one.
+ */
+const JAMB = WALL_THICKNESS
+const PANE = WALL_THICKNESS / 2
+const SLIDE = WALL_THICKNESS
 
 /**
  * `vector-effect` is not an inherited property, so every stroked element has to
@@ -239,6 +303,7 @@ export function OpeningShape({
             from={step(start, across, PANE)}
             to={step(end, across, PANE)}
           />
+          <Segment from={start} to={end} />
           <Segment
             from={step(start, across, -PANE)}
             to={step(end, across, -PANE)}

@@ -11,6 +11,9 @@ import type { Opening, Point, Room } from './types.ts'
  * the inspector's fields, and the step a drag snaps to.
  */
 
+/** A stretch of a wall, as `[from, to]` fractions of its length. */
+export type Span = [number, number]
+
 export type Wall = {
   a: Point
   b: Point
@@ -88,11 +91,30 @@ export function openingEnds(
   }
 }
 
-/** Where along the wall `p` falls, as a fraction, clamped to the wall itself. */
-export function projectT(wall: Wall, p: Point): number {
+/** The stretch of its wall an opening covers, as a `[from, to]` fraction. */
+export function openingSpan(
+  wall: Wall,
+  opening: Pick<Opening, 't' | 'width'>,
+): Span {
+  const half = fittedWidth(opening.width, wall.length) / 2 / wall.length
+  const t = clampT(opening.t, opening.width, wall.length)
+  return [t - half, t + half]
+}
+
+/**
+ * Where along the wall `p` falls, as a fraction. Runs past 0 and 1 for a point
+ * beyond either end, which is how a neighbouring room's wall — longer than this
+ * one, or offset along it — gets read onto it.
+ */
+export function projectAlong(wall: Wall, p: Point): number {
   const along =
     (p.x - wall.a.x) * wall.tangent.x + (p.y - wall.a.y) * wall.tangent.y
-  return Math.min(1, Math.max(0, along / wall.length))
+  return along / wall.length
+}
+
+/** Where along the wall `p` falls, as a fraction, clamped to the wall itself. */
+export function projectT(wall: Wall, p: Point): number {
+  return Math.min(1, Math.max(0, projectAlong(wall, p)))
 }
 
 export function wallDistance(wall: Wall, p: Point): number {
@@ -157,22 +179,16 @@ export function reattachOpenings(
   })
 }
 
-/** The stretches of a wall still standing once its openings are cut out. */
+/** The stretches of a wall still standing once `gaps` are cut out of it. */
 export function wallSegments(
   wall: Wall,
-  openings: Array<Opening>,
+  gaps: Array<Span>,
 ): Array<[Point, Point]> {
-  const gaps = openings
-    .map((opening): [number, number] => {
-      const half = fittedWidth(opening.width, wall.length) / 2 / wall.length
-      const t = clampT(opening.t, opening.width, wall.length)
-      return [t - half, t + half]
-    })
-    .sort((a, b) => a[0] - b[0])
+  const cuts = [...gaps].sort((a, b) => a[0] - b[0])
 
   const segments: Array<[Point, Point]> = []
   let from = 0
-  for (const [start, end] of gaps) {
+  for (const [start, end] of cuts) {
     if (start > from) {
       segments.push([pointOnWall(wall, from), pointOnWall(wall, start)])
     }
@@ -187,7 +203,7 @@ function samePoint(a: Point, b: Point): boolean {
 }
 
 /**
- * The room's outline as SVG path data, with the pen lifted at every opening.
+ * The room's outline as SVG path data, with the pen lifted at every gap.
  *
  * Walls that run into each other unbroken stay in one subpath, so a corner
  * between two solid walls keeps its mitre; only an opening starts a new one. A
@@ -195,7 +211,7 @@ function samePoint(a: Point, b: Point): boolean {
  */
 export function outlinePath(
   points: Array<Point>,
-  openings: Array<Opening>,
+  gaps: Array<Array<Span>>,
 ): string {
   const lines: Array<Array<Point>> = []
   let run: Array<Point> | null = null
@@ -203,10 +219,7 @@ export function outlinePath(
   for (let i = 0; i < points.length; i++) {
     const wall = wallAt(points, i)
     if (!wall) continue
-    for (const [a, b] of wallSegments(
-      wall,
-      openings.filter((opening) => opening.wall === i),
-    )) {
+    for (const [a, b] of wallSegments(wall, gaps[i] ?? [])) {
       if (run && samePoint(run[run.length - 1], a)) run.push(b)
       else {
         if (run) lines.push(run)
@@ -222,6 +235,12 @@ export function outlinePath(
   const first = lines[0]
   const last = lines[lines.length - 1]
   const loops = samePoint(last[last.length - 1], first[0])
+  // Whether the pen ever came up, which has to be settled before the two ends
+  // are joined below: that join leaves one run behind either way, so asking
+  // afterwards cannot tell a room with nothing cut into it from one whose
+  // single gap has just been folded into the seam — and closing the latter
+  // draws the missing wall straight back across its own doorway.
+  const whole = loops && lines.length === 1
   if (loops && lines.length > 1) {
     lines[0] = [...last.slice(0, -1), ...first]
     lines.pop()
@@ -229,7 +248,7 @@ export function outlinePath(
 
   return lines
     .map((line, index) => {
-      const closed = loops && lines.length === 1 && index === 0
+      const closed = whole && index === 0
       const draw = closed ? line.slice(0, -1) : line
       return (
         draw.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') +
