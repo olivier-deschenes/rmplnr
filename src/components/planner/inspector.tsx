@@ -71,6 +71,9 @@ function NumberField({
     const parsed = Number.parseFloat(draft)
     if (Number.isFinite(parsed)) {
       onCommit(min === undefined ? parsed : Math.max(min, parsed))
+      // A value typed in is one step to undo, not one per keystroke that
+      // reached it, and the next thing typed here is a step of its own.
+      plannerStore.actions.sealHistory()
     }
     setDraft(null)
   }
@@ -138,7 +141,11 @@ function NameField({
   return (
     <Label className="grid gap-1">
       <span className="text-muted-foreground text-[10px]">Name</span>
-      <Input value={value} onChange={(event) => onChange(event.target.value)} />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={() => plannerStore.actions.sealHistory()}
+      />
     </Label>
   )
 }
@@ -291,7 +298,11 @@ function ChoiceField({
         size="sm"
         className="w-full"
         value={value}
-        onValueChange={(next) => next && onChange(next)}
+        onValueChange={(next) => {
+          if (!next) return
+          onChange(next)
+          plannerStore.actions.sealHistory()
+        }}
       >
         {options.map((option) => (
           <ToggleGroupItem
@@ -338,7 +349,10 @@ function OpeningPanel({
         <span className="text-muted-foreground text-[10px]">Type</span>
         <Select
           value={opening.kind}
-          onValueChange={(kind) => update({ kind: kind as OpeningKind })}
+          onValueChange={(kind) => {
+            update({ kind: kind as OpeningKind })
+            plannerStore.actions.sealHistory()
+          }}
         >
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -448,6 +462,8 @@ function EmptyPanel({ units }: { units: Units }) {
         <dd>Or ⌘ + scroll to zoom</dd>
         <dt className="text-foreground">⌫</dt>
         <dd>Delete the selection</dd>
+        <dt className="text-foreground">⌘Z / ⇧⌘Z</dt>
+        <dd>Undo, redo</dd>
       </dl>
     </>
   )

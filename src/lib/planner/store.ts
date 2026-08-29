@@ -18,9 +18,11 @@ import {
   reattachOpenings,
   wallAt,
 } from './openings.ts'
+import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import { SNAP_STEP } from './units.ts'
 import { DEFAULT_SCALE, MIN_SIZE, PlanSchema, PrefsSchema } from './types.ts'
 
+import type { History, Snapshot } from './history.ts'
 import type {
   Furniture,
   FurnitureKind,
@@ -55,6 +57,8 @@ export type PlannerState = {
   rect: RectDraft | null
   /** Canvas size in pixels, kept in sync by a ResizeObserver. */
   size: { width: number; height: number }
+  /** Steps taken and steps taken back, for undo and redo. */
+  history: History
 }
 
 const initialState: PlannerState = {
@@ -70,9 +74,45 @@ const initialState: PlannerState = {
   draft: null,
   rect: null,
   size: { width: 0, height: 0 },
+  history: EMPTY_HISTORY,
 }
 
 const newId = () => crypto.randomUUID()
+
+/**
+ * Note where the plan stands before a change, so undo has somewhere to come
+ * back to. Changes made under the same label collapse into one step; `null`
+ * always starts a step of its own.
+ */
+function commit(state: PlannerState, label: string | null): History {
+  return pushHistory(state.history, state, label)
+}
+
+/**
+ * A label naming the change a patch makes, rather than the thing it makes it
+ * to: a drag sends the same fields frame after frame and folds into one step,
+ * while two fields typed into the inspector stay two.
+ */
+function patchLabel(kind: string, id: string, patch: object): string {
+  return `${kind}:${id}:${Object.keys(patch).sort().join(',')}`
+}
+
+/**
+ * Put a recorded step back in place. Whatever was half-drawn at the time comes
+ * back with it, and the tool follows the drawing either way: back into a
+ * polygon there is more of to trace, and out of one that has just been put
+ * away again, the way finishing a room hands the tool back. A rectangle being
+ * dragged out is dropped — it was never a step of its own, and the drag that
+ * owned it is long over.
+ */
+function restore(state: PlannerState, step: Snapshot): PlannerState {
+  return {
+    ...state,
+    ...step,
+    rect: null,
+    tool: step.draft ? 'room' : state.draft ? 'select' : state.tool,
+  }
+}
 
 /**
  * The grid step the pointer currently lands on, or null when snapping is off.
@@ -99,6 +139,7 @@ function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
   }
   return {
     ...state,
+    history: commit(state, null),
     rooms: [...state.rooms, room],
     draft: null,
     rect: null,
@@ -225,6 +266,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     }
     setState((s) => ({
       ...s,
+      history: commit(s, null),
       furniture: [...s.furniture, item],
       selection: { type: 'furniture', id: item.id },
       tool: 'select',
@@ -264,6 +306,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     }
     setState((s) => ({
       ...s,
+      history: commit(s, null),
       openings: [...s.openings, opening],
       selection: { type: 'opening', id: opening.id },
       tool: 'select',
@@ -278,6 +321,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   updateOpening(id: string, patch: Partial<Opening>) {
     setState((s) => ({
       ...s,
+      history: commit(s, patchLabel('opening', id, patch)),
       openings: s.openings.map((o) => {
         if (o.id !== id) return o
         const next = { ...o, ...patch }
@@ -292,6 +336,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   updateFurniture(id: string, patch: Partial<Furniture>) {
     setState((s) => ({
       ...s,
+      history: commit(s, patchLabel('furniture', id, patch)),
       furniture: s.furniture.map((f) => (f.id === id ? { ...f, ...patch } : f)),
     }))
   },
@@ -299,6 +344,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   updateRoom(id: string, patch: Partial<Room>) {
     setState((s) => ({
       ...s,
+      history: commit(s, patchLabel('room', id, patch)),
       rooms: s.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     }))
   },
@@ -306,6 +352,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   moveVertex(roomId: string, index: number, point: Point) {
     setState((s) => ({
       ...s,
+      history: commit(s, `vertex:${roomId}:${index}`),
       rooms: s.rooms.map((r) =>
         r.id === roomId
           ? { ...r, points: r.points.map((p, i) => (i === index ? point : p)) }
@@ -320,7 +367,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       if (!room) return s
       const points = [...room.points]
       points.splice(afterIndex + 1, 0, point)
-      return reshaped(s, room, points)
+      return reshaped({ ...s, history: commit(s, null) }, room, points)
     })
   },
 
@@ -329,7 +376,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const room = s.rooms.find((r) => r.id === roomId)
       if (!room || room.points.length <= 3) return s
       return reshaped(
-        s,
+        { ...s, history: commit(s, null) },
         room,
         room.points.filter((_, i) => i !== index),
       )
@@ -342,6 +389,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const { type, id } = s.selection
       return {
         ...s,
+        history: commit(s, null),
         rooms: type === 'room' ? s.rooms.filter((r) => r.id !== id) : s.rooms,
         furniture:
           type === 'furniture'
@@ -360,6 +408,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
+      const history = commit(s, `nudge:${type}:${id}`)
       if (type === 'opening') {
         // An opening has one degree of freedom, so an arrow key is read as how
         // far it pushes the opening along its own wall.
@@ -369,6 +418,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         const along = dx * wall.tangent.x + dy * wall.tangent.y
         return {
           ...s,
+          history,
           openings: s.openings.map((o) =>
             o.id === id
               ? {
@@ -382,6 +432,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       if (type === 'room') {
         return {
           ...s,
+          history,
           rooms: s.rooms.map((r) =>
             r.id === id
               ? { ...r, points: translatePolygon(r.points, dx, dy) }
@@ -391,6 +442,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       }
       return {
         ...s,
+        history,
         furniture: s.furniture.map((f) =>
           f.id === id ? { ...f, x: f.x + dx, y: f.y + dy } : f,
         ),
@@ -399,25 +451,38 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   addDraftPoint(point: Point) {
-    setState((s) => ({ ...s, draft: [...(s.draft ?? []), point] }))
+    setState((s) => ({
+      ...s,
+      history: commit(s, null),
+      draft: [...(s.draft ?? []), point],
+    }))
   },
 
   popDraftPoint() {
     setState((s) => {
       if (!s.draft) return s
       const draft = s.draft.slice(0, -1)
-      return { ...s, draft: draft.length === 0 ? null : draft }
+      return {
+        ...s,
+        history: commit(s, null),
+        draft: draft.length === 0 ? null : draft,
+      }
     })
   },
 
   cancelDraft() {
-    setState((s) => ({ ...s, draft: null }))
+    setState((s) =>
+      s.draft === null ? s : { ...s, history: commit(s, null), draft: null },
+    )
   },
 
   /** Close the in-progress polygon into a room. Needs at least 3 vertices. */
   commitDraft() {
     setState((s) => {
-      if (!s.draft || s.draft.length < 3) return { ...s, draft: null }
+      if (!s.draft) return s
+      if (s.draft.length < 3) {
+        return { ...s, history: commit(s, null), draft: null }
+      }
       return withRoom(s, s.draft)
     })
   },
@@ -461,12 +526,65 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({ ...s, rect: null }))
   },
 
+  /** Step back to how the plan stood before the last change. */
+  undo() {
+    setState((s) => {
+      const step = s.history.past.at(-1)
+      if (!step) return s
+      return {
+        ...restore(s, step),
+        history: {
+          past: s.history.past.slice(0, -1),
+          future: [...s.history.future, snapshotOf(s)],
+          label: null,
+        },
+      }
+    })
+  },
+
+  /** Step forward again, as far as the last undo came back from. */
+  redo() {
+    setState((s) => {
+      const step = s.history.future.at(-1)
+      if (!step) return s
+      return {
+        ...restore(s, step),
+        history: {
+          past: [...s.history.past, snapshotOf(s)],
+          future: s.history.future.slice(0, -1),
+          label: null,
+        },
+      }
+    })
+  },
+
+  /**
+   * Close the step being written, so the next change starts one of its own.
+   * Called wherever a gesture ends — a pointer released, an arrow key let go,
+   * a typed field committed — which is what keeps two drags of the same thing
+   * from folding into a single undo.
+   */
+  sealHistory() {
+    setState((s) =>
+      s.history.label === null
+        ? s
+        : { ...s, history: { ...s.history, label: null } },
+    )
+  },
+
   loadPlan(
     rooms: Array<Room>,
     furniture: Array<Furniture>,
     openings: Array<Opening>,
   ) {
-    setState((s) => ({ ...s, rooms, furniture, openings, selection: null }))
+    setState((s) => ({
+      ...s,
+      rooms,
+      furniture,
+      openings,
+      selection: null,
+      history: EMPTY_HISTORY,
+    }))
   },
 }))
 

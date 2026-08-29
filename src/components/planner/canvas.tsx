@@ -206,6 +206,21 @@ export function Canvas() {
       const state = plannerStore.state
       const a = plannerStore.actions
 
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        const key = event.key.toLowerCase()
+        if (key === 'z') {
+          event.preventDefault()
+          if (event.shiftKey) a.redo()
+          else a.undo()
+        } else if (key === 'y') {
+          event.preventDefault()
+          a.redo()
+        }
+        // Everything below this point is a bare key, and the browser has its
+        // own uses for the combinations: ⌘R reloads rather than drawing a room.
+        return
+      }
+
       if (event.key === ' ') {
         spaceRef.current = true
         event.preventDefault()
@@ -257,6 +272,8 @@ export function Canvas() {
 
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === ' ') spaceRef.current = false
+      // A run of arrow-key repeats reads as one nudge, which ends here.
+      if (event.key.startsWith('Arrow')) plannerStore.actions.sealHistory()
     }
 
     window.addEventListener('keydown', onKeyDown)
@@ -487,6 +504,7 @@ export function Canvas() {
       actions.select(null)
     }
     if (drag?.mode === 'rect') actions.commitRect()
+    if (drag) actions.sealHistory()
     dragRef.current = null
     setPanning(false)
     setGuides([])

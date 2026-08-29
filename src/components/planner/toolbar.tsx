@@ -1,5 +1,9 @@
 import { useSelector } from '@tanstack/react-store'
-import { IconSettings } from '@tabler/icons-react'
+import {
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconSettings,
+} from '@tabler/icons-react'
 
 import { Button } from '#/components/ui/button.tsx'
 import {
@@ -81,6 +85,8 @@ export function Toolbar() {
   const snap = useSelector(plannerStore, (s) => s.snap)
   const units = useSelector(plannerStore, (s) => s.units)
   const scale = useSelector(plannerStore, (s) => s.viewport.scale)
+  const canUndo = useSelector(plannerStore, (s) => s.history.past.length > 0)
+  const canRedo = useSelector(plannerStore, (s) => s.history.future.length > 0)
   const actions = plannerStore.actions
 
   return (
@@ -167,6 +173,27 @@ export function Toolbar() {
       </Label>
 
       <div className="ml-auto flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Undo"
+          title="Undo (⌘Z)"
+          disabled={!canUndo}
+          onClick={() => actions.undo()}
+        >
+          <IconArrowBackUp />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Redo"
+          title="Redo (⇧⌘Z)"
+          disabled={!canRedo}
+          onClick={() => actions.redo()}
+        >
+          <IconArrowForwardUp />
+        </Button>
+        <Separator orientation="vertical" className="mx-1 h-5" />
         <Button
           variant="ghost"
           size="icon-sm"
