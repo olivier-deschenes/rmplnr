@@ -137,3 +137,59 @@ export function alignTo(
 
   return { dx: x ? x.delta : null, dy: y ? y.delta : null, guides }
 }
+
+/**
+ * How square to the page a wall has to run before the plan's own lines can pull
+ * on it. The lines lie one way or the other — the x of a wall running up the
+ * page, the y of one running across it — and neither has anything to say to a
+ * wall set at an angle to both.
+ */
+const SQUARE = 0.999
+
+/** Which of the page's directions a wall moves along when it is pushed. */
+export function wallAxis(normal: Point): 'x' | 'y' | null {
+  if (Math.abs(normal.x) > SQUARE) return 'x'
+  if (Math.abs(normal.y) > SQUARE) return 'y'
+  return null
+}
+
+/**
+ * `alignTo`, for a side of a room being pushed across itself.
+ *
+ * A wall has one way to go, so the answer is one number: how much further along
+ * its own normal it has to travel to land on the nearest line within reach.
+ * That is what makes pushing a wall a way of joining two rooms — a side pushed
+ * into a neighbour lands exactly on the neighbour's wall rather than a
+ * centimetre short of it, which is what it takes for the two to share it.
+ */
+export function alignWall(
+  moving: Array<Point>,
+  normal: Point,
+  targets: Targets,
+  reach: number,
+): { pull: number | null; guides: Array<Guide> } {
+  const axis = wallAxis(normal)
+  if (axis === null) return { pull: null, guides: [] }
+
+  const found = nearest(
+    moving.map((p) => p[axis]),
+    axis === 'x' ? targets.xs : targets.ys,
+    reach,
+  )
+  if (!found) return { pull: null, guides: [] }
+
+  // As for a whole room, the guide spans what it lines up: how far the line's
+  // own walls reach, and how far the wall now standing on it does.
+  const [from, to] = extent(moving.map((p) => (axis === 'x' ? p.y : p.x)))
+  return {
+    pull: found.delta / normal[axis],
+    guides: [
+      {
+        axis,
+        value: found.line.value,
+        from: Math.min(found.line.from, from),
+        to: Math.max(found.line.to, to),
+      },
+    ],
+  }
+}

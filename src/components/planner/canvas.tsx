@@ -24,7 +24,13 @@ import {
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
 import { wallLabels } from '#/lib/planner/dimensions.ts'
 import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
-import { SNAP_REACH_PX, alignTo, snapTargets } from '#/lib/planner/snapping.ts'
+import {
+  SNAP_REACH_PX,
+  alignTo,
+  alignWall,
+  snapTargets,
+  wallAxis,
+} from '#/lib/planner/snapping.ts'
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import {
   clampT,
@@ -41,6 +47,7 @@ import {
   resizeRotated,
   rotationFor,
   screenToWorld,
+  slideWall,
   snapPoint,
   snapValue,
   translatePolygon,
@@ -55,6 +62,7 @@ import type {
   Room,
 } from '#/lib/planner/types.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
+import type { Wall } from '#/lib/planner/openings.ts'
 
 /** How close, in screen pixels, a click must be to close the polygon. */
 const CLOSE_PX = 12
@@ -74,6 +82,13 @@ type Drag =
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string }
   | { mode: 'vertex'; roomId: string; index: number }
+  | {
+      mode: 'wall'
+      roomId: string
+      index: number
+      grab: Point
+      origin: Array<Point>
+    }
   | { mode: 'opening'; id: string }
   | { mode: 'opening-end'; id: string; end: 'start' | 'end' }
   | { mode: 'rect' }
@@ -99,6 +114,8 @@ export function Canvas() {
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
+  /** ⌥ is down, which turns the wall handles over to adding a corner. */
+  const [adding, setAdding] = useState(false)
   /** The lines the thing being dragged has locked onto, while it is dragged. */
   const [guides, setGuides] = useState<Array<Guide>>([])
   /** The wall the opening tool is hovering, and where along it. */
@@ -143,6 +160,36 @@ export function Canvas() {
       x: fit.dx === null ? grid.x : p.x + fit.dx,
       y: fit.dy === null ? grid.y : p.y + fit.dy,
     }
+  }
+
+  /**
+   * How far a wall being pushed really goes, measured along its own normal:
+   * onto a wall line already in the plan if one is within reach, and onto the
+   * grid otherwise. A wall square to the page lands on a round coordinate, the
+   * way a corner does; one on the diagonal has no coordinate to be round in, so
+   * it lands a round distance from where it started instead.
+   */
+  const settleWall = (frame: Wall, roomId: string, across: number): number => {
+    const state = plannerStore.state
+    const slid = [frame.a, frame.b].map((p) => ({
+      x: p.x + frame.normal.x * across,
+      y: p.y + frame.normal.y * across,
+    }))
+    const fit = alignWall(
+      slid,
+      frame.normal,
+      snapTargets(state.rooms, roomId),
+      SNAP_REACH_PX / state.viewport.scale,
+    )
+    setGuides(fit.guides)
+    if (fit.pull !== null) return across + fit.pull
+
+    const step = activeSnapStep(state)
+    if (step === null) return across
+    const axis = wallAxis(frame.normal)
+    if (axis === null) return snapValue(across, step)
+    const landed = snapValue(slid[0][axis], step)
+    return across + (landed - slid[0][axis]) / frame.normal[axis]
   }
 
   const capture = (pointerId: number) => {
@@ -203,6 +250,9 @@ export function Canvas() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTyping(event.target)) return
+      // Holding ⌥ hands the walls over to dropping a corner, and the
+      // handles say so before the pointer has gone anywhere near them.
+      if (event.key === 'Alt') return setAdding(true)
       const state = plannerStore.state
       const a = plannerStore.actions
 
@@ -272,15 +322,25 @@ export function Canvas() {
 
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === ' ') spaceRef.current = false
+      if (event.key === 'Alt') setAdding(false)
       // A run of arrow-key repeats reads as one nudge, which ends here.
       if (event.key.startsWith('Arrow')) plannerStore.actions.sealHistory()
     }
 
+    // A key held as the window loses focus is never let go of here, so the
+    // modifiers are dropped along with the focus rather than left stuck on.
+    const onBlur = () => {
+      spaceRef.current = false
+      setAdding(false)
+    }
+
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
     }
   }, [])
 
@@ -461,6 +521,27 @@ export function Canvas() {
         actions.moveVertex(drag.roomId, drag.index, settle(world, drag.roomId))
         break
       }
+      case 'wall': {
+        // The wall's frame comes from where it stood when the drag began, so
+        // the way it travels cannot drift as it goes, and the outline is built
+        // afresh from that same starting shape each frame rather than pushed
+        // again and again from wherever the last frame left it.
+        const frame = wallAt(drag.origin, drag.index)
+        if (!frame) break
+        const across =
+          (world.x - drag.grab.x) * frame.normal.x +
+          (world.y - drag.grab.y) * frame.normal.y
+        actions.moveWall(
+          drag.roomId,
+          drag.index,
+          slideWall(
+            drag.origin,
+            drag.index,
+            settleWall(frame, drag.roomId, across),
+          ),
+        )
+        break
+      }
       case 'opening': {
         const opening = state.openings.find((o) => o.id === drag.id)
         const wall = opening && openingWall(state.rooms, opening)
@@ -588,6 +669,29 @@ export function Canvas() {
     const current = plannerStore.state.selection
     if (current?.type !== 'room') return
     dragRef.current = { mode: 'vertex', roomId: current.id, index }
+    capture(event.pointerId)
+  }
+
+  /**
+   * Take hold of a whole side of the selected room. ⌥ keeps what the middle of
+   * a wall used to do: drop a corner on it, and drag that.
+   */
+  function onWallDown(index: number, event: React.PointerEvent) {
+    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button !== 0) return
+    event.stopPropagation()
+    if (event.altKey) return onEdgeDown(index, event)
+    const current = plannerStore.state.selection
+    if (current?.type !== 'room') return
+    const room = plannerStore.state.rooms.find((r) => r.id === current.id)
+    if (!room) return
+    dragRef.current = {
+      mode: 'wall',
+      roomId: current.id,
+      index,
+      grab: toWorld(event),
+      origin: room.points,
+    }
     capture(event.pointerId)
   }
 
@@ -770,8 +874,10 @@ export function Canvas() {
         <RoomEditor
           room={selectedRoom}
           viewport={viewport}
+          adding={adding}
           onVertexDown={onVertexDown}
           onEdgeDown={onEdgeDown}
+          onWallDown={onWallDown}
         />
       )}
       {tool === 'select' && selectedFurniture && (

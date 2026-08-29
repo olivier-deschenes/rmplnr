@@ -219,6 +219,14 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
         rooms looks exactly like one wall with a room behind it. So the panel
         names them, and selecting the room lights those walls up on the plan.
       */}
+      {/*
+        Both ways of reshaping a room are gestures on the canvas with nothing
+        in the panel to stand for them, so the panel is where they are named.
+      */}
+      <p className="text-muted-foreground text-[11px]">
+        Drag a wall to push the room out, a corner to reshape it, or ⌥-drag a
+        wall to add a corner.
+      </p>
       <dl className="text-muted-foreground grid gap-y-1 text-[11px]">
         <dt>Shares walls with</dt>
         <dd className="text-foreground">

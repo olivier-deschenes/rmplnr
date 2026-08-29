@@ -7,7 +7,7 @@ import {
 } from '#/lib/planner/geometry.ts'
 import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
 import { STEP, findSpot, uprightAngle } from '#/lib/planner/dimensions.ts'
-import { openingEnds } from '#/lib/planner/openings.ts'
+import { openingEnds, wallAt } from '#/lib/planner/openings.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
@@ -47,6 +47,41 @@ function Square({
       y={at.y - size / 2}
       width={size}
       height={size}
+      className={`fill-background stroke-foreground ${className ?? ''}`}
+      strokeWidth={1.5}
+      onPointerDown={onPointerDown}
+    />
+  )
+}
+
+/** How wide a band is laid over a wall for the pointer to take hold of it. */
+const WALL_GRAB = 14
+/** The handle in the middle of a wall, drawn as a bar lying along it. */
+const BAR_LENGTH = 18
+const BAR_THICKNESS = 5
+
+/** Handle shaped like the wall it pushes: a short bar lying along it. */
+function Bar({
+  at,
+  angle,
+  length,
+  className,
+  onPointerDown,
+}: {
+  at: Point
+  angle: number
+  length: number
+  className?: string
+  onPointerDown?: (event: React.PointerEvent) => void
+}) {
+  return (
+    <rect
+      x={-length / 2}
+      y={-BAR_THICKNESS / 2}
+      width={length}
+      height={BAR_THICKNESS}
+      rx={BAR_THICKNESS / 2}
+      transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
       className={`fill-background stroke-foreground ${className ?? ''}`}
       strokeWidth={1.5}
       onPointerDown={onPointerDown}
@@ -205,38 +240,96 @@ export function WallDimensions({ labels }: { labels: Array<WallLabel> }) {
   )
 }
 
-/** Vertex handles, plus midpoint handles that insert a new vertex on click. */
+/**
+ * The handles on a selected room: a square at every corner, and every side of
+ * it ready to be pushed.
+ *
+ * Dragging a corner reshapes the room around it, which is how a room is made a
+ * different shape. Dragging a side — anywhere along the wall, or by the bar at
+ * its middle — pushes that whole wall out or pulls it in, which is how a room is
+ * made bigger without being redrawn. Holding ⌥ over a wall drops a new corner
+ * on it and drags that instead: the only way to give a room more sides than it
+ * was drawn with, and the one thing the middle of a wall used to do.
+ */
 export function RoomEditor({
   room,
   viewport,
+  adding,
   onVertexDown,
   onEdgeDown,
+  onWallDown,
 }: {
   room: Room
   viewport: Viewport
+  /** ⌥ is down: the walls offer a new corner rather than a push. */
+  adding: boolean
   onVertexDown: (index: number, event: React.PointerEvent) => void
   onEdgeDown: (index: number, event: React.PointerEvent) => void
+  onWallDown: (index: number, event: React.PointerEvent) => void
 }) {
+  const walls = room.points.map((point, i) => {
+    const next = room.points[(i + 1) % room.points.length]
+    const frame = wallAt(room.points, i)
+    const a = worldToScreen(point, viewport)
+    const b = worldToScreen(next, viewport)
+    return {
+      a,
+      b,
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
+      // Never longer than a good part of the wall it lies on, so a short wall
+      // keeps its corners clear of the handle in the middle of it.
+      length: Math.min(BAR_LENGTH, Math.hypot(b.x - a.x, b.y - a.y) * 0.6),
+      // The normal is a world direction, and the page has the same directions
+      // as the world — only bigger — so it names the cursor as it stands.
+      cursor: frame ? resizeCursor(frame.normal, 0) : 'cursor-move',
+    }
+  })
+
   return (
     <g>
-      {room.points.map((point, i) => {
-        const next = room.points[(i + 1) % room.points.length]
-        const mid = worldToScreen(
-          { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 },
-          viewport,
-        )
-        return (
+      {/*
+        The whole wall takes the drag, not just the handle on it: a side is a
+        big thing to have to grab by eight pixels in the middle. The band is
+        laid over the wall as it is drawn, so what pushes is what it looks like.
+      */}
+      {walls.map((wall, i) => (
+        <line
+          key={`wall-${i}`}
+          x1={wall.a.x}
+          y1={wall.a.y}
+          x2={wall.b.x}
+          y2={wall.b.y}
+          stroke="transparent"
+          strokeWidth={WALL_GRAB}
+          strokeLinecap="butt"
+          className={adding ? 'cursor-copy' : wall.cursor}
+          onPointerDown={(event) => onWallDown(i, event)}
+        />
+      ))}
+      {walls.map((wall, i) =>
+        adding ? (
           <circle
             key={`edge-${i}`}
-            cx={mid.x}
-            cy={mid.y}
+            cx={wall.mid.x}
+            cy={wall.mid.y}
             r={3}
             className="fill-background stroke-foreground/50 cursor-copy"
             strokeWidth={1.5}
             onPointerDown={(event) => onEdgeDown(i, event)}
           />
-        )
-      })}
+        ) : (
+          <Bar
+            key={`edge-${i}`}
+            at={wall.mid}
+            angle={wall.angle}
+            length={wall.length}
+            className={wall.cursor}
+            onPointerDown={(event) => onWallDown(i, event)}
+          />
+        ),
+      )}
+      {/* Corners last, so the one at the end of a wall wins the pointer. */}
       {room.points.map((point, i) => (
         <Square
           key={`vertex-${i}`}

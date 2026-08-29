@@ -165,6 +165,175 @@ export function scalePolygon(
   }))
 }
 
+/** Where the infinite lines through `a→b` and `c→d` cross, or null if parallel. */
+function crossing(a: Point, b: Point, c: Point, d: Point): Point | null {
+  const r = { x: b.x - a.x, y: b.y - a.y }
+  const s = { x: d.x - c.x, y: d.y - c.y }
+  const denominator = r.x * s.y - r.y * s.x
+  if (Math.abs(denominator) < 1e-9) return null
+  const t = ((c.x - a.x) * s.y - (c.y - a.y) * s.x) / denominator
+  return { x: a.x + r.x * t, y: a.y + r.y * t }
+}
+
+/** Unit vector across wall `index`, pointing out of the room. */
+function wallNormal(points: Array<Point>, index: number): Point | null {
+  const a = points[index]
+  const b = points[(index + 1) % points.length]
+  const span = distance(a, b)
+  if (span === 0) return null
+  const sign = outwardSign(points)
+  return {
+    x: ((b.y - a.y) / span) * sign,
+    y: (-(b.x - a.x) / span) * sign,
+  }
+}
+
+/**
+ * The outline left by pushing one wall `by` centimetres along its own normal.
+ *
+ * The corners at its ends are not simply carried along with it: each is put
+ * back where the wall's new line crosses the wall it shares that corner with,
+ * so the walls either side keep the direction they were drawn at and give up
+ * only length. One running parallel to the wall being pushed never meets it,
+ * and its corner does travel along.
+ */
+function pushed(
+  points: Array<Point>,
+  index: number,
+  by: number,
+): Array<Point> | null {
+  const count = points.length
+  const normal = wallNormal(points, index)
+  if (!normal) return null
+
+  const a = points[index]
+  const b = points[(index + 1) % count]
+  const from = { x: a.x + normal.x * by, y: a.y + normal.y * by }
+  const to = { x: b.x + normal.x * by, y: b.y + normal.y * by }
+
+  const before = points[(index - 1 + count) % count]
+  const after = points[(index + 2) % count]
+  return points.map((p, i) => {
+    if (i === index) return crossing(before, a, from, to) ?? from
+    if (i === (index + 1) % count) return crossing(b, after, from, to) ?? to
+    return p
+  })
+}
+
+/** The vector along wall `index`, from its first corner to its second. */
+function along(points: Array<Point>, index: number): Point {
+  const a = points[index]
+  const b = points[(index + 1) % points.length]
+  return { x: b.x - a.x, y: b.y - a.y }
+}
+
+/**
+ * How deep a room still is at one of its walls: how far back from that wall the
+ * furthest of its other corners stands. This is the room's own measure of how
+ * much of it there is left to push — the width of a rectangle taken from either
+ * side, and the length of it taken from the other two.
+ */
+function depthAt(points: Array<Point>, index: number): number {
+  const count = points.length
+  const normal = wallNormal(points, index)
+  if (!normal) return 0
+
+  const a = points[index]
+  let depth = 0
+  for (let i = 0; i < count; i++) {
+    if (i === index || i === (index + 1) % count) continue
+    const back = -(
+      (points[i].x - a.x) * normal.x +
+      (points[i].y - a.y) * normal.y
+    )
+    depth = Math.max(depth, back)
+  }
+  return depth
+}
+
+/** What a length may not fall below: the floor, or wherever it already was. */
+function floor(was: number): number {
+  return Math.min(MIN_SIZE, was)
+}
+
+/**
+ * Whether a push has left a room standing, which it can fail to do in three
+ * ways.
+ *
+ * The outline can turn through itself, and the winding says so.
+ *
+ * The walls either side can be spent. They give up length as the wall is
+ * pushed, and a push far enough takes one through nothing and out the other
+ * side, back to front — which is how a room loses a whole leg while the rest of
+ * it stands there looking perfectly well, so no measure of the outline as a
+ * whole would catch it.
+ *
+ * And the room can be squashed flat against the wall being pushed, which is the
+ * one that matters most: a room with no depth left at a wall is a line on the
+ * plan, too thin to take hold of and beyond even the inspector to widen again,
+ * so a push has to stop while there is still a room there to push.
+ *
+ * A room already below the floor — pulled in before this floor existed, or
+ * drawn that way corner by corner — is held to what it has rather than to what
+ * it ought to have. Otherwise the one move that could put it right would be the
+ * move it is not allowed to make.
+ */
+function standing(
+  before: Array<Point>,
+  after: Array<Point>,
+  index: number,
+): boolean {
+  const count = after.length
+  if (outwardSign(after) !== outwardSign(before)) return false
+
+  for (const wall of [(index - 1 + count) % count, (index + 1) % count]) {
+    const was = along(before, wall)
+    const now = along(after, wall)
+    if (was.x * now.x + was.y * now.y <= 0) return false
+    if (Math.hypot(now.x, now.y) < floor(Math.hypot(was.x, was.y))) return false
+  }
+
+  return depthAt(after, index) >= floor(depthAt(before, index))
+}
+
+/**
+ * Push one side of a room out along its own normal, and hand back the outline
+ * that leaves; a negative `by` pulls it in.
+ *
+ * This is what makes a room bigger without redrawing it. On a rectangle it
+ * comes to the same thing as taking both corners of that side and moving them
+ * together, because the walls either side stand square to the one being pushed.
+ * On anything else it is the difference between pushing a wall out and shearing
+ * the room.
+ *
+ * A push that would leave no room behind stops where the room runs out, rather
+ * than flattening it or springing back to where it started: a wall shoved at
+ * the far side of the room fetches up against it.
+ */
+export function slideWall(
+  points: Array<Point>,
+  index: number,
+  by: number,
+): Array<Point> {
+  const wanted = pushed(points, index, by)
+  if (!wanted) return points
+  if (standing(points, wanted, index)) return wanted
+
+  // Closing in on the furthest the wall can go: `good` is a push the room
+  // survives and `bad` one it does not, and halving between them enough times
+  // settles the wall within a fraction of a millimetre of the last push that
+  // leaves a room standing.
+  let good = 0
+  let bad = by
+  for (let i = 0; i < 16; i++) {
+    const between = (good + bad) / 2
+    const shape = pushed(points, index, between)
+    if (shape && standing(points, shape, index)) good = between
+    else bad = between
+  }
+  return pushed(points, index, good) ?? points
+}
+
 // --- furniture --------------------------------------------------------------
 
 export function furnitureCentre(item: Furniture): Point {

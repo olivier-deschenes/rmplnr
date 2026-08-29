@@ -418,6 +418,31 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /**
+   * Swap in the outline a wall being pushed has left behind. The corners are
+   * the same corners in the same order — only the two at the ends of that wall
+   * have moved — so the doors and windows stay on the walls they were cut into
+   * and stretch with them, exactly as they do when a corner is dragged.
+   *
+   * `index` names the wall only so that the history can tell one push from the
+   * next: pushing two sides in turn is two steps to undo, not one.
+   */
+  moveWall(roomId: string, index: number, points: Array<Point>) {
+    setState((s) => {
+      const room = s.rooms.find((r) => r.id === roomId)
+      if (!room) return s
+      return {
+        ...s,
+        history: commit(
+          s,
+          `wall:${roomId}:${index}`,
+          `Moved a wall of ${room.name}`,
+        ),
+        rooms: s.rooms.map((r) => (r.id === roomId ? { ...r, points } : r)),
+      }
+    })
+  },
+
   insertVertex(roomId: string, afterIndex: number, point: Point) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
