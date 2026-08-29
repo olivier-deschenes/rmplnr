@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 
+import { HistoryPanel } from './history.tsx'
+
 import { Button } from '#/components/ui/button.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
@@ -491,25 +493,36 @@ export function Inspector() {
   const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-l p-3">
+    <aside className="flex w-64 shrink-0 flex-col border-l">
       {/*
-        Remounting on selection change clears any half-typed field drafts, and
-        keying on the unit too re-reads the fields when the system switches.
+        The panel above scrolls on its own so that the history below it keeps
+        its place at the foot of the sidebar, whatever is selected.
       */}
-      {room ? (
-        <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
-      ) : item ? (
-        <FurniturePanel key={`${item.id}-${units}`} item={item} units={units} />
-      ) : opening && openingRoom ? (
-        <OpeningPanel
-          key={`${opening.id}-${units}`}
-          opening={opening}
-          room={openingRoom}
-          units={units}
-        />
-      ) : (
-        <EmptyPanel units={units} />
-      )}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {/*
+          Remounting on selection change clears any half-typed field drafts, and
+          keying on the unit too re-reads the fields when the system switches.
+        */}
+        {room ? (
+          <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
+        ) : item ? (
+          <FurniturePanel
+            key={`${item.id}-${units}`}
+            item={item}
+            units={units}
+          />
+        ) : opening && openingRoom ? (
+          <OpeningPanel
+            key={`${opening.id}-${units}`}
+            opening={opening}
+            room={openingRoom}
+            units={units}
+          />
+        ) : (
+          <EmptyPanel units={units} />
+        )}
+      </div>
+      <HistoryPanel />
     </aside>
   )
 }
