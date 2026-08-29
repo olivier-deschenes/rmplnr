@@ -31,11 +31,26 @@ export function Toolbar() {
         value={tool}
         onValueChange={(value) => value && actions.setTool(value as Tool)}
       >
-        <ToggleGroupItem value="select" className={SELECTED_TOOL}>
+        <ToggleGroupItem
+          value="select"
+          className={SELECTED_TOOL}
+          title="Select and move (V)"
+        >
           Select
         </ToggleGroupItem>
-        <ToggleGroupItem value="room" className={SELECTED_TOOL}>
+        <ToggleGroupItem
+          value="room"
+          className={SELECTED_TOOL}
+          title="Draw a room corner by corner (R)"
+        >
           Room
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="rect"
+          className={SELECTED_TOOL}
+          title="Drag out a rectangular room, or click for a default one (E)"
+        >
+          Rectangle
         </ToggleGroupItem>
       </ToggleGroup>
 

@@ -6,6 +6,7 @@ import { FurnitureShape, RoomShape } from './shapes.tsx'
 import {
   DraftOverlay,
   FurnitureEditor,
+  RectPreview,
   RoomEditor,
   RoomLabels,
 } from './overlay.tsx'
@@ -41,14 +42,22 @@ type Drag =
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string }
   | { mode: 'vertex'; roomId: string; index: number }
+  | { mode: 'rect' }
 
 export function Canvas() {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<Drag | null>(null)
   const spaceRef = useRef(false)
 
-  const { rooms, furniture, selection, tool, viewport, draft } =
-    useSelector(plannerStore)
+  const {
+    rooms,
+    furniture,
+    selection,
+    tool,
+    viewport,
+    draft,
+    rect: rectDraft,
+  } = useSelector(plannerStore)
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
@@ -134,7 +143,8 @@ export function Canvas() {
       }
       if (event.key === 'Escape') {
         if (state.draft) a.cancelDraft()
-        else if (state.tool === 'room') a.setTool('select')
+        else if (state.rect) a.cancelRect()
+        else if (state.tool !== 'select') a.setTool('select')
         else a.select(null)
         return
       }
@@ -150,6 +160,7 @@ export function Canvas() {
       }
       if (event.key === 'v' || event.key === 'V') return a.setTool('select')
       if (event.key === 'r' || event.key === 'R') return a.setTool('room')
+      if (event.key === 'e' || event.key === 'E') return a.setTool('rect')
 
       const step = (state.snap ? SNAP_STEP : 1) * (event.shiftKey ? 10 : 1)
       const nudge: Record<string, [number, number] | undefined> = {
@@ -197,6 +208,14 @@ export function Canvas() {
       return
     }
     if (event.button !== 0) return
+
+    // Rectangle tool: drag out the two opposite corners in one gesture.
+    if (state.tool === 'rect') {
+      actions.beginRect(maybeSnap(toWorld(event)))
+      dragRef.current = { mode: 'rect' }
+      capture(event.pointerId)
+      return
+    }
 
     // Room tool: each click drops a corner, and clicking the first one closes.
     if (state.draft && state.draft.length >= 3) {
@@ -286,6 +305,10 @@ export function Canvas() {
         actions.moveVertex(drag.roomId, drag.index, maybeSnap(world))
         break
       }
+      case 'rect': {
+        actions.updateRect(maybeSnap(world))
+        break
+      }
     }
   }
 
@@ -295,6 +318,7 @@ export function Canvas() {
     if (drag?.mode === 'pan' && !drag.moved && !spaceRef.current) {
       actions.select(null)
     }
+    if (drag?.mode === 'rect') actions.commitRect()
     dragRef.current = null
     setPanning(false)
     if (svgRef.current?.hasPointerCapture(event.pointerId)) {
@@ -392,9 +416,9 @@ export function Canvas() {
 
   const cursorClass = panning
     ? 'cursor-grabbing'
-    : tool === 'room'
-      ? 'cursor-crosshair'
-      : 'cursor-default'
+    : tool === 'select'
+      ? 'cursor-default'
+      : 'cursor-crosshair'
 
   return (
     <svg
@@ -412,7 +436,7 @@ export function Canvas() {
 
       <g
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
-        className={tool === 'room' ? 'pointer-events-none' : undefined}
+        className={tool === 'select' ? undefined : 'pointer-events-none'}
       >
         {rooms.map((room) => (
           <RoomShape
@@ -450,6 +474,7 @@ export function Canvas() {
           onRotateDown={onRotateHandleDown}
         />
       )}
+      {rectDraft && <RectPreview rect={rectDraft} viewport={viewport} />}
       {draft && (
         <DraftOverlay
           draft={draft}

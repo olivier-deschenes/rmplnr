@@ -9,6 +9,9 @@ export const FURNITURE_PRESETS: Record<
   sofa: { label: 'Sofa', w: 200, h: 90 },
 }
 
+/** Footprint for a rectangle room dropped with a click instead of a drag. */
+export const DEFAULT_ROOM = { w: 400, h: 300 }
+
 export const FURNITURE_KINDS = Object.keys(
   FURNITURE_PRESETS,
 ) as Array<FurnitureKind>

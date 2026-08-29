@@ -111,6 +111,20 @@ export function polygonCentroid(points: Array<Point>): Point {
   return { x: cx * k, y: cy * k }
 }
 
+/** The four corners, clockwise, of the box spanned by two opposite points. */
+export function rectPolygon(a: Point, b: Point): Array<Point> {
+  const x0 = Math.min(a.x, b.x)
+  const y0 = Math.min(a.y, b.y)
+  const x1 = Math.max(a.x, b.x)
+  const y1 = Math.max(a.y, b.y)
+  return [
+    { x: x0, y: y0 },
+    { x: x1, y: y0 },
+    { x: x1, y: y1 },
+    { x: x0, y: y1 },
+  ]
+}
+
 export function translatePolygon(
   points: Array<Point>,
   dx: number,

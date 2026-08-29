@@ -49,7 +49,10 @@ export type Rect = { x: number; y: number; w: number; h: number }
 
 export type Selection = { type: 'room' | 'furniture'; id: string } | null
 
-export type Tool = 'select' | 'room'
+export type Tool = 'select' | 'room' | 'rect'
+
+/** The two opposite corners of a rectangle room being dragged out. */
+export type RectDraft = { start: Point; end: Point }
 
 /** screen = world * scale + (tx, ty) */
 export type Viewport = { tx: number; ty: number; scale: number }

@@ -214,12 +214,12 @@ function EmptyPanel() {
       <Separator />
       <SectionTitle>Keys</SectionTitle>
       <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-        <dt className="text-foreground">V / R</dt>
-        <dd>Select or draw a room</dd>
+        <dt className="text-foreground">V / R / E</dt>
+        <dd>Select, draw a room, or a rectangle</dd>
         <dt className="text-foreground">Click</dt>
         <dd>Add a corner; click the first to close</dd>
         <dt className="text-foreground">Drag</dt>
-        <dd>Empty space pans</dd>
+        <dd>Sizes a rectangle; empty space pans</dd>
         <dt className="text-foreground">Pinch</dt>
         <dd>Or ⌘ + scroll to zoom</dd>
         <dt className="text-foreground">⌫</dt>

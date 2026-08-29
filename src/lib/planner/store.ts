@@ -1,21 +1,23 @@
 import { createStore } from '@tanstack/store'
 
-import { FURNITURE_PRESETS } from './presets.ts'
+import { DEFAULT_ROOM, FURNITURE_PRESETS } from './presets.ts'
 import {
   clampScale,
   fitViewport,
   planBounds,
+  rectPolygon,
   screenToWorld,
   snapPoint,
   translatePolygon,
   zoomAt,
 } from './geometry.ts'
-import { DEFAULT_SCALE, PlanSchema } from './types.ts'
+import { DEFAULT_SCALE, MIN_SIZE, PlanSchema } from './types.ts'
 
 import type {
   Furniture,
   FurnitureKind,
   Point,
+  RectDraft,
   Room,
   Selection,
   Tool,
@@ -31,6 +33,8 @@ export type PlannerState = {
   viewport: Viewport
   /** Vertices of the polygon currently being drawn, if any. */
   draft: Array<Point> | null
+  /** Corners of the rectangle room currently being dragged out, if any. */
+  rect: RectDraft | null
   /** Canvas size in pixels, kept in sync by a ResizeObserver. */
   size: { width: number; height: number }
 }
@@ -43,6 +47,7 @@ const initialState: PlannerState = {
   snap: true,
   viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE },
   draft: null,
+  rect: null,
   size: { width: 0, height: 0 },
 }
 
@@ -56,9 +61,31 @@ function viewCentre(state: PlannerState): Point {
   )
 }
 
+/** Add a finished polygon as a room, select it, and hand the tool back. */
+function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
+  const room: Room = {
+    id: newId(),
+    name: `Room ${state.rooms.length + 1}`,
+    points,
+  }
+  return {
+    ...state,
+    rooms: [...state.rooms, room],
+    draft: null,
+    rect: null,
+    tool: 'select',
+    selection: { type: 'room', id: room.id },
+  }
+}
+
 export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   setTool(tool: Tool) {
-    setState((s) => ({ ...s, tool, draft: tool === 'room' ? s.draft : null }))
+    setState((s) => ({
+      ...s,
+      tool,
+      draft: tool === 'room' ? s.draft : null,
+      rect: tool === 'rect' ? s.rect : null,
+    }))
   },
 
   toggleSnap() {
@@ -261,19 +288,47 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   commitDraft() {
     setState((s) => {
       if (!s.draft || s.draft.length < 3) return { ...s, draft: null }
-      const room: Room = {
-        id: newId(),
-        name: `Room ${s.rooms.length + 1}`,
-        points: s.draft,
-      }
-      return {
-        ...s,
-        rooms: [...s.rooms, room],
-        draft: null,
-        tool: 'select',
-        selection: { type: 'room', id: room.id },
-      }
+      return withRoom(s, s.draft)
     })
+  },
+
+  beginRect(point: Point) {
+    setState((s) => ({ ...s, rect: { start: point, end: point } }))
+  },
+
+  updateRect(point: Point) {
+    setState((s) => (s.rect ? { ...s, rect: { ...s.rect, end: point } } : s))
+  },
+
+  /**
+   * Turn the dragged-out rectangle into a room. A drag too small to be a room
+   * is read as a plain click, which drops a default-sized one on the spot.
+   */
+  commitRect() {
+    setState((s) => {
+      if (!s.rect) return s
+      const { start, end } = s.rect
+      const tooSmall =
+        Math.abs(end.x - start.x) < MIN_SIZE ||
+        Math.abs(end.y - start.y) < MIN_SIZE
+      const corners = tooSmall
+        ? rectPolygon(
+            {
+              x: start.x - DEFAULT_ROOM.w / 2,
+              y: start.y - DEFAULT_ROOM.h / 2,
+            },
+            {
+              x: start.x + DEFAULT_ROOM.w / 2,
+              y: start.y + DEFAULT_ROOM.h / 2,
+            },
+          )
+        : rectPolygon(start, end)
+      return withRoom(s, corners)
+    })
+  },
+
+  cancelRect() {
+    setState((s) => ({ ...s, rect: null }))
   },
 
   loadPlan(rooms: Array<Room>, furniture: Array<Furniture>) {

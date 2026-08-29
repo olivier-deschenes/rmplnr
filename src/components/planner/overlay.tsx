@@ -12,6 +12,7 @@ import type {
   Furniture,
   Handle,
   Point,
+  RectDraft,
   Room,
   Viewport,
 } from '#/lib/planner/types.ts'
@@ -205,6 +206,64 @@ export function FurnitureEditor({
         className="fill-muted-foreground pointer-events-none text-[10px]"
       >
         {Math.round(item.w)} × {Math.round(item.h)} cm
+      </text>
+    </g>
+  )
+}
+
+/** The rectangle room being dragged out, sized live in cm and m². */
+export function RectPreview({
+  rect,
+  viewport,
+}: {
+  rect: RectDraft
+  viewport: Viewport
+}) {
+  const a = worldToScreen(rect.start, viewport)
+  const b = worldToScreen(rect.end, viewport)
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  const width = Math.abs(a.x - b.x)
+  const height = Math.abs(a.y - b.y)
+
+  const w = Math.abs(rect.end.x - rect.start.x)
+  const h = Math.abs(rect.end.y - rect.start.y)
+
+  return (
+    <g className="pointer-events-none">
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        className="fill-foreground/5 stroke-foreground"
+        strokeWidth={2}
+        strokeDasharray="4 4"
+      />
+      <text
+        x={x + width / 2}
+        y={y + height / 2}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        className="fill-muted-foreground text-[10px]"
+      >
+        {squareMetres(w * h).toFixed(1)} m²
+      </text>
+      <text
+        x={x + width / 2}
+        y={y + height + 14}
+        textAnchor="middle"
+        className="fill-muted-foreground text-[10px]"
+      >
+        {Math.round(w)} cm
+      </text>
+      <text
+        x={x + width + 8}
+        y={y + height / 2}
+        dominantBaseline="middle"
+        className="fill-muted-foreground text-[10px]"
+      >
+        {Math.round(h)} cm
       </text>
     </g>
   )
