@@ -54,8 +54,12 @@ function Square({
   )
 }
 
-/** How wide a band is laid over a wall for the pointer to take hold of it. */
-const WALL_GRAB = 14
+/**
+ * How wide a band is laid over a wall for the pointer to take hold of it. The
+ * canvas measures its double-clicks against the same number, so that breaking a
+ * wall and pushing it are aimed at exactly the same strip of the plan.
+ */
+export const WALL_GRAB = 14
 /** The handle in the middle of a wall, drawn as a bar lying along it. */
 const BAR_LENGTH = 18
 const BAR_THICKNESS = 5
@@ -244,27 +248,24 @@ export function WallDimensions({ labels }: { labels: Array<WallLabel> }) {
  * The handles on a selected room: a square at every corner, and every side of
  * it ready to be pushed.
  *
- * Dragging a corner reshapes the room around it, which is how a room is made a
- * different shape. Dragging a side — anywhere along the wall, or by the bar at
- * its middle — pushes that whole wall out or pulls it in, which is how a room is
- * made bigger without being redrawn. Holding ⌥ over a wall drops a new corner
- * on it and drags that instead: the only way to give a room more sides than it
- * was drawn with, and the one thing the middle of a wall used to do.
+ * Dragging a corner reshapes the room around it. Dragging a side — anywhere
+ * along the wall, or by the bar at its middle — pushes that whole wall out or
+ * pulls it in, which is how a room is made bigger without being redrawn.
+ *
+ * Double-clicking a wall breaks it in two, but that gesture is not wired up
+ * here: the press that starts it captures the pointer to the canvas, and the
+ * browser hands the double-click to whatever holds the capture rather than to
+ * the band under the pointer. The canvas takes it and finds the wall itself.
  */
 export function RoomEditor({
   room,
   viewport,
-  adding,
   onVertexDown,
-  onEdgeDown,
   onWallDown,
 }: {
   room: Room
   viewport: Viewport
-  /** ⌥ is down: the walls offer a new corner rather than a push. */
-  adding: boolean
   onVertexDown: (index: number, event: React.PointerEvent) => void
-  onEdgeDown: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
 }) {
   const walls = room.points.map((point, i) => {
@@ -303,32 +304,20 @@ export function RoomEditor({
           stroke="transparent"
           strokeWidth={WALL_GRAB}
           strokeLinecap="butt"
-          className={adding ? 'cursor-copy' : wall.cursor}
+          className={wall.cursor}
           onPointerDown={(event) => onWallDown(i, event)}
         />
       ))}
-      {walls.map((wall, i) =>
-        adding ? (
-          <circle
-            key={`edge-${i}`}
-            cx={wall.mid.x}
-            cy={wall.mid.y}
-            r={3}
-            className="fill-background stroke-foreground/50 cursor-copy"
-            strokeWidth={1.5}
-            onPointerDown={(event) => onEdgeDown(i, event)}
-          />
-        ) : (
-          <Bar
-            key={`edge-${i}`}
-            at={wall.mid}
-            angle={wall.angle}
-            length={wall.length}
-            className={wall.cursor}
-            onPointerDown={(event) => onWallDown(i, event)}
-          />
-        ),
-      )}
+      {walls.map((wall, i) => (
+        <Bar
+          key={`bar-${i}`}
+          at={wall.mid}
+          angle={wall.angle}
+          length={wall.length}
+          className={wall.cursor}
+          onPointerDown={(event) => onWallDown(i, event)}
+        />
+      ))}
       {/* Corners last, so the one at the end of a wall wins the pointer. */}
       {room.points.map((point, i) => (
         <Square

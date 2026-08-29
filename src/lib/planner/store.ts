@@ -105,6 +105,16 @@ function commit(
  * to: a drag sends the same fields frame after frame and folds into one step,
  * while two fields typed into the inspector stay two.
  */
+/** Whether two outlines stand in the same place, to within rounding. */
+function sameOutline(a: Array<Point>, b: Array<Point>): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (p, i) => Math.abs(p.x - b[i].x) < 1e-6 && Math.abs(p.y - b[i].y) < 1e-6,
+    )
+  )
+}
+
 function patchLabel(kind: string, id: string, patch: object): string {
   return `${kind}:${id}:${Object.keys(patch).sort().join(',')}`
 }
@@ -431,6 +441,11 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
       if (!room) return s
+      // A push that went nowhere — held at the far side of the room, or not far
+      // enough to cross a snap step — is not a change, and must not leave a
+      // step to undo. Both presses of a double-click land as a still pointer,
+      // and would otherwise bury the corner they add under a pair of no-ops.
+      if (sameOutline(room.points, points)) return s
       return {
         ...s,
         history: commit(

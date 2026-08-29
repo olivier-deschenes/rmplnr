@@ -18,6 +18,7 @@ import {
   RoomEditor,
   RoomLabels,
   SnapGuides,
+  WALL_GRAB,
   WallDimensions,
 } from './overlay.tsx'
 
@@ -37,6 +38,7 @@ import {
   fittedWidth,
   nearestWall,
   openingEnds,
+  pointOnWall,
   openingWall,
   projectT,
   wallAt,
@@ -114,8 +116,6 @@ export function Canvas() {
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
-  /** ⌥ is down, which turns the wall handles over to adding a corner. */
-  const [adding, setAdding] = useState(false)
   /** The lines the thing being dragged has locked onto, while it is dragged. */
   const [guides, setGuides] = useState<Array<Guide>>([])
   /** The wall the opening tool is hovering, and where along it. */
@@ -250,9 +250,6 @@ export function Canvas() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTyping(event.target)) return
-      // Holding ⌥ hands the walls over to dropping a corner, and the
-      // handles say so before the pointer has gone anywhere near them.
-      if (event.key === 'Alt') return setAdding(true)
       const state = plannerStore.state
       const a = plannerStore.actions
 
@@ -322,16 +319,14 @@ export function Canvas() {
 
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === ' ') spaceRef.current = false
-      if (event.key === 'Alt') setAdding(false)
       // A run of arrow-key repeats reads as one nudge, which ends here.
       if (event.key.startsWith('Arrow')) plannerStore.actions.sealHistory()
     }
 
-    // A key held as the window loses focus is never let go of here, so the
-    // modifiers are dropped along with the focus rather than left stuck on.
+    // Space held as the window loses focus is never let go of here, so it is
+    // dropped along with the focus rather than left stuck down.
     const onBlur = () => {
       spaceRef.current = false
-      setAdding(false)
     }
 
     window.addEventListener('keydown', onKeyDown)
@@ -594,13 +589,49 @@ export function Canvas() {
     }
   }
 
-  function onDoubleClick() {
+  /**
+   * Closing an outline being traced, and breaking a wall of the selected room
+   * in two — a corner dropped where the wall was double-clicked, which is the
+   * only way to give a room more sides than it was drawn with.
+   *
+   * The wall is found here rather than being handed over by the band that was
+   * hit, because by the time the second click lands there is no telling what
+   * was hit: the first press captured the pointer to this canvas, and a
+   * captured pointer sends its click — and the double-click built from it — to
+   * whatever holds the capture. So the pointer is measured against the room's
+   * own walls, against the same reach the bands are drawn at, and the corner is
+   * put on the wall rather than under the pointer, which may be a few pixels
+   * off it: a wall that kinked the moment it gained a corner would be showing
+   * the aim of the click rather than the break.
+   */
+  function onDoubleClick(event: React.MouseEvent) {
     const state = plannerStore.state
     if (state.tool === 'room' && state.draft) {
       // The second click already added a duplicate vertex; drop it and close.
       actions.popDraftPoint()
       actions.commitDraft()
+      return
     }
+    if (state.tool !== 'select' || state.selection?.type !== 'room') return
+    const room = state.rooms.find((r) => r.id === state.selection?.id)
+    if (!room) return
+
+    const spot = nearestWall(
+      [room],
+      toWorld(event),
+      WALL_GRAB / 2 / state.viewport.scale,
+    )
+    const frame = spot && wallAt(room.points, spot.wall)
+    if (!spot || !frame) return
+
+    actions.insertVertex(
+      room.id,
+      spot.wall,
+      settle(pointOnWall(frame, spot.t), room.id),
+    )
+    actions.sealHistory()
+    // `settle` puts up the guides a drag would want; there is no drag here.
+    setGuides([])
   }
 
   function onRoomPointerDown(room: Room, event: React.PointerEvent) {
@@ -672,15 +703,11 @@ export function Canvas() {
     capture(event.pointerId)
   }
 
-  /**
-   * Take hold of a whole side of the selected room. ⌥ keeps what the middle of
-   * a wall used to do: drop a corner on it, and drag that.
-   */
+  /** Take hold of a whole side of the selected room, to push it across. */
   function onWallDown(index: number, event: React.PointerEvent) {
     if (event.button === 1 || spaceRef.current) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
-    if (event.altKey) return onEdgeDown(index, event)
     const current = plannerStore.state.selection
     if (current?.type !== 'room') return
     const room = plannerStore.state.rooms.find((r) => r.id === current.id)
@@ -692,15 +719,6 @@ export function Canvas() {
       grab: toWorld(event),
       origin: room.points,
     }
-    capture(event.pointerId)
-  }
-
-  function onEdgeDown(index: number, event: React.PointerEvent) {
-    event.stopPropagation()
-    const current = plannerStore.state.selection
-    if (current?.type !== 'room') return
-    actions.insertVertex(current.id, index, settle(toWorld(event), current.id))
-    dragRef.current = { mode: 'vertex', roomId: current.id, index: index + 1 }
     capture(event.pointerId)
   }
 
@@ -874,9 +892,7 @@ export function Canvas() {
         <RoomEditor
           room={selectedRoom}
           viewport={viewport}
-          adding={adding}
           onVertexDown={onVertexDown}
-          onEdgeDown={onEdgeDown}
           onWallDown={onWallDown}
         />
       )}
