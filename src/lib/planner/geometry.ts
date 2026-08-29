@@ -4,7 +4,6 @@ import {
   MIN_SCALE,
   MIN_SIZE,
   SNAP_ANGLE,
-  SNAP_STEP,
 } from './types.ts'
 
 import type { Furniture, Handle, Point, Rect, Room, Viewport } from './types.ts'
@@ -21,12 +20,15 @@ export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-export function snapValue(v: number, step = SNAP_STEP): number {
+export function snapValue(v: number, step: number): number {
   return Math.round(v / step) * step
 }
 
-export function snapPoint(p: Point, step = SNAP_STEP): Point {
-  return { x: snapValue(p.x, step), y: snapValue(p.y, step) }
+/** Snaps to `step`, or passes the point through when snapping is off. */
+export function snapPoint(p: Point, step: number | null): Point {
+  return step === null
+    ? { x: p.x, y: p.y }
+    : { x: snapValue(p.x, step), y: snapValue(p.y, step) }
 }
 
 export function clampScale(scale: number): number {
@@ -183,7 +185,7 @@ export function resizeRotated(
   item: Furniture,
   handle: Handle,
   pointer: Point,
-  snapping: boolean,
+  step: number | null,
 ): Pick<Furniture, 'x' | 'y' | 'w' | 'h'> {
   const dir = HANDLE_DIR[handle]
   const centre = furnitureCentre(item)
@@ -204,7 +206,8 @@ export function resizeRotated(
 
   const size = (delta: number, current: number, active: boolean) => {
     if (!active) return current
-    const next = snapping ? snapValue(Math.abs(delta)) : Math.abs(delta)
+    const next =
+      step === null ? Math.abs(delta) : snapValue(Math.abs(delta), step)
     return Math.max(MIN_SIZE, next)
   }
 

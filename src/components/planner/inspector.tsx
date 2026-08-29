@@ -12,11 +12,17 @@ import {
   polygonArea,
   polygonBounds,
   scalePolygon,
-  squareMetres,
 } from '#/lib/planner/geometry.ts'
+import {
+  formatArea,
+  fromLength,
+  lengthPrecision,
+  lengthUnit,
+  toLength,
+} from '#/lib/planner/units.ts'
 import { MIN_SIZE } from '#/lib/planner/types.ts'
 
-import type { Furniture, Room } from '#/lib/planner/types.ts'
+import type { Furniture, Room, Units } from '#/lib/planner/types.ts'
 
 /**
  * Numeric field that holds a local draft while typing, so clearing "150" down
@@ -27,11 +33,13 @@ function NumberField({
   value,
   onCommit,
   min,
+  precision = 0,
 }: {
   label: string
   value: number
   onCommit: (next: number) => void
   min?: number
+  precision?: number
 }) {
   const [draft, setDraft] = useState<string | null>(null)
 
@@ -49,7 +57,7 @@ function NumberField({
       <span className="text-muted-foreground text-[10px]">{label}</span>
       <Input
         type="number"
-        value={draft ?? String(Math.round(value))}
+        value={draft ?? String(Number(value.toFixed(precision)))}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -58,6 +66,34 @@ function NumberField({
         }}
       />
     </Label>
+  )
+}
+
+/**
+ * A length in the plan's own centimetres, edited in whatever unit is on show.
+ * The conversion lives here so every caller keeps passing and receiving cm.
+ */
+function LengthField({
+  label,
+  cm,
+  units,
+  onCommit,
+  min,
+}: {
+  label: string
+  cm: number
+  units: Units
+  onCommit: (nextCm: number) => void
+  min?: number
+}) {
+  return (
+    <NumberField
+      label={`${label} ${lengthUnit(units)}`}
+      value={toLength(cm, units)}
+      min={min === undefined ? undefined : toLength(min, units)}
+      precision={lengthPrecision(units)}
+      onCommit={(next) => onCommit(fromLength(next, units))}
+    />
   )
 }
 
@@ -97,10 +133,9 @@ function DeleteButton() {
   )
 }
 
-function RoomPanel({ room }: { room: Room }) {
+function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
-  const area = squareMetres(polygonArea(room.points))
 
   return (
     <>
@@ -110,9 +145,10 @@ function RoomPanel({ room }: { room: Room }) {
         onChange={(name) => actions.updateRoom(room.id, { name })}
       />
       <div className="grid grid-cols-2 gap-2">
-        <NumberField
-          label="Width cm"
-          value={bounds.w}
+        <LengthField
+          label="Width"
+          cm={bounds.w}
+          units={units}
           min={MIN_SIZE}
           onCommit={(w) =>
             actions.updateRoom(room.id, {
@@ -120,9 +156,10 @@ function RoomPanel({ room }: { room: Room }) {
             })
           }
         />
-        <NumberField
-          label="Height cm"
-          value={bounds.h}
+        <LengthField
+          label="Height"
+          cm={bounds.h}
+          units={units}
           min={MIN_SIZE}
           onCommit={(h) =>
             actions.updateRoom(room.id, {
@@ -134,7 +171,7 @@ function RoomPanel({ room }: { room: Room }) {
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {area.toFixed(2)} m²
+          {formatArea(polygonArea(room.points), units, 2)}
         </dd>
         <dt>Corners</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -146,7 +183,7 @@ function RoomPanel({ room }: { room: Room }) {
   )
 }
 
-function FurniturePanel({ item }: { item: Furniture }) {
+function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
   const actions = plannerStore.actions
   const update = (patch: Partial<Furniture>) =>
     actions.updateFurniture(item.id, patch)
@@ -156,26 +193,30 @@ function FurniturePanel({ item }: { item: Furniture }) {
       <SectionTitle>{item.kind}</SectionTitle>
       <NameField value={item.name} onChange={(name) => update({ name })} />
       <div className="grid grid-cols-2 gap-2">
-        <NumberField
-          label="Width cm"
-          value={item.w}
+        <LengthField
+          label="Width"
+          cm={item.w}
+          units={units}
           min={MIN_SIZE}
           onCommit={(w) => update({ w })}
         />
-        <NumberField
-          label="Height cm"
-          value={item.h}
+        <LengthField
+          label="Height"
+          cm={item.h}
+          units={units}
           min={MIN_SIZE}
           onCommit={(h) => update({ h })}
         />
-        <NumberField
-          label="X cm"
-          value={item.x}
+        <LengthField
+          label="X"
+          cm={item.x}
+          units={units}
           onCommit={(x) => update({ x })}
         />
-        <NumberField
-          label="Y cm"
-          value={item.y}
+        <LengthField
+          label="Y"
+          cm={item.y}
+          units={units}
           onCommit={(y) => update({ y })}
         />
       </div>
@@ -189,7 +230,7 @@ function FurniturePanel({ item }: { item: Furniture }) {
   )
 }
 
-function EmptyPanel() {
+function EmptyPanel({ units }: { units: Units }) {
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const total = rooms.reduce((sum, r) => sum + polygonArea(r.points), 0)
@@ -200,7 +241,7 @@ function EmptyPanel() {
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
         <dt>Floor area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {squareMetres(total).toFixed(2)} m²
+          {formatArea(total, units, 2)}
         </dd>
         <dt>Rooms</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -233,6 +274,7 @@ export function Inspector() {
   const selection = useSelector(plannerStore, (s) => s.selection)
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
+  const units = useSelector(plannerStore, (s) => s.units)
 
   const room =
     selection?.type === 'room'
@@ -245,13 +287,16 @@ export function Inspector() {
 
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-l p-3">
-      {/* Remounting on selection change clears any half-typed field drafts. */}
+      {/*
+        Remounting on selection change clears any half-typed field drafts, and
+        keying on the unit too re-reads the fields when the system switches.
+      */}
       {room ? (
-        <RoomPanel key={room.id} room={room} />
+        <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
       ) : item ? (
-        <FurniturePanel key={item.id} item={item} />
+        <FurniturePanel key={`${item.id}-${units}`} item={item} units={units} />
       ) : (
-        <EmptyPanel />
+        <EmptyPanel units={units} />
       )}
     </aside>
   )

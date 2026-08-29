@@ -1,15 +1,24 @@
-import { GRID_MAJOR, GRID_MINOR } from '#/lib/planner/types.ts'
+import { GRID } from '#/lib/planner/units.ts'
 
-import type { Viewport } from '#/lib/planner/types.ts'
+import type { Units, Viewport } from '#/lib/planner/types.ts'
 
 /**
  * Grid lines are drawn in screen space: the pattern tile is sized in pixels and
- * offset by the pan, so strokes stay exactly 1px crisp at any zoom. The 10cm
- * grid is dropped once it gets too dense to read.
+ * offset by the pan, so strokes stay exactly 1px crisp at any zoom. The fine
+ * grid is dropped once it gets too dense to read. Spacing follows the unit
+ * system, so an imperial plan is ruled in inches and feet rather than in
+ * centimetres and metres.
  */
-export function Grid({ viewport }: { viewport: Viewport }) {
-  const minor = GRID_MINOR * viewport.scale
-  const major = GRID_MAJOR * viewport.scale
+export function Grid({
+  viewport,
+  units,
+}: {
+  viewport: Viewport
+  units: Units
+}) {
+  const spacing = GRID[units]
+  const minor = spacing.minor * viewport.scale
+  const major = spacing.major * viewport.scale
   const showMinor = minor >= 8
 
   return (

@@ -11,7 +11,7 @@ import {
   RoomLabels,
 } from './overlay.tsx'
 
-import { plannerStore } from '#/lib/planner/store.ts'
+import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
 import {
   distance,
   polygonBounds,
@@ -22,7 +22,6 @@ import {
   translatePolygon,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
-import { SNAP_STEP } from '#/lib/planner/types.ts'
 
 import type { Furniture, Handle, Point, Room } from '#/lib/planner/types.ts'
 
@@ -54,6 +53,7 @@ export function Canvas() {
     furniture,
     selection,
     tool,
+    units,
     viewport,
     draft,
     rect: rectDraft,
@@ -77,7 +77,7 @@ export function Canvas() {
     screenToWorld(toScreen(event), plannerStore.state.viewport)
 
   const maybeSnap = (p: Point): Point =>
-    plannerStore.state.snap ? snapPoint(p) : p
+    snapPoint(p, activeSnapStep(plannerStore.state))
 
   const capture = (pointerId: number) => {
     svgRef.current?.setPointerCapture(pointerId)
@@ -162,7 +162,7 @@ export function Canvas() {
       if (event.key === 'r' || event.key === 'R') return a.setTool('room')
       if (event.key === 'e' || event.key === 'E') return a.setTool('rect')
 
-      const step = (state.snap ? SNAP_STEP : 1) * (event.shiftKey ? 10 : 1)
+      const step = (activeSnapStep(state) ?? 1) * (event.shiftKey ? 10 : 1)
       const nudge: Record<string, [number, number] | undefined> = {
         ArrowLeft: [-step, 0],
         ArrowRight: [step, 0],
@@ -252,12 +252,13 @@ export function Canvas() {
       case 'move-furniture': {
         let x = drag.origin.x + (world.x - drag.grab.x)
         let y = drag.origin.y + (world.y - drag.grab.y)
-        if (state.snap) {
+        const step = activeSnapStep(state)
+        if (step !== null) {
           // Snap the unrotated top-left so edges land on grid lines.
-          const topLeft = snapPoint({
-            x: x - drag.origin.w / 2,
-            y: y - drag.origin.h / 2,
-          })
+          const topLeft = snapPoint(
+            { x: x - drag.origin.w / 2, y: y - drag.origin.h / 2 },
+            step,
+          )
           x = topLeft.x + drag.origin.w / 2
           y = topLeft.y + drag.origin.h / 2
         }
@@ -270,9 +271,10 @@ export function Canvas() {
           world.x - drag.grab.x,
           world.y - drag.grab.y,
         )
-        if (state.snap) {
+        const step = activeSnapStep(state)
+        if (step !== null) {
           const bounds = polygonBounds(points)
-          const snapped = snapPoint({ x: bounds.x, y: bounds.y })
+          const snapped = snapPoint({ x: bounds.x, y: bounds.y }, step)
           points = translatePolygon(
             points,
             snapped.x - bounds.x,
@@ -287,7 +289,7 @@ export function Canvas() {
         if (item) {
           actions.updateFurniture(
             drag.id,
-            resizeRotated(item, drag.handle, world, state.snap),
+            resizeRotated(item, drag.handle, world, activeSnapStep(state)),
           )
         }
         break
@@ -432,7 +434,7 @@ export function Canvas() {
       onPointerCancel={onPointerUp}
       onDoubleClick={onDoubleClick}
     >
-      <Grid viewport={viewport} />
+      <Grid viewport={viewport} units={units} />
 
       <g
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
@@ -456,7 +458,7 @@ export function Canvas() {
         ))}
       </g>
 
-      <RoomLabels rooms={rooms} viewport={viewport} />
+      <RoomLabels rooms={rooms} viewport={viewport} units={units} />
 
       {tool === 'select' && selectedRoom && (
         <RoomEditor
@@ -470,16 +472,20 @@ export function Canvas() {
         <FurnitureEditor
           item={selectedFurniture}
           viewport={viewport}
+          units={units}
           onHandleDown={onResizeHandleDown}
           onRotateDown={onRotateHandleDown}
         />
       )}
-      {rectDraft && <RectPreview rect={rectDraft} viewport={viewport} />}
+      {rectDraft && (
+        <RectPreview rect={rectDraft} viewport={viewport} units={units} />
+      )}
       {draft && (
         <DraftOverlay
           draft={draft}
           cursor={cursor}
           viewport={viewport}
+          units={units}
           nearFirst={nearFirst}
         />
       )}

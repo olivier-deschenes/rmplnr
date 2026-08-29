@@ -3,9 +3,9 @@ import {
   normalizeAngle,
   polygonArea,
   polygonCentroid,
-  squareMetres,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
+import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
@@ -14,6 +14,7 @@ import type {
   Point,
   RectDraft,
   Room,
+  Units,
   Viewport,
 } from '#/lib/planner/types.ts'
 
@@ -63,9 +64,11 @@ function resizeCursor(dir: Point, rotation: number): string {
 export function RoomLabels({
   rooms,
   viewport,
+  units,
 }: {
   rooms: Array<Room>
   viewport: Viewport
+  units: Units
 }) {
   return (
     <g className="pointer-events-none">
@@ -85,7 +88,7 @@ export function RoomLabels({
               y={at.y + 14}
               className="fill-muted-foreground text-[10px]"
             >
-              {squareMetres(polygonArea(room.points)).toFixed(1)} m²
+              {formatArea(polygonArea(room.points), units)}
             </text>
           </g>
         )
@@ -142,11 +145,13 @@ export function RoomEditor({
 export function FurnitureEditor({
   item,
   viewport,
+  units,
   onHandleDown,
   onRotateDown,
 }: {
   item: Furniture
   viewport: Viewport
+  units: Units
   onHandleDown: (handle: Handle, event: React.PointerEvent) => void
   onRotateDown: (event: React.PointerEvent) => void
 }) {
@@ -205,19 +210,21 @@ export function FurnitureEditor({
         textAnchor="middle"
         className="fill-muted-foreground pointer-events-none text-[10px]"
       >
-        {Math.round(item.w)} × {Math.round(item.h)} cm
+        {formatSize(item.w, item.h, units)}
       </text>
     </g>
   )
 }
 
-/** The rectangle room being dragged out, sized live in cm and m². */
+/** The rectangle room being dragged out, sized live in the display units. */
 export function RectPreview({
   rect,
   viewport,
+  units,
 }: {
   rect: RectDraft
   viewport: Viewport
+  units: Units
 }) {
   const a = worldToScreen(rect.start, viewport)
   const b = worldToScreen(rect.end, viewport)
@@ -247,7 +254,7 @@ export function RectPreview({
         dominantBaseline="middle"
         className="fill-muted-foreground text-[10px]"
       >
-        {squareMetres(w * h).toFixed(1)} m²
+        {formatArea(w * h, units)}
       </text>
       <text
         x={x + width / 2}
@@ -255,7 +262,7 @@ export function RectPreview({
         textAnchor="middle"
         className="fill-muted-foreground text-[10px]"
       >
-        {Math.round(w)} cm
+        {formatLength(w, units)}
       </text>
       <text
         x={x + width + 8}
@@ -263,7 +270,7 @@ export function RectPreview({
         dominantBaseline="middle"
         className="fill-muted-foreground text-[10px]"
       >
-        {Math.round(h)} cm
+        {formatLength(h, units)}
       </text>
     </g>
   )
@@ -274,11 +281,13 @@ export function DraftOverlay({
   draft,
   cursor,
   viewport,
+  units,
   nearFirst,
 }: {
   draft: Array<Point>
   cursor: Point | null
   viewport: Viewport
+  units: Units
   nearFirst: boolean
 }) {
   if (draft.length === 0) return null
@@ -318,7 +327,7 @@ export function DraftOverlay({
             y={tip.y - 10}
             className="fill-muted-foreground text-[10px]"
           >
-            {Math.round(length)} cm
+            {formatLength(length, units)}
           </text>
         </>
       )}

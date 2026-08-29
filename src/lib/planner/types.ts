@@ -1,9 +1,6 @@
 import { z } from 'zod'
 
-/** All world coordinates are centimetres. Areas are shown in m². */
-export const GRID_MINOR = 10
-export const GRID_MAJOR = 100
-export const SNAP_STEP = 10
+/** All world coordinates are centimetres; units.ts turns them into display text. */
 export const SNAP_ANGLE = 15
 export const MIN_SIZE = 5
 
@@ -39,11 +36,21 @@ export const PlanSchema = z.object({
   furniture: z.array(FurnitureSchema),
 })
 
+export const UnitsSchema = z.enum(['metric', 'imperial'])
+
+/** Editor preferences, stored apart from the plan they are viewed through. */
+export const PrefsSchema = z.object({
+  version: z.literal(1),
+  units: UnitsSchema,
+})
+
 export type Point = z.infer<typeof PointSchema>
 export type Room = z.infer<typeof RoomSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
 export type Plan = z.infer<typeof PlanSchema>
+export type Units = z.infer<typeof UnitsSchema>
+export type Prefs = z.infer<typeof PrefsSchema>
 
 export type Rect = { x: number; y: number; w: number; h: number }
 

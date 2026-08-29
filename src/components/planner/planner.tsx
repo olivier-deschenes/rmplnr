@@ -7,6 +7,7 @@ import { Toolbar } from './toolbar.tsx'
 
 import {
   loadStoredPlan,
+  loadStoredPrefs,
   plannerStore,
   startAutosave,
 } from '#/lib/planner/store.ts'
@@ -16,6 +17,8 @@ export function Planner() {
   useEffect(() => {
     const stored = loadStoredPlan()
     if (stored) plannerStore.actions.loadPlan(stored.rooms, stored.furniture)
+    const prefs = loadStoredPrefs()
+    if (prefs) plannerStore.actions.setUnits(prefs.units)
     return startAutosave()
   }, [])
 

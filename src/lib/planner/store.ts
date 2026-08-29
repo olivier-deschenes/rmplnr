@@ -11,16 +11,19 @@ import {
   translatePolygon,
   zoomAt,
 } from './geometry.ts'
-import { DEFAULT_SCALE, MIN_SIZE, PlanSchema } from './types.ts'
+import { SNAP_STEP } from './units.ts'
+import { DEFAULT_SCALE, MIN_SIZE, PlanSchema, PrefsSchema } from './types.ts'
 
 import type {
   Furniture,
   FurnitureKind,
   Point,
+  Prefs,
   RectDraft,
   Room,
   Selection,
   Tool,
+  Units,
   Viewport,
 } from './types.ts'
 
@@ -30,6 +33,8 @@ export type PlannerState = {
   selection: Selection
   tool: Tool
   snap: boolean
+  /** Display only: the plan itself is always stored in centimetres. */
+  units: Units
   viewport: Viewport
   /** Vertices of the polygon currently being drawn, if any. */
   draft: Array<Point> | null
@@ -45,6 +50,7 @@ const initialState: PlannerState = {
   selection: null,
   tool: 'select',
   snap: true,
+  units: 'metric',
   viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE },
   draft: null,
   rect: null,
@@ -52,6 +58,14 @@ const initialState: PlannerState = {
 }
 
 const newId = () => crypto.randomUUID()
+
+/**
+ * The grid step the pointer currently lands on, or null when snapping is off.
+ * The step follows the unit system so imperial plans land on whole inches.
+ */
+export function activeSnapStep(state: PlannerState): number | null {
+  return state.snap ? SNAP_STEP[state.units] : null
+}
 
 /** Centre of the visible canvas, in world coordinates. */
 function viewCentre(state: PlannerState): Point {
@@ -90,6 +104,10 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 
   toggleSnap() {
     setState((s) => ({ ...s, snap: !s.snap }))
+  },
+
+  setUnits(units: Units) {
+    setState((s) => ({ ...s, units }))
   },
 
   setViewport(viewport: Viewport) {
@@ -151,7 +169,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     const state = get()
     const preset = FURNITURE_PRESETS[kind]
     const raw = viewCentre(state)
-    const centre = state.snap ? snapPoint(raw) : raw
+    const centre = snapPoint(raw, activeSnapStep(state))
     // Cascade off anything already sitting on that spot, so a newly added item
     // is never hidden underneath the last one.
     while (
@@ -339,6 +357,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 // --- persistence ------------------------------------------------------------
 
 const STORAGE_KEY = 'rmplnr.plan.v1'
+const PREFS_KEY = 'rmplnr.prefs.v1'
 
 /**
  * Read the saved plan. Returns null when there is nothing stored, or when the
@@ -360,19 +379,35 @@ export function loadStoredPlan(): {
   }
 }
 
-/** Persist rooms and furniture on change. Returns an unsubscribe function. */
+/**
+ * Read the saved editor preferences, on the same be-forgiving terms as the
+ * plan: anything unreadable falls back to the defaults. Client-only.
+ */
+export function loadStoredPrefs(): Prefs | null {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY)
+    if (!raw) return null
+    const parsed = PrefsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/** Persist the plan and the preferences on change. Returns an unsubscribe. */
 export function startAutosave(debounceMs = 300): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const subscription = plannerStore.subscribe(() => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      const { rooms, furniture } = plannerStore.state
+      const { rooms, furniture, units } = plannerStore.state
       try {
         localStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({ version: 1, rooms, furniture }),
         )
+        localStorage.setItem(PREFS_KEY, JSON.stringify({ version: 1, units }))
       } catch {
         // Storage full or blocked; editing carries on regardless.
       }
