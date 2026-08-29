@@ -6,6 +6,7 @@ import {
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
+import { STEP, findSpot } from '#/lib/planner/dimensions.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
@@ -17,9 +18,12 @@ import type {
   Units,
   Viewport,
 } from '#/lib/planner/types.ts'
+import type { Box, WallLabel } from '#/lib/planner/dimensions.ts'
 
 const HANDLE_SIZE = 8
 const ROTATE_OFFSET = 26
+/** How far the selection's size readout hangs below the item's bottom edge. */
+const READOUT_GAP = 20
 
 /** Square handle centred on a screen point. */
 function Square({
@@ -97,6 +101,57 @@ export function RoomLabels({
   )
 }
 
+/** A number on its own opaque plate, so the grid never runs through digits. */
+function Plate({ box, text }: { box: Box; text: string }) {
+  return (
+    <g
+      transform={`translate(${box.centre.x} ${box.centre.y}) rotate(${box.angle})`}
+    >
+      <rect
+        x={-box.w / 2}
+        y={-box.h / 2}
+        width={box.w}
+        height={box.h}
+        className="fill-background"
+      />
+      <text
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="fill-muted-foreground text-[10px]"
+      >
+        {text}
+      </text>
+    </g>
+  )
+}
+
+/**
+ * Every wall's length, on show whether or not its room is selected. The layout
+ * in `dimensions.ts` has already found each label a spot clear of the plan and
+ * of the other labels; a leader line appears where one could not stay put.
+ */
+export function WallDimensions({ labels }: { labels: Array<WallLabel> }) {
+  return (
+    <g className="pointer-events-none">
+      {labels.map(({ key, text, box, leader }) => (
+        <g key={key}>
+          {leader && (
+            <line
+              x1={leader.from.x}
+              y1={leader.from.y}
+              x2={leader.to.x}
+              y2={leader.to.y}
+              className="stroke-muted-foreground/60"
+              strokeWidth={1}
+            />
+          )}
+          <Plate box={box} text={text} />
+        </g>
+      ))}
+    </g>
+  )
+}
+
 /** Vertex handles, plus midpoint handles that insert a new vertex on click. */
 export function RoomEditor({
   room,
@@ -146,12 +201,15 @@ export function FurnitureEditor({
   item,
   viewport,
   units,
+  avoid,
   onHandleDown,
   onRotateDown,
 }: {
   item: Furniture
   viewport: Viewport
   units: Units
+  /** Boxes the size readout backs away from: the wall dimensions on show. */
+  avoid: Array<Box>
   onHandleDown: (handle: Handle, event: React.PointerEvent) => void
   onRotateDown: (event: React.PointerEvent) => void
 }) {
@@ -170,7 +228,19 @@ export function FurnitureEditor({
     x: topMid.x + (dx / len) * ROTATE_OFFSET,
     y: topMid.y + (dy / len) * ROTATE_OFFSET,
   }
-  const bottom = screenAt('s')
+  // The readout is the one label here that can be moved, and the wall
+  // dimensions are the ones that have to stay put, so it is the readout that
+  // gives way — dropping down past them, or standing down if it cannot clear.
+  const below = screenAt('s')
+  const readout = findSpot(
+    [0, 1, 2, 3].map((i) => ({
+      x: below.x,
+      y: below.y + READOUT_GAP + i * STEP,
+    })),
+    formatSize(item.w, item.h, units),
+    0,
+    avoid,
+  )
 
   return (
     <g>
@@ -204,14 +274,11 @@ export function FurnitureEditor({
           onPointerDown={(event) => onHandleDown(handle, event)}
         />
       ))}
-      <text
-        x={bottom.x}
-        y={bottom.y + 20}
-        textAnchor="middle"
-        className="fill-muted-foreground pointer-events-none text-[10px]"
-      >
-        {formatSize(item.w, item.h, units)}
-      </text>
+      {readout && (
+        <g className="pointer-events-none">
+          <Plate box={readout.box} text={formatSize(item.w, item.h, units)} />
+        </g>
+      )}
     </g>
   )
 }

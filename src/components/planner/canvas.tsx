@@ -9,9 +9,11 @@ import {
   RectPreview,
   RoomEditor,
   RoomLabels,
+  WallDimensions,
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
+import { wallLabels } from '#/lib/planner/dimensions.ts'
 import {
   distance,
   polygonBounds,
@@ -57,6 +59,7 @@ export function Canvas() {
     viewport,
     draft,
     rect: rectDraft,
+    size,
   } = useSelector(plannerStore)
 
   const [cursor, setCursor] = useState<Point | null>(null)
@@ -416,6 +419,10 @@ export function Canvas() {
       worldToScreen(draft[0], viewport),
     ) <= CLOSE_PX
 
+  // One layout, shared: the wall dimensions are drawn from it, and the
+  // selection's own readout reads it to keep out of their way.
+  const dimensions = wallLabels(rooms, furniture, viewport, units, size)
+
   const cursorClass = panning
     ? 'cursor-grabbing'
     : tool === 'select'
@@ -459,6 +466,7 @@ export function Canvas() {
       </g>
 
       <RoomLabels rooms={rooms} viewport={viewport} units={units} />
+      <WallDimensions labels={dimensions} />
 
       {tool === 'select' && selectedRoom && (
         <RoomEditor
@@ -473,6 +481,7 @@ export function Canvas() {
           item={selectedFurniture}
           viewport={viewport}
           units={units}
+          avoid={dimensions.map((label) => label.box)}
           onHandleDown={onResizeHandleDown}
           onRotateDown={onRotateHandleDown}
         />
