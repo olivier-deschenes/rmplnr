@@ -87,6 +87,29 @@ describe('serializeProject', () => {
       serializeProject(plan()),
     )
   })
+
+  it('preserves a closet and its host-wall attachment', () => {
+    const closet: Project['rooms'][number] = {
+      id: 'closet-1',
+      kind: 'closet',
+      name: 'Closet',
+      points: [
+        { x: 290, y: 0 },
+        { x: 110, y: 0 },
+        { x: 110, y: -60 },
+        { x: 290, y: -60 },
+      ],
+      attachment: {
+        roomId: 'room-1',
+        wall: 0,
+        t: 0.5,
+        openingId: 'closet-door-1',
+      },
+    }
+    const project = plan({ rooms: [...plan().rooms, closet] })
+
+    expect(parseProjectFile(serializeProject(project))).toEqual(project)
+  })
 })
 
 describe('toProjectRecord', () => {

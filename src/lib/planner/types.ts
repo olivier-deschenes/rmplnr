@@ -10,10 +10,23 @@ export const DEFAULT_SCALE = 0.6
 
 export const PointSchema = z.object({ x: z.number(), y: z.number() })
 
+export const ClosetAttachmentSchema = z.object({
+  /** The room whose outside face this closet sits against. */
+  roomId: z.string(),
+  wall: z.number().int().min(0),
+  /** Centre of the closet, as a fraction along the host wall. */
+  t: z.number().min(0).max(1),
+  /** The opening that connects the room and closet. */
+  openingId: z.string(),
+})
+
 export const RoomSchema = z.object({
   id: z.string(),
   name: z.string(),
   points: z.array(PointSchema).min(3),
+  /** Ordinary rooms omit this; closets carry their wall attachment below. */
+  kind: z.literal('closet').optional(),
+  attachment: ClosetAttachmentSchema.optional(),
 })
 
 export const FurnitureKindSchema = z.enum(['table', 'sofa', 'kitchen', 'box'])
@@ -129,6 +142,7 @@ export const PrefsSchema = z.object({
 })
 
 export type Point = z.infer<typeof PointSchema>
+export type ClosetAttachment = z.infer<typeof ClosetAttachmentSchema>
 export type Room = z.infer<typeof RoomSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
@@ -169,7 +183,7 @@ export type Clipboard =
   | { type: 'furniture'; item: Furniture }
   | { type: 'opening'; opening: Opening }
 
-export type Tool = 'select' | 'room' | 'rect' | 'opening'
+export type Tool = 'select' | 'room' | 'rect' | 'opening' | 'closet'
 
 /** The two opposite corners of a rectangle room being dragged out. */
 export type RectDraft = { start: Point; end: Point }

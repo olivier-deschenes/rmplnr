@@ -14,7 +14,7 @@ import type { Tool } from './types.ts'
  */
 
 /** The tools a key of their own reaches; openings are picked by kind below. */
-export type DrawTool = Exclude<Tool, 'opening'>
+export type DrawTool = Exclude<Tool, 'opening' | 'closet'>
 
 export const TOOL_KEYS = {
   select: 'V',

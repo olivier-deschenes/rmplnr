@@ -26,6 +26,7 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
+import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
 import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
 import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
 import {
@@ -162,6 +163,7 @@ type Drag =
     }
   | { mode: 'move-furniture'; id: string; grab: Point; origin: Furniture }
   | { mode: 'move-room'; id: string; grab: Point; origin: Array<Point> }
+  | { mode: 'move-closet'; id: string; grabT: number }
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string }
   | { mode: 'vertex'; roomId: string; index: number }
@@ -203,7 +205,7 @@ export function Canvas() {
   const [panning, setPanning] = useState(false)
   /** The lines the thing being dragged has locked onto, while it is dragged. */
   const [guides, setGuides] = useState<Array<Guide>>([])
-  /** The wall the opening tool is hovering, and where along it. */
+  /** The wall an opening or closet tool is hovering, and where along it. */
   const [ghost, setGhost] = useState<{
     roomId: string
     wall: number
@@ -451,20 +453,24 @@ export function Canvas() {
     }
     if (event.button !== 0) return
 
-    // Opening tool: the click lands on whichever wall the ghost has found.
-    if (state.tool === 'opening') {
+    // Wall tools: the click lands on whichever wall the ghost has found.
+    if (state.tool === 'opening' || state.tool === 'closet') {
+      const eligibleRooms =
+        state.tool === 'closet'
+          ? state.rooms.filter((room) => room.kind !== 'closet')
+          : state.rooms
       const spot = nearestWall(
-        state.rooms,
+        eligibleRooms,
         toWorld(event),
         WALL_REACH_PX / state.viewport.scale,
       )
       if (spot) {
-        actions.addOpening(
-          state.openingKind,
-          spot.roomId,
-          spot.wall,
-          snapAlong(spot.roomId, spot.wall, spot.t),
-        )
+        const t = snapAlong(spot.roomId, spot.wall, spot.t)
+        if (state.tool === 'closet') {
+          actions.addCloset(spot.roomId, spot.wall, t)
+        } else {
+          actions.addOpening(state.openingKind, spot.roomId, spot.wall, t)
+        }
         setGhost(null)
       }
       return
@@ -506,9 +512,13 @@ export function Canvas() {
   function onPointerMove(event: React.PointerEvent) {
     const state = plannerStore.state
     if (state.tool === 'room') setCursor(settle(toWorld(event)))
-    if (state.tool === 'opening') {
+    if (state.tool === 'opening' || state.tool === 'closet') {
+      const eligibleRooms =
+        state.tool === 'closet'
+          ? state.rooms.filter((room) => room.kind !== 'closet')
+          : state.rooms
       const spot = nearestWall(
-        state.rooms,
+        eligibleRooms,
         toWorld(event),
         WALL_REACH_PX / state.viewport.scale,
       )
@@ -580,6 +590,23 @@ export function Canvas() {
             points,
             fit.dx ?? grid.x - bounds.x,
             fit.dy ?? grid.y - bounds.y,
+          ),
+        })
+        break
+      }
+      case 'move-closet': {
+        const closet = state.rooms.find((room) => room.id === drag.id)
+        const attachment = closet?.attachment
+        const host =
+          attachment &&
+          state.rooms.find((room) => room.id === attachment.roomId)
+        const wall = host && wallAt(host.points, attachment.wall)
+        if (!attachment || !wall) break
+        actions.updateCloset(drag.id, {
+          t: snapAlong(
+            attachment.roomId,
+            attachment.wall,
+            projectT(wall, world) - drag.grabT,
           ),
         })
         break
@@ -717,7 +744,7 @@ export function Canvas() {
     const spot =
       room && nearestWall([room], world, WALL_GRAB / 2 / state.viewport.scale)
     const frame = room && spot && wallAt(room.points, spot.wall)
-    if (room && spot && frame) {
+    if (room?.kind !== 'closet' && spot && frame) {
       actions.insertVertex(
         room.id,
         spot.wall,
@@ -759,6 +786,21 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'room', id: room.id })
+    const attachment = room.attachment
+    if (room.kind === 'closet' && attachment) {
+      const host = plannerStore.state.rooms.find(
+        (candidate) => candidate.id === attachment.roomId,
+      )
+      const wall = host && wallAt(host.points, attachment.wall)
+      if (!wall) return
+      dragRef.current = {
+        mode: 'move-closet',
+        id: room.id,
+        grabT: projectT(wall, toWorld(event)) - attachment.t,
+      }
+      capture(event.pointerId)
+      return
+    }
     dragRef.current = {
       mode: 'move-room',
       id: room.id,
@@ -802,6 +844,13 @@ export function Canvas() {
     if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
+    const closet = plannerStore.state.rooms.find(
+      (room) => room.attachment?.openingId === opening.id,
+    )
+    if (closet) {
+      actions.select({ type: 'room', id: closet.id })
+      return
+    }
     actions.select({ type: 'opening', id: opening.id })
     dragRef.current = { mode: 'opening', id: opening.id }
     capture(event.pointerId)
@@ -850,6 +899,7 @@ export function Canvas() {
     selection?.type === 'furniture'
       ? furniture.find((f) => f.id === selection.id)
       : undefined
+  const selectedClosetOpeningId = selectedRoom?.attachment?.openingId
 
   // Every opening paired with the wall it is drawn along; one whose wall has
   // gone — a room mid-edit — simply drops out of the drawing.
@@ -863,8 +913,55 @@ export function Canvas() {
       : undefined
 
   const ghostWall =
+    tool === 'opening' &&
     ghost &&
     wallAt(rooms.find((r) => r.id === ghost.roomId)?.points ?? [], ghost.wall)
+
+  const closetHost =
+    tool === 'closet' && ghost
+      ? rooms.find((room) => room.id === ghost.roomId)
+      : undefined
+  const closetHostWall =
+    closetHost && ghost ? wallAt(closetHost.points, ghost.wall) : null
+  const closetGhostPlacement =
+    closetHostWall && ghost
+      ? placeCloset(
+          closetHostWall,
+          {
+            roomId: ghost.roomId,
+            wall: ghost.wall,
+            t: ghost.t,
+            openingId: 'closet-opening-ghost',
+          },
+          DEFAULT_CLOSET.width,
+          DEFAULT_CLOSET.depth,
+        )
+      : null
+  const closetGhostRoom: Room | null = closetGhostPlacement
+    ? {
+        id: 'closet-ghost',
+        kind: 'closet',
+        name: 'Closet',
+        points: closetGhostPlacement.points,
+        attachment: closetGhostPlacement.attachment,
+      }
+    : null
+  const closetGhostOpening: Opening | null = closetGhostPlacement
+    ? {
+        id: 'closet-opening-ghost',
+        kind: 'sliding-door',
+        roomId: 'closet-ghost',
+        wall: 0,
+        t: 0.5,
+        width: fittedWidth(
+          OPENING_PRESETS['sliding-door'].width,
+          closetGhostPlacement.width,
+        ),
+        hinge: 'start',
+        swing: 'in',
+      }
+    : null
+  const closetGhostWall = closetGhostRoom && wallAt(closetGhostRoom.points, 0)
 
   const nearFirst =
     !!draft &&
@@ -956,6 +1053,14 @@ export function Canvas() {
             onPointerDown={(event) => onRoomPointerDown(room, event)}
           />
         ))}
+        {closetGhostRoom && (
+          <polygon
+            points={closetGhostRoom.points
+              .map((point) => `${point.x},${point.y}`)
+              .join(' ')}
+            className="fill-muted opacity-50"
+          />
+        )}
         {/*
           Openings are picked up from under the furniture but drawn over it: a
           sofa against a wall keeps its own clicks, while the swing it is
@@ -986,6 +1091,18 @@ export function Canvas() {
           {walls.map((wall) => (
             <RoomWalls key={wall.id} d={wall.d} scale={viewport.scale} />
           ))}
+          {closetGhostRoom && closetGhostOpening && (
+            <g className="opacity-40">
+              <RoomWalls
+                d={wallPath(
+                  [...rooms, closetGhostRoom],
+                  [closetGhostOpening],
+                  closetGhostRoom,
+                )}
+                scale={viewport.scale}
+              />
+            </g>
+          )}
           {selectedRoom && (
             <SharedWalls
               room={selectedRoom}
@@ -1000,10 +1117,13 @@ export function Canvas() {
               key={opening.id}
               opening={opening}
               wall={wall}
-              selected={opening.id === selection?.id}
+              selected={
+                opening.id === selection?.id ||
+                opening.id === selectedClosetOpeningId
+              }
             />
           ))}
-          {ghost && ghostWall && (
+          {tool === 'opening' && ghost && ghostWall && (
             <OpeningShape
               ghost
               wall={ghostWall}
@@ -1017,6 +1137,13 @@ export function Canvas() {
                 hinge: 'start',
                 swing: 'in',
               }}
+            />
+          )}
+          {closetGhostOpening && closetGhostWall && (
+            <OpeningShape
+              ghost
+              wall={closetGhostWall}
+              opening={closetGhostOpening}
             />
           )}
         </g>
@@ -1035,7 +1162,7 @@ export function Canvas() {
       <WallDimensions labels={dimensions} />
       <SnapGuides guides={guides} viewport={viewport} />
 
-      {tool === 'select' && selectedRoom && (
+      {tool === 'select' && selectedRoom?.kind !== 'closet' && selectedRoom && (
         <RoomEditor
           room={selectedRoom}
           viewport={viewport}

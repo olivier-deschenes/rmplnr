@@ -25,6 +25,17 @@ function toCanonicalRoom(room: Room): Room {
     id: room.id,
     name: room.name,
     points: room.points.map((point) => ({ x: point.x, y: point.y })),
+    ...(room.kind ? { kind: room.kind } : {}),
+    ...(room.attachment
+      ? {
+          attachment: {
+            roomId: room.attachment.roomId,
+            wall: room.attachment.wall,
+            t: room.attachment.t,
+            openingId: room.attachment.openingId,
+          },
+        }
+      : {}),
   }
 }
 

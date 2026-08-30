@@ -17,11 +17,13 @@ import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
 import {
+  CLOSET_OPENING_KINDS,
   HINGED_KINDS,
   OPENING_KINDS,
   OPENING_PRESETS,
   SIDED_KINDS,
 } from '#/lib/planner/presets.ts'
+import { closetSize } from '#/lib/planner/closets.ts'
 import { wallAt } from '#/lib/planner/openings.ts'
 import {
   normalizeAngle,
@@ -155,16 +157,18 @@ function NameField({
  * panel. Both have a key to themselves on the canvas; the buttons are here for
  * the times the pointer is already in the panel, and to say that they exist.
  */
-function SelectionActions() {
+function SelectionActions({ duplicate = true }: { duplicate?: boolean }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => plannerStore.actions.duplicateSelection()}
-      >
-        Duplicate
-      </Button>
+    <div className={`grid gap-2 ${duplicate ? 'grid-cols-2' : ''}`}>
+      {duplicate && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => plannerStore.actions.duplicateSelection()}
+        >
+          Duplicate
+        </Button>
+      )}
       <Button
         variant="outline"
         size="sm"
@@ -173,6 +177,104 @@ function SelectionActions() {
         Delete
       </Button>
     </div>
+  )
+}
+
+const CLOSET_STYLE_LABELS: Record<
+  (typeof CLOSET_OPENING_KINDS)[number],
+  string
+> = {
+  'sliding-door': 'Sliding doors',
+  door: 'Hinged door',
+  'double-door': 'Double doors',
+  opening: 'Open wall',
+}
+
+function ClosetPanel({
+  room,
+  host,
+  opening,
+  units,
+}: {
+  room: Room
+  host?: Room
+  opening?: Opening
+  units: Units
+}) {
+  const actions = plannerStore.actions
+  const size = closetSize(room)
+
+  return (
+    <>
+      <SectionTitle>Closet</SectionTitle>
+      <NameField
+        value={room.name}
+        onChange={(name) => actions.updateRoom(room.id, { name })}
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <LengthField
+          label="Width"
+          cm={size.width}
+          units={units}
+          min={MIN_SIZE}
+          onCommit={(width) => actions.updateCloset(room.id, { width })}
+        />
+        <LengthField
+          label="Depth"
+          cm={size.depth}
+          units={units}
+          min={MIN_SIZE}
+          onCommit={(depth) => actions.updateCloset(room.id, { depth })}
+        />
+      </div>
+      {opening && (
+        <>
+          <Label className="grid gap-1">
+            <span className="text-muted-foreground text-[10px]">
+              Opening style
+            </span>
+            <Select
+              value={opening.kind}
+              onValueChange={(kind) => {
+                actions.updateOpening(opening.id, {
+                  kind: kind as OpeningKind,
+                })
+                actions.sealHistory()
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CLOSET_OPENING_KINDS.map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {CLOSET_STYLE_LABELS[kind]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Label>
+          <LengthField
+            label="Opening width"
+            cm={opening.width}
+            units={units}
+            min={MIN_SIZE}
+            onCommit={(width) => actions.updateOpening(opening.id, { width })}
+          />
+        </>
+      )}
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+        <dt>Attached to</dt>
+        <dd className="text-foreground truncate text-right">
+          {host?.name ?? 'Missing room'}
+        </dd>
+        <dt>Area</dt>
+        <dd className="text-foreground text-right tabular-nums">
+          {formatArea(polygonArea(room.points), units, 2)}
+        </dd>
+      </dl>
+      <SelectionActions duplicate={false} />
+    </>
   )
 }
 
@@ -475,6 +577,16 @@ export function Inspector() {
       ? openings.find((o) => o.id === selection.id)
       : undefined
   const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
+  const closetOpening =
+    room?.kind === 'closet' && room.attachment
+      ? openings.find(
+          (candidate) => candidate.id === room.attachment?.openingId,
+        )
+      : undefined
+  const closetHost =
+    room?.kind === 'closet' && room.attachment
+      ? rooms.find((candidate) => candidate.id === room.attachment?.roomId)
+      : undefined
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-l">
@@ -487,7 +599,15 @@ export function Inspector() {
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.
         */}
-        {room ? (
+        {room?.kind === 'closet' ? (
+          <ClosetPanel
+            key={`${room.id}-${units}`}
+            room={room}
+            host={closetHost}
+            opening={closetOpening}
+            units={units}
+          />
+        ) : room ? (
           <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
         ) : item ? (
           <FurniturePanel
