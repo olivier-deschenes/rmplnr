@@ -72,6 +72,8 @@ const GAP = 8
 const RINGS = 4
 /** Where along its wall a label may slide, as a fraction of the room it has. */
 const SLIDES = [0, 0.5, -0.5, 1, -1]
+/** How far a name may step across its own item, as a fraction of the same. */
+const NAME_SLIDES = [0.5, 1]
 /** Boxes are held this far apart, so two labels never read as one. */
 const MARGIN = 2
 /** Walls this short on screen go unlabelled rather than crowd the drawing. */
@@ -256,15 +258,18 @@ function namePlacement(
   }
 
   const centre = worldToScreen({ x: item.x, y: item.y }, vp)
-  // The middle first, then out along the item's own axes: across the short one
-  // to begin with, which on most furniture is the shorter move of the two.
+  // The middle of the item, and then the least the name can move and still get
+  // clear: out along the item's own axes, sorted so the shortest move of the
+  // lot is tried first and the name stays as near the middle as it can.
   const offsets = [
     { x: 0, y: 0 },
-    { x: 0, y: runway.y },
-    { x: 0, y: -runway.y },
-    { x: runway.x, y: 0 },
-    { x: -runway.x, y: 0 },
-  ]
+    ...NAME_SLIDES.flatMap((slide) => [
+      { x: 0, y: runway.y * slide },
+      { x: 0, y: -runway.y * slide },
+      { x: runway.x * slide, y: 0 },
+      { x: -runway.x * slide, y: 0 },
+    ]),
+  ].sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))
 
   for (const offset of offsets) {
     const box: Box = {
