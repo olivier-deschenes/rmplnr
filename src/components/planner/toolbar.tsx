@@ -58,6 +58,11 @@ import {
   TooltipTrigger,
 } from '#/components/ui/tooltip.tsx'
 
+import { GitHubCommitDialog } from '#/features/github/GitHubCommitDialog.tsx'
+import { GitHubRepositoryDialog } from '#/features/github/GitHubRepositoryDialog.tsx'
+import { GitHubSyncControls } from '#/features/github/GitHubSyncControls.tsx'
+import { useGithubSync } from '#/features/github/useGithubSync.ts'
+
 import {
   FURNITURE_KINDS,
   FURNITURE_PRESETS,
@@ -305,6 +310,42 @@ function ProjectMenu() {
   )
 }
 
+/**
+ * Committing plans to a GitHub repository, and everything it takes to set that
+ * up.
+ *
+ * The whole feature is one button in the bar and two dialogs behind it, and
+ * they are kept together here because the button is the only way to either
+ * one. Nothing about the plans changes on GitHub's say-so without the reader
+ * seeing it first: what arrives is shown as a review, and applied only when
+ * they confirm it.
+ */
+function GitHubSync() {
+  const [dialog, setDialog] = useState<'repository' | 'commit' | null>(null)
+  const controller = useGithubSync()
+
+  return (
+    <>
+      <GitHubSyncControls
+        controller={controller}
+        onOpenRepository={() => setDialog('repository')}
+        onOpenCommit={() => setDialog('commit')}
+      />
+      <GitHubRepositoryDialog
+        open={dialog === 'repository'}
+        onOpenChange={(open) => setDialog(open ? 'repository' : null)}
+        controller={controller}
+      />
+      <GitHubCommitDialog
+        open={dialog === 'commit'}
+        onOpenChange={(open) => setDialog(open ? 'commit' : null)}
+        controller={controller}
+        onManageRepository={() => setDialog('repository')}
+      />
+    </>
+  )
+}
+
 /** Home for editor-wide settings, so the toolbar proper stays about drawing. */
 function OptionsMenu() {
   const units = useSelector(plannerStore, (s) => s.units)
@@ -517,6 +558,7 @@ export function Toolbar() {
 
         <Separator orientation="vertical" className="mx-1.5 h-5" />
 
+        <GitHubSync />
         <OptionsMenu />
       </div>
     </div>

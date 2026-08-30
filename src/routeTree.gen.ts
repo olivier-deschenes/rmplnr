@@ -11,6 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as ApiGithubEventsRouteImport } from './routes/api.github.events'
+import { Route as ApiGithubWebhookRouteImport } from './routes/api.github.webhook'
+import { Route as ApiGithubOauthCallbackRouteImport } from './routes/api.github.oauth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +25,74 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGithubEventsRoute = ApiGithubEventsRouteImport.update({
+  id: '/api/github/events',
+  path: '/api/github/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
+  id: '/api/github/webhook',
+  path: '/api/github/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubOauthCallbackRoute = ApiGithubOauthCallbackRouteImport.update({
+  id: '/api/github/oauth/callback',
+  path: '/api/github/oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/github/oauth/callback': typeof ApiGithubOauthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/github/oauth/callback': typeof ApiGithubOauthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/api/github/webhook': typeof ApiGithubWebhookRoute
+  '/api/github/oauth/callback': typeof ApiGithubOauthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/p/$projectId'
+  fullPaths:
+    | '/'
+    | '/p/$projectId'
+    | '/api/github/events'
+    | '/api/github/webhook'
+    | '/api/github/oauth/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/p/$projectId'
-  id: '__root__' | '/' | '/p/$projectId'
+  to:
+    | '/'
+    | '/p/$projectId'
+    | '/api/github/events'
+    | '/api/github/webhook'
+    | '/api/github/oauth/callback'
+  id:
+    | '__root__'
+    | '/'
+    | '/p/$projectId'
+    | '/api/github/events'
+    | '/api/github/webhook'
+    | '/api/github/oauth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PProjectIdRoute: typeof PProjectIdRoute
+  ApiGithubEventsRoute: typeof ApiGithubEventsRoute
+  ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
+  ApiGithubOauthCallbackRoute: typeof ApiGithubOauthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +111,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/github/events': {
+      id: '/api/github/events'
+      path: '/api/github/events'
+      fullPath: '/api/github/events'
+      preLoaderRoute: typeof ApiGithubEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/webhook': {
+      id: '/api/github/webhook'
+      path: '/api/github/webhook'
+      fullPath: '/api/github/webhook'
+      preLoaderRoute: typeof ApiGithubWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/oauth/callback': {
+      id: '/api/github/oauth/callback'
+      path: '/api/github/oauth/callback'
+      fullPath: '/api/github/oauth/callback'
+      preLoaderRoute: typeof ApiGithubOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PProjectIdRoute: PProjectIdRoute,
+  ApiGithubEventsRoute: ApiGithubEventsRoute,
+  ApiGithubWebhookRoute: ApiGithubWebhookRoute,
+  ApiGithubOauthCallbackRoute: ApiGithubOauthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

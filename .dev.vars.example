@@ -1,0 +1,8 @@
+# Copy to .dev.vars. Never commit real values.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_APP_SLUG=
+GITHUB_WEBHOOK_SECRET=
+# Base64url-encoded 32 random bytes.
+GITHUB_TOKEN_ENCRYPTION_KEY=
+GITHUB_CALLBACK_URL=http://localhost:3000/api/github/oauth/callback

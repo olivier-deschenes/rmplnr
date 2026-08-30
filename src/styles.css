@@ -48,6 +48,14 @@
    * they are the one thing that may not be read as ink.
    */
   --snap: oklch(0.58 0.19 258);
+  /*
+   * The sync traffic light, and the only other colours in the app. They report
+   * a state rather than draw a thing, so like the snap guide they are allowed
+   * out of the greys — and they stay off the canvas, where ink means geometry.
+   */
+  --sync-ok: oklch(0.58 0.13 155);
+  --sync-warn: oklch(0.62 0.13 75);
+  --sync-bad: oklch(0.55 0.2 27);
 }
 
 @theme inline {
@@ -86,6 +94,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-snap: var(--snap);
+  --color-sync-ok: var(--sync-ok);
+  --color-sync-warn: var(--sync-warn);
+  --color-sync-bad: var(--sync-bad);
 }
 
 html,

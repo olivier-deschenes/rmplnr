@@ -40,6 +40,80 @@ bun --bun run format
 bun --bun run check
 ```
 
+## GitHub sync
+
+Plans live in the browser. Nothing leaves it unless you connect a GitHub account,
+pick a repository, and tick the plans you want in it — and then only those plans,
+only to that repository.
+
+Plan files live at `.rmplnr/plans/<plan-uuid>.json`, beside `.rmplnr/workspace.json`.
+D1 holds users, sessions, encrypted GitHub tokens, short-lived OAuth state, and the
+selected repository; it never holds plan contents. Changes arriving from GitHub are
+shown as a review and applied only once you confirm them.
+
+### GitHub App setup
+
+Create a GitHub App for each environment with:
+
+- Homepage URL: the environment origin.
+- Callback URL: `<origin>/api/github/oauth/callback`.
+- Webhook URL: `<origin>/api/github/webhook`.
+- Expiring user authorization tokens enabled.
+- User authorization requested during installation.
+- Repository permissions: **Metadata — read** and **Contents — read/write**.
+- Events: subscribe to **Push**. GitHub delivers `installation` and
+  `installation_repositories` to every App automatically, so they do not appear
+  in the event list and need no subscription — the webhook handler receives
+  them regardless.
+
+Create the production D1 database and copy the returned `database_id` into the
+`AUTH_DB` entry in `wrangler.jsonc` — the id committed there is a local placeholder:
+
+```bash
+bunx wrangler d1 create rmplnr-auth
+```
+
+```bash
+bunx wrangler d1 migrations apply AUTH_DB --remote
+```
+
+Configure these Worker secrets. `GITHUB_TOKEN_ENCRYPTION_KEY` must be a
+base64url-encoded 32-byte random key and must stay stable, or stored tokens can no
+longer be decrypted.
+
+```bash
+bunx wrangler secret put GITHUB_CLIENT_ID
+```
+
+```bash
+bunx wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+```bash
+bunx wrangler secret put GITHUB_APP_SLUG
+```
+
+```bash
+bunx wrangler secret put GITHUB_WEBHOOK_SECRET
+```
+
+```bash
+bunx wrangler secret put GITHUB_TOKEN_ENCRYPTION_KEY
+```
+
+`GITHUB_CALLBACK_URL` is an optional variable for deployments whose public callback
+origin cannot be inferred from the request.
+
+### Local development
+
+Copy `.dev.vars.example` to `.dev.vars` and fill in your GitHub App values —
+`.dev.vars` must never be committed. Then apply the migrations to the local
+database:
+
+```bash
+bunx wrangler d1 migrations apply AUTH_DB --local
+```
+
 ## Deploy to Cloudflare Workers
 
 This project uses the Cloudflare Vite plugin (configured in `vite.config.ts`) and `wrangler.jsonc`:

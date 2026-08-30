@@ -1239,7 +1239,63 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         : { ...s, projects }
     })
   },
+
+  /**
+   * Put plans that came from somewhere else — GitHub — into the library, over
+   * any already there under the same id.
+   *
+   * The plan being drawn on is the one case worth spelling out. If it is among
+   * them, the drawing on the canvas is replaced too, or the editor would go on
+   * showing the copy that was just written over and save it back on the next
+   * keystroke. The history goes with it: the steps in it are steps back into a
+   * plan that is no longer the one open, and an undo across that seam would
+   * put half of the old plan back. The view is left where it is — the reader
+   * is looking at a room, and having accepted a change to it should still be
+   * looking at it.
+   *
+   * Nothing here is undoable, and nothing here is deleted: a plan that has
+   * gone from the repository is only unlinked from it, and stays in the
+   * library as a local plan.
+   */
+  upsertProjects(incoming: Array<Project>) {
+    if (incoming.length === 0) return
+    setState((s) => {
+      const byId = new Map(incoming.map((p) => [p.id, p]))
+      const library = libraryOf(s)
+      const known = new Set(library.projects.map((p) => p.id))
+      const projects = [
+        ...library.projects.map((p) => byId.get(p.id) ?? p),
+        ...incoming.filter((p) => !known.has(p.id)),
+      ]
+
+      const open = s.projectId === null ? undefined : byId.get(s.projectId)
+      if (!open) return { ...s, projects }
+
+      return {
+        ...s,
+        projects,
+        rooms: open.rooms,
+        furniture: open.furniture,
+        openings: open.openings,
+        selection: null,
+        renaming: null,
+        draft: null,
+        rect: null,
+        history: EMPTY_HISTORY,
+      }
+    })
+  },
 }))
+
+/**
+ * Every plan the library holds, the open one brought up to date from what is
+ * being drawn. This is the list anything outside the editor should read —
+ * `state.projects` has the open plan as it was last written down, which is a
+ * keystroke behind for as long as one is open.
+ */
+export function currentProjects(state: PlannerState): Array<Project> {
+  return libraryOf(state).projects
+}
 
 // --- persistence ------------------------------------------------------------
 

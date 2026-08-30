@@ -1,7 +1,55 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tanstack-start-app",
+  "name": "rmplnr",
   "compatibility_date": "2025-09-02",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
+  "observability": {
+    "enabled": true,
+  },
+  // Serve the Worker from the custom domain (Cloudflare manages the DNS record).
+  "routes": [
+    {
+      "pattern": "rmplnr.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "www.rmplnr.com",
+      "custom_domain": true,
+    },
+  ],
+  // GitHub credentials, sessions, OAuth flows, and the selected repository.
+  // Plan bodies remain in GitHub and browser storage, never in D1.
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "rmplnr-auth",
+      "database_id": "fb80bbad-d9e4-431a-8549-78e61d72fbcc",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // One hibernating WebSocket hub is addressed by each GitHub repository id.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REPOSITORY_EVENTS",
+        "class_name": "RepositoryEvents",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-repository-events",
+      "new_sqlite_classes": ["RepositoryEvents"],
+    },
+  ],
+  "secrets": {
+    "required": [
+      "GITHUB_CLIENT_ID",
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_APP_SLUG",
+      "GITHUB_WEBHOOK_SECRET",
+      "GITHUB_TOKEN_ENCRYPTION_KEY",
+    ],
+  },
 }

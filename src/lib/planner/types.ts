@@ -96,6 +96,28 @@ export const LibrarySchema = z.object({
   projects: z.array(ProjectSchema),
 })
 
+export const PROJECT_SCHEMA_VERSION = 1 as const
+
+/**
+ * A plan as it is written down outside this browser — one file per plan in a
+ * GitHub repository.
+ *
+ * It is `ProjectSchema` with two differences, and both come of the file being
+ * read back by somebody other than the editor that wrote it. It says which
+ * schema it is, so a file can outlive the shape it was written in. And its id
+ * is required to be a UUID rather than quietly replaced with one: a plan's id
+ * is also its filename, and a reader that invents an id on the way in would
+ * commit the same plan back under a second name.
+ */
+export const ProjectRecordSchema = z.object({
+  schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
+  id: z.uuid(),
+  name: z.string().trim().min(1),
+  rooms: z.array(RoomSchema),
+  furniture: z.array(FurnitureSchema),
+  openings: z.array(OpeningSchema),
+})
+
 export const UnitsSchema = z.enum(['metric', 'imperial'])
 
 /** Editor preferences, stored apart from the plan they are viewed through. */
@@ -114,6 +136,7 @@ export type OpeningKind = z.infer<typeof OpeningKindSchema>
 export type Opening = z.infer<typeof OpeningSchema>
 export type Plan = z.infer<typeof PlanSchema>
 export type Project = z.infer<typeof ProjectSchema>
+export type ProjectRecord = z.infer<typeof ProjectRecordSchema>
 export type Library = z.infer<typeof LibrarySchema>
 export type Units = z.infer<typeof UnitsSchema>
 export type Prefs = z.infer<typeof PrefsSchema>
