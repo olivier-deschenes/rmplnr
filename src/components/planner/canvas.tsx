@@ -333,6 +333,21 @@ export function Canvas() {
         } else if (key === 'y') {
           event.preventDefault()
           a.redo()
+        } else if (key === 'c') {
+          // With nothing selected there is nothing here to copy, and the
+          // browser's own copy — of whatever text is selected on the page — is
+          // left to go through.
+          if (!state.selection) return
+          event.preventDefault()
+          a.copySelection()
+        } else if (key === 'v') {
+          event.preventDefault()
+          a.paste()
+        } else if (key === 'd') {
+          // Taken whether or not it does anything, so that the plan never
+          // answers a duplicate with the browser's bookmark dialogue.
+          event.preventDefault()
+          a.duplicateSelection()
         }
         // Everything below this point is a bare key, and the browser has its
         // own uses for the combinations: ⌘R reloads rather than drawing a room.

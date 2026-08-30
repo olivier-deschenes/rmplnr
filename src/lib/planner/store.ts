@@ -8,6 +8,7 @@ import {
   rectPolygon,
   screenToWorld,
   snapPoint,
+  snapValue,
   translatePolygon,
   zoomAt,
 } from './geometry.ts'
@@ -32,6 +33,7 @@ import { DEFAULT_SCALE, MIN_SIZE, PlanSchema, PrefsSchema } from './types.ts'
 
 import type { History, Snapshot } from './history.ts'
 import type {
+  Clipboard,
   Furniture,
   FurnitureKind,
   Opening,
@@ -55,6 +57,8 @@ export type PlannerState = {
   selection: Selection
   /** The name currently being typed over on the plan, if any. */
   renaming: Rename
+  /** What was last copied, waiting to be put down again. */
+  clipboard: Clipboard | null
   tool: Tool
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
@@ -80,6 +84,7 @@ const initialState: PlannerState = {
   openings: [],
   selection: null,
   renaming: null,
+  clipboard: null,
   tool: 'select',
   openingKind: 'door',
   snap: true,
@@ -233,6 +238,36 @@ const CASCADE_SPOTS: Array<Point> = (() => {
   return spots
 })()
 
+/**
+ * Where a piece of furniture about to be put down actually lands: the spot
+ * asked for, or the nearest one out from it that is free, searched no further
+ * out than `reach`.
+ *
+ * A plan with nowhere free within that reach gets it on the spot asked for
+ * regardless: an item overlapping something is at least there to be seen and
+ * dragged away — and one already lapping is let out of the collision rule
+ * until it is somewhere clear, so it can be dragged straight off again.
+ */
+function freeSpot(
+  state: PlannerState,
+  shape: Omit<Furniture, 'x' | 'y'>,
+  centre: Point,
+  reach = CASCADE_RINGS * CASCADE,
+): Point {
+  const blockers = inTheWayOf(state)
+  for (const offset of CASCADE_SPOTS) {
+    // The spots come out ring by ring, so the first one beyond the reach is
+    // where the search stops.
+    if (Math.max(Math.abs(offset.x), Math.abs(offset.y)) > reach) break
+    const spot = { x: centre.x + offset.x, y: centre.y + offset.y }
+    const taken = state.furniture.some(
+      (f) => Math.abs(f.x - spot.x) < 1 && Math.abs(f.y - spot.y) < 1,
+    )
+    if (!taken && fits({ ...shape, ...spot }, blockers)) return spot
+  }
+  return centre
+}
+
 /** Whether a patch asks a piece of furniture to take up any different floor. */
 function displaced(from: Furniture, to: Furniture): boolean {
   return (
@@ -260,6 +295,179 @@ function placed(
 ): Furniture {
   if (!state.collide || !displaced(from, to)) return to
   return settleFurniture(from, to, inTheWayOf(state, from.id))
+}
+
+// --- copying ----------------------------------------------------------------
+
+/** A trailing `copy`, with or without a number after it. */
+const COPY_SUFFIX = / copy(?: \d+)?$/
+
+/**
+ * What to call a copy: the name it was taken from with `copy` after it, and a
+ * number after that once the plain one is spoken for. A copy of a copy is
+ * another copy of the same original rather than a `Sofa 1 copy copy`, which is
+ * what duplicating the same thing twice over would otherwise leave behind.
+ */
+function copyName(name: string, taken: Array<string>): string {
+  const base = `${name.replace(COPY_SUFFIX, '')} copy`
+  if (!taken.includes(base)) return base
+  // Every candidate is a name of its own, and there are only so many taken, so
+  // one of them is free.
+  for (let n = 2; ; n++) {
+    if (!taken.includes(`${base} ${n}`)) return `${base} ${n}`
+  }
+}
+
+/**
+ * How far a copy stands from what it was copied from: far enough to read as a
+ * second thing rather than a thicker line, and near enough to still be part of
+ * the same glance.
+ */
+const PASTE_OFFSET = 20
+
+/**
+ * How far a copy may be shifted about to find room to stand in before it is
+ * simply put down where it was asked for, lapping whatever is there.
+ *
+ * A metre, because a copy is made to be seen beside what it came from: a new
+ * item has nowhere it belongs yet and can be cascaded clean across the plan to
+ * find space, but a copy sent that far has lost the one thing it was for. Room
+ * enough for anything to step off its own long side, and short enough that in
+ * a crowded room the copy lands under the pointer instead of in the hall.
+ */
+const PASTE_REACH = 100
+
+/**
+ * That offset, rounded to whole grid steps, so a copy of something square to
+ * the grid lands square to it too — and an inch grid is not thrown off by a
+ * distance measured in centimetres.
+ */
+function pasteOffset(state: PlannerState): number {
+  const step = activeSnapStep(state)
+  return step === null ? PASTE_OFFSET : snapValue(PASTE_OFFSET, step)
+}
+
+/** What the selection would be copied as, or null when nothing is selected. */
+function copyOf(state: PlannerState): Clipboard | null {
+  const selection = state.selection
+  if (!selection) return null
+  if (selection.type === 'room') {
+    const room = state.rooms.find((r) => r.id === selection.id)
+    // A room is copied with the doors and windows cut into it, the same way it
+    // is deleted with them: without those it is an outline rather than a room.
+    return room
+      ? {
+          type: 'room',
+          room,
+          openings: state.openings.filter((o) => o.roomId === room.id),
+        }
+      : null
+  }
+  if (selection.type === 'furniture') {
+    const item = state.furniture.find((f) => f.id === selection.id)
+    return item ? { type: 'furniture', item } : null
+  }
+  const opening = state.openings.find((o) => o.id === selection.id)
+  return opening ? { type: 'opening', opening } : null
+}
+
+/**
+ * Put a copy down, selected and with the tool handed back, the way anything
+ * else added to the plan arrives: one step to undo, ready to be dragged off
+ * the thing it came from.
+ *
+ * The copy takes the original's place in the clipboard, so that a run of
+ * pastes walks across the plan instead of stacking every copy on the same
+ * spot.
+ */
+function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
+  const offset = pasteOffset(state)
+
+  if (clipboard.type === 'room') {
+    const room: Room = {
+      id: newId(),
+      name: copyName(
+        clipboard.room.name,
+        state.rooms.map((r) => r.name),
+      ),
+      points: translatePolygon(clipboard.room.points, offset, offset),
+    }
+    // The openings come across on the same walls of the same outline, so they
+    // need nothing but the new room to belong to.
+    const openings = clipboard.openings.map((o) => ({
+      ...o,
+      id: newId(),
+      roomId: room.id,
+    }))
+    return {
+      ...state,
+      history: commit(state, null, `Added ${room.name}`),
+      rooms: [...state.rooms, room],
+      openings: [...state.openings, ...openings],
+      clipboard: { type: 'room', room, openings },
+      selection: { type: 'room', id: room.id },
+      tool: 'select',
+    }
+  }
+
+  if (clipboard.type === 'furniture') {
+    const shape = {
+      ...clipboard.item,
+      id: newId(),
+      name: copyName(
+        clipboard.item.name,
+        state.furniture.map((f) => f.name),
+      ),
+    }
+    // Offset first and then looked for somewhere free from there, so a copy
+    // made against a wall steps along it rather than into it.
+    const item: Furniture = {
+      ...shape,
+      ...freeSpot(
+        state,
+        shape,
+        { x: clipboard.item.x + offset, y: clipboard.item.y + offset },
+        PASTE_REACH,
+      ),
+    }
+    return {
+      ...state,
+      history: commit(state, null, `Added ${item.name}`),
+      furniture: [...state.furniture, item],
+      clipboard: { type: 'furniture', item },
+      selection: { type: 'furniture', id: item.id },
+      tool: 'select',
+    }
+  }
+
+  // An opening has nowhere to be but a wall, so a copy goes back on the wall
+  // it came off — and nowhere at all once that wall has been taken down.
+  const source = clipboard.opening
+  const room = state.rooms.find((r) => r.id === source.roomId)
+  const wall = room && wallAt(room.points, source.wall)
+  if (!room || !wall) return state
+  const width = fittedWidth(source.width, wall.length)
+  // One width along the wall, or back the other way when the original is
+  // already at that end, so the copy stands beside it rather than inside it.
+  const step = width / wall.length
+  const t = clampT(
+    source.t + (source.t + step > 1 - step / 2 ? -step : step),
+    width,
+    wall.length,
+  )
+  const opening: Opening = { ...source, id: newId(), width, t }
+  return {
+    ...state,
+    history: commit(
+      state,
+      null,
+      `Added ${openingName(opening.kind)} to ${room.name}`,
+    ),
+    openings: [...state.openings, opening],
+    clipboard: { type: 'opening', opening },
+    selection: { type: 'opening', id: opening.id },
+    tool: 'select',
+  }
 }
 
 /**
@@ -371,6 +579,34 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => (s.renaming === null ? s : { ...s, renaming: null }))
   },
 
+  /**
+   * Take a copy of the selection, to be put down again with `paste`. Nothing
+   * about the plan changes, so there is no step here to undo.
+   */
+  copySelection() {
+    setState((s) => {
+      const clipboard = copyOf(s)
+      return clipboard ? { ...s, clipboard } : s
+    })
+  },
+
+  /** Put down another of whatever was last copied. */
+  paste() {
+    setState((s) => (s.clipboard ? pasted(s, s.clipboard) : s))
+  },
+
+  /**
+   * Copy and paste in one, and without disturbing the clipboard — the way a
+   * row of the same chair gets laid out, and the one thing a copy is most
+   * often wanted for.
+   */
+  duplicateSelection() {
+    setState((s) => {
+      const copy = copyOf(s)
+      return copy ? { ...pasted(s, copy), clipboard: s.clipboard } : s
+    })
+  },
+
   addFurniture(kind: FurnitureKind) {
     const state = get()
     const preset = FURNITURE_PRESETS[kind]
@@ -386,21 +622,8 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       rotation: 0,
     }
     // Somewhere the new item can actually stand, so that it is never dropped
-    // inside a wall or hidden underneath the last one. A plan with nowhere
-    // free within reach gets it on the spot asked for regardless: an item
-    // overlapping something is at least there to be seen and dragged away,
-    // which is more than one flung to the far side of the plan would be.
-    const blockers = inTheWayOf(state)
-    const free = CASCADE_SPOTS.map((offset) => ({
-      x: centre.x + offset.x,
-      y: centre.y + offset.y,
-    })).find(
-      (spot) =>
-        !state.furniture.some(
-          (f) => Math.abs(f.x - spot.x) < 1 && Math.abs(f.y - spot.y) < 1,
-        ) && fits({ ...shape, ...spot }, blockers),
-    )
-    const item: Furniture = { ...shape, ...(free ?? centre) }
+    // inside a wall or hidden underneath the last one.
+    const item: Furniture = { ...shape, ...freeSpot(state, shape, centre) }
     setState((s) => ({
       ...s,
       history: commit(s, null, `Added ${item.name}`),

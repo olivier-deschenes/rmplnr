@@ -104,6 +104,20 @@ export type Selection = {
  */
 export type Rename = { type: 'room' | 'furniture'; id: string } | null
 
+/**
+ * What a copy took: something lifted whole out of the plan, along with
+ * whatever belongs to it. A room is not only its outline — the doors and
+ * windows cut into it are part of what was copied, the same way deleting it
+ * takes them down with it.
+ *
+ * Everything here is the thing itself rather than its id, so what was copied
+ * outlives the original being changed, or deleted out from under it.
+ */
+export type Clipboard =
+  | { type: 'room'; room: Room; openings: Array<Opening> }
+  | { type: 'furniture'; item: Furniture }
+  | { type: 'opening'; opening: Opening }
+
 export type Tool = 'select' | 'room' | 'rect' | 'opening'
 
 /** The two opposite corners of a rectangle room being dragged out. */

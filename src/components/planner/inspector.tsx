@@ -152,16 +152,29 @@ function NameField({
   )
 }
 
-function DeleteButton() {
+/**
+ * What can be done to the selection whatever it is, at the foot of every
+ * panel. Both have a key to themselves on the canvas; the buttons are here for
+ * the times the pointer is already in the panel, and to say that they exist.
+ */
+function SelectionActions() {
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="w-full"
-      onClick={() => plannerStore.actions.deleteSelected()}
-    >
-      Delete
-    </Button>
+    <div className="grid grid-cols-2 gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => plannerStore.actions.duplicateSelection()}
+      >
+        Duplicate
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => plannerStore.actions.deleteSelected()}
+      >
+        Delete
+      </Button>
+    </div>
   )
 }
 
@@ -235,7 +248,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
             : joined.map((other) => other.name).join(', ')}
         </dd>
       </dl>
-      <DeleteButton />
+      <SelectionActions />
     </>
   )
 }
@@ -282,7 +295,7 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
         value={item.rotation}
         onCommit={(rotation) => update({ rotation: normalizeAngle(rotation) })}
       />
-      <DeleteButton />
+      <SelectionActions />
     </>
   )
 }
@@ -425,7 +438,7 @@ function OpeningPanel({
           {formatLength(wall.length, units)}
         </dd>
       </dl>
-      <DeleteButton />
+      <SelectionActions />
     </>
   )
 }
@@ -474,6 +487,10 @@ function EmptyPanel({ units }: { units: Units }) {
         <dd>Or ⌘ + scroll to zoom</dd>
         <dt className="text-foreground">⌫</dt>
         <dd>Delete the selection</dd>
+        <dt className="text-foreground">⌘D</dt>
+        <dd>Duplicate the selection</dd>
+        <dt className="text-foreground">⌘C / ⌘V</dt>
+        <dd>Copy it, and put down another</dd>
         <dt className="text-foreground">⌘Z / ⇧⌘Z</dt>
         <dd>Undo, redo</dd>
       </dl>
