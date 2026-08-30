@@ -114,6 +114,24 @@ export function polygonCentroid(points: Array<Point>): Point {
 }
 
 /**
+ * Whether a point falls inside a polygon, by counting the crossings of a ray
+ * cast out from it: an odd number of them means it set off indoors. Rooms bent
+ * round a corner are read the same way as square ones, and so is a rotated
+ * piece of furniture, whose own four corners make a polygon like any other.
+ */
+export function pointInPolygon(p: Point, points: Array<Point>): boolean {
+  let inside = false
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i]
+    const b = points[j]
+    // Only an edge with one end either side of the ray can be crossed by it.
+    if (a.y > p.y === b.y > p.y) continue
+    if (p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
+
+/**
  * +1 when the polygon winds so that turning an edge's direction to `(dy, -dx)`
  * points out of the room, -1 when it winds the other way. For a simple polygon
  * the winding alone settles this, concave corners included.

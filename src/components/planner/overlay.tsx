@@ -1,3 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
+
+import { Input } from '#/components/ui/input.tsx'
+
 import {
   handlePosition,
   normalizeAngle,
@@ -161,10 +165,13 @@ export function RoomLabels({
   rooms,
   viewport,
   units,
+  /** The room whose name is being typed over, and so is not written here. */
+  renaming,
 }: {
   rooms: Array<Room>
   viewport: Viewport
   units: Units
+  renaming?: string
 }) {
   return (
     <g className="pointer-events-none">
@@ -172,13 +179,15 @@ export function RoomLabels({
         const at = worldToScreen(polygonCentroid(room.points), viewport)
         return (
           <g key={room.id} textAnchor="middle">
-            <text
-              x={at.x}
-              y={at.y}
-              className="fill-foreground text-[11px] font-medium"
-            >
-              {room.name}
-            </text>
+            {room.id !== renaming && (
+              <text
+                x={at.x}
+                y={at.y}
+                className="fill-foreground text-[11px] font-medium"
+              >
+                {room.name}
+              </text>
+            )}
             <text
               x={at.x}
               y={at.y + 14}
@@ -190,6 +199,73 @@ export function RoomLabels({
         )
       })}
     </g>
+  )
+}
+
+/** How much of the canvas a name is given to be typed in, in pixels. */
+const NAME_WIDTH = 150
+const NAME_HEIGHT = 32
+
+/**
+ * A name being typed over where it is written on the plan: a room's own label,
+ * or the middle of a piece of furniture.
+ *
+ * The box is a real text field laid into the drawing, so the plan does not have
+ * to grow a text editor of its own. What is typed is held here until it is
+ * committed — pressing Enter, or clicking away — which keeps a rename to one
+ * step to undo however many keystrokes went into it.
+ */
+export function NameEditor({
+  at,
+  value,
+  onCommit,
+  onCancel,
+}: {
+  at: Point
+  value: string
+  onCommit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const ref = useRef<HTMLInputElement>(null)
+
+  // Opened with the name as it stands, all of it selected: typing replaces the
+  // lot, and an arrow key steps into it to be edited a word at a time instead.
+  useEffect(() => {
+    ref.current?.select()
+  }, [])
+
+  /** A name typed away to nothing is no name at all, so the old one stands. */
+  const commit = () => {
+    const name = draft.trim()
+    onCommit(name.length === 0 ? value : name)
+  }
+
+  return (
+    <foreignObject
+      x={at.x - NAME_WIDTH / 2}
+      y={at.y - NAME_HEIGHT / 2}
+      width={NAME_WIDTH}
+      height={NAME_HEIGHT}
+    >
+      <Input
+        ref={ref}
+        value={draft}
+        aria-label="Name"
+        className="bg-background h-8 text-center shadow-xs select-text"
+        // The canvas underneath would otherwise read a press in the field as
+        // the start of a pan, and a double-click picking out a word in it as a
+        // fresh rename of whatever is behind the box.
+        onPointerDown={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit()
+          if (event.key === 'Escape') onCancel()
+        }}
+      />
+    </foreignObject>
   )
 }
 

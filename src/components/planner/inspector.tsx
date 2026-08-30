@@ -225,7 +225,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
       */}
       <p className="text-muted-foreground text-[11px]">
         Drag a wall to push the room out, or a corner to reshape it.
-        Double-click a wall to break it in two.
+        Double-click a wall to break it in two, or the room itself to rename it.
       </p>
       <dl className="text-muted-foreground grid gap-y-1 text-[11px]">
         <dt>Shares walls with</dt>
@@ -469,7 +469,7 @@ function EmptyPanel({ units }: { units: Units }) {
         <dt className="text-foreground">Drag</dt>
         <dd>Sizes a rectangle; empty space pans</dd>
         <dt className="text-foreground">Double-click</dt>
-        <dd>Break a wall of the selected room in two</dd>
+        <dd>Rename a room or an item; break a selected wall in two</dd>
         <dt className="text-foreground">Pinch</dt>
         <dd>Or ⌘ + scroll to zoom</dd>
         <dt className="text-foreground">⌫</dt>

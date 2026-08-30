@@ -95,6 +95,13 @@ export type Selection = {
   id: string
 } | null
 
+/**
+ * The name being typed over on the plan itself. Only the things that carry a
+ * name of their own are in here: an opening is called after its kind, and has
+ * nothing to rename.
+ */
+export type Rename = { type: 'room' | 'furniture'; id: string } | null
+
 export type Tool = 'select' | 'room' | 'rect' | 'opening'
 
 /** The two opposite corners of a rectangle room being dragged out. */

@@ -13,6 +13,7 @@ import {
 import {
   DraftOverlay,
   FurnitureEditor,
+  NameEditor,
   OpeningEditor,
   RectPreview,
   RoomEditor,
@@ -45,7 +46,10 @@ import {
 } from '#/lib/planner/openings.ts'
 import {
   distance,
+  furnitureCorners,
+  pointInPolygon,
   polygonBounds,
+  polygonCentroid,
   resizeRotated,
   rotationFor,
   screenToWorld,
@@ -61,7 +65,9 @@ import type {
   Handle,
   Opening,
   Point,
+  Rename,
   Room,
+  Viewport,
 } from '#/lib/planner/types.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
@@ -70,6 +76,69 @@ import type { Wall } from '#/lib/planner/openings.ts'
 const CLOSE_PX = 12
 /** How near a wall the pointer must come, in screen pixels, to open it up. */
 const WALL_REACH_PX = 44
+/** How far above a room's own label the field to rename it sits, in pixels. */
+const NAME_LIFT = 6
+
+/**
+ * What a click at `world` has landed on, of the things that carry a name of
+ * their own. Whatever is drawn last is drawn on top, so the search runs back
+ * from the end of each list, and furniture is asked before the floor it stands
+ * on — the same order the pointer meets them in.
+ *
+ * A click on a wall itself is nobody's name: it belongs to the wall, whether
+ * that is one to be broken in two or a door cut into it, neither of which is
+ * called anything of its own. `reach` is how near counts as on it.
+ */
+function nameableAt(
+  rooms: Array<Room>,
+  furniture: Array<Furniture>,
+  world: Point,
+  reach: number,
+): Rename {
+  for (let i = furniture.length - 1; i >= 0; i--) {
+    const item = furniture[i]
+    if (pointInPolygon(world, furnitureCorners(item))) {
+      return { type: 'furniture', id: item.id }
+    }
+  }
+  if (nearestWall(rooms, world, reach)) return null
+  for (let i = rooms.length - 1; i >= 0; i--) {
+    if (pointInPolygon(world, rooms[i].points)) {
+      return { type: 'room', id: rooms[i].id }
+    }
+  }
+  return null
+}
+
+/**
+ * Where the name being typed over is written on the plan, and what it says as
+ * it stands: over a room's own label, or in the middle of a piece of
+ * furniture, which carries no label but is named all the same.
+ *
+ * Null once whatever was being renamed has gone from under the field.
+ */
+function editedName(
+  rooms: Array<Room>,
+  furniture: Array<Furniture>,
+  renaming: Rename,
+  viewport: Viewport,
+): { key: string; at: Point; name: string } | null {
+  if (!renaming) return null
+  const key = `${renaming.type}:${renaming.id}`
+  if (renaming.type === 'room') {
+    const room = rooms.find((r) => r.id === renaming.id)
+    if (!room) return null
+    const at = worldToScreen(polygonCentroid(room.points), viewport)
+    return { key, at: { x: at.x, y: at.y - NAME_LIFT }, name: room.name }
+  }
+  const item = furniture.find((f) => f.id === renaming.id)
+  if (!item) return null
+  return {
+    key,
+    at: worldToScreen({ x: item.x, y: item.y }, viewport),
+    name: item.name,
+  }
+}
 
 type Drag =
   | {
@@ -105,6 +174,7 @@ export function Canvas() {
     furniture,
     openings,
     selection,
+    renaming,
     tool,
     openingKind,
     units,
@@ -590,19 +660,23 @@ export function Canvas() {
   }
 
   /**
-   * Closing an outline being traced, and breaking a wall of the selected room
-   * in two — a corner dropped where the wall was double-clicked, which is the
-   * only way to give a room more sides than it was drawn with.
+   * Everything a double-click does: closing an outline being traced; breaking
+   * a wall of the selected room in two — a corner dropped where the wall was
+   * double-clicked, which is the only way to give a room more sides than it
+   * was drawn with; and, anywhere else, putting the name of whatever was
+   * clicked up to be typed over.
    *
-   * The wall is found here rather than being handed over by the band that was
-   * hit, because by the time the second click lands there is no telling what
-   * was hit: the first press captured the pointer to this canvas, and a
-   * captured pointer sends its click — and the double-click built from it — to
-   * whatever holds the capture. So the pointer is measured against the room's
-   * own walls, against the same reach the bands are drawn at, and the corner is
-   * put on the wall rather than under the pointer, which may be a few pixels
-   * off it: a wall that kinked the moment it gained a corner would be showing
-   * the aim of the click rather than the break.
+   * None of this is wired to the shapes themselves, because by the time the
+   * second click lands there is no telling what was hit: the first press
+   * captured the pointer to this canvas, and a captured pointer sends its
+   * click — and the double-click built from it — to whatever holds the
+   * capture. So the canvas measures the pointer against the plan itself, in
+   * the order the pointer would have met it: the selected room's walls first,
+   * at the same reach their grab bands are drawn at, and then whatever the
+   * click fell inside. The corner a break adds is put on the wall rather than
+   * under the pointer, which may be a few pixels off it: a wall that kinked
+   * the moment it gained a corner would be showing the aim of the click rather
+   * than the break.
    */
   function onDoubleClick(event: React.MouseEvent) {
     const state = plannerStore.state
@@ -612,26 +686,51 @@ export function Canvas() {
       actions.commitDraft()
       return
     }
-    if (state.tool !== 'select' || state.selection?.type !== 'room') return
-    const room = state.rooms.find((r) => r.id === state.selection?.id)
-    if (!room) return
+    if (state.tool !== 'select') return
+    const world = toWorld(event)
 
-    const spot = nearestWall(
-      [room],
-      toWorld(event),
+    const room =
+      state.selection?.type === 'room'
+        ? state.rooms.find((r) => r.id === state.selection?.id)
+        : undefined
+    const spot =
+      room && nearestWall([room], world, WALL_GRAB / 2 / state.viewport.scale)
+    const frame = room && spot && wallAt(room.points, spot.wall)
+    if (room && spot && frame) {
+      actions.insertVertex(
+        room.id,
+        spot.wall,
+        settle(pointOnWall(frame, spot.t), room.id),
+      )
+      actions.sealHistory()
+      // `settle` puts up the guides a drag would want; there is no drag here.
+      setGuides([])
+      return
+    }
+
+    const target = nameableAt(
+      state.rooms,
+      state.furniture,
+      world,
       WALL_GRAB / 2 / state.viewport.scale,
     )
-    const frame = spot && wallAt(room.points, spot.wall)
-    if (!spot || !frame) return
+    if (target) actions.beginRename(target.type, target.id)
+  }
 
-    actions.insertVertex(
-      room.id,
-      spot.wall,
-      settle(pointOnWall(frame, spot.t), room.id),
-    )
+  /**
+   * Take a typed name. What it belongs to is read off the store rather than
+   * closed over, so a name arriving late — committed as the field was already
+   * being put away — cannot land on whatever is being renamed now, or on
+   * something that has since been deleted.
+   */
+  function commitRename(name: string) {
+    const target = plannerStore.state.renaming
+    if (!target) return
+    if (target.type === 'room') actions.updateRoom(target.id, { name })
+    else actions.updateFurniture(target.id, { name })
+    // A rename is one step to undo, and the next one starts a step of its own.
     actions.sealHistory()
-    // `settle` puts up the guides a drag would want; there is no drag here.
-    setGuides([])
+    actions.endRename()
   }
 
   function onRoomPointerDown(room: Room, event: React.PointerEvent) {
@@ -775,6 +874,10 @@ export function Canvas() {
     d: wallPath(rooms, openings, room),
   }))
 
+  // Where the name being typed over stands on the page, if one is: read on
+  // every render, so the field rides along with a pan or a zoom.
+  const rename = editedName(rooms, furniture, renaming, viewport)
+
   const cursorClass = panning
     ? 'cursor-grabbing'
     : tool === 'select'
@@ -884,7 +987,12 @@ export function Canvas() {
         </g>
       </g>
 
-      <RoomLabels rooms={rooms} viewport={viewport} units={units} />
+      <RoomLabels
+        rooms={rooms}
+        viewport={viewport}
+        units={units}
+        renaming={renaming?.type === 'room' ? renaming.id : undefined}
+      />
       <WallDimensions labels={dimensions} />
       <SnapGuides guides={guides} viewport={viewport} />
 
@@ -926,6 +1034,16 @@ export function Canvas() {
           viewport={viewport}
           units={units}
           nearFirst={nearFirst}
+        />
+      )}
+      {/* Last, so the field is over everything it is being typed on top of. */}
+      {rename && (
+        <NameEditor
+          key={rename.key}
+          at={rename.at}
+          value={rename.name}
+          onCommit={commitRename}
+          onCancel={actions.endRename}
         />
       )}
     </svg>

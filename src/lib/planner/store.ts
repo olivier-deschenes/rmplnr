@@ -38,6 +38,7 @@ import type {
   Point,
   Prefs,
   RectDraft,
+  Rename,
   Room,
   Selection,
   Tool,
@@ -51,6 +52,8 @@ export type PlannerState = {
   /** Doors, windows and gaps, each attached to one wall of one room. */
   openings: Array<Opening>
   selection: Selection
+  /** The name currently being typed over on the plan, if any. */
+  renaming: Rename
   tool: Tool
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
@@ -73,6 +76,7 @@ const initialState: PlannerState = {
   furniture: [],
   openings: [],
   selection: null,
+  renaming: null,
   tool: 'select',
   openingKind: 'door',
   snap: true,
@@ -132,6 +136,7 @@ function restore(state: PlannerState, step: Snapshot): PlannerState {
     ...state,
     ...step,
     rect: null,
+    renaming: null,
     tool: step.draft ? 'room' : state.draft ? 'select' : state.tool,
   }
 }
@@ -203,6 +208,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       tool,
       draft: tool === 'room' ? s.draft : null,
       rect: tool === 'rect' ? s.rect : null,
+      renaming: null,
     }))
   },
 
@@ -264,7 +270,27 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   select(selection: Selection) {
-    setState((s) => ({ ...s, selection }))
+    // Whatever else the click did, it took the pointer off the name being
+    // typed, and the field it was typed in goes with it.
+    setState((s) => ({ ...s, selection, renaming: null }))
+  },
+
+  /**
+   * Put a name up to be typed over where it is written on the plan, rather
+   * than in the inspector's field for it. What is being renamed is selected in
+   * the same move, so the panel is describing the thing under the cursor.
+   */
+  beginRename(type: 'room' | 'furniture', id: string) {
+    setState((s) => ({
+      ...s,
+      selection: { type, id },
+      renaming: { type, id },
+    }))
+  },
+
+  /** Put the name field away, whether what was typed was kept or dropped. */
+  endRename() {
+    setState((s) => (s.renaming === null ? s : { ...s, renaming: null }))
   },
 
   addFurniture(kind: FurnitureKind) {
@@ -504,6 +530,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           type === 'room' ? o.roomId !== id : o.id !== id,
         ),
         selection: null,
+        renaming: null,
       }
     })
   },
@@ -709,6 +736,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       furniture,
       openings,
       selection: null,
+      renaming: null,
       history: EMPTY_HISTORY,
     }))
   },
