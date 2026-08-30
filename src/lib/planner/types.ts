@@ -70,6 +70,32 @@ export const PlanSchema = z.object({
   openings: z.array(OpeningSchema).default([]),
 })
 
+/**
+ * A plan under a name of its own.
+ *
+ * A project is the plan and nothing besides: units, snapping and the rest
+ * belong to whoever is drawing rather than to any one plan, and stay in the
+ * preferences, where switching from one project to another leaves them alone.
+ */
+export const ProjectSchema = PlanSchema.omit({ version: true }).extend({
+  /**
+   * A UUID, which is also the name the plan answers to in the URL. Anything
+   * read back that is not one — a plan saved before they were — is given one
+   * here rather than costing the reader the plan.
+   */
+  id: z.uuid().catch(() => crypto.randomUUID()),
+  name: z.string(),
+})
+
+/**
+ * Every project saved. Which one is open is not in here: that is what the URL
+ * says, so a plan can be linked to and come back to on its own.
+ */
+export const LibrarySchema = z.object({
+  version: z.literal(1),
+  projects: z.array(ProjectSchema),
+})
+
 export const UnitsSchema = z.enum(['metric', 'imperial'])
 
 /** Editor preferences, stored apart from the plan they are viewed through. */
@@ -87,6 +113,8 @@ export type Furniture = z.infer<typeof FurnitureSchema>
 export type OpeningKind = z.infer<typeof OpeningKindSchema>
 export type Opening = z.infer<typeof OpeningSchema>
 export type Plan = z.infer<typeof PlanSchema>
+export type Project = z.infer<typeof ProjectSchema>
+export type Library = z.infer<typeof LibrarySchema>
 export type Units = z.infer<typeof UnitsSchema>
 export type Prefs = z.infer<typeof PrefsSchema>
 

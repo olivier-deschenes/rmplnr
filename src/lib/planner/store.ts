@@ -29,17 +29,25 @@ import {
   selectionName,
 } from './describe.ts'
 import { SNAP_STEP } from './units.ts'
-import { DEFAULT_SCALE, MIN_SIZE, PlanSchema, PrefsSchema } from './types.ts'
+import {
+  DEFAULT_SCALE,
+  LibrarySchema,
+  MIN_SIZE,
+  PlanSchema,
+  PrefsSchema,
+} from './types.ts'
 
 import type { History, Snapshot } from './history.ts'
 import type {
   Clipboard,
   Furniture,
   FurnitureKind,
+  Library,
   Opening,
   OpeningKind,
   Point,
   Prefs,
+  Project,
   RectDraft,
   Rename,
   Room,
@@ -50,6 +58,26 @@ import type {
 } from './types.ts'
 
 export type PlannerState = {
+  /**
+   * Every plan saved, the open one among them. Its entry here is the copy last
+   * written down: the plan actually being drawn on is `rooms`, `furniture` and
+   * `openings` below, and is read back into its entry whenever the library as
+   * a whole is wanted — which is what `libraryOf` is for.
+   */
+  projects: Array<Project>
+  /**
+   * Whether the library has been read back out of the browser yet. Until it
+   * has, an empty `projects` means unread rather than empty — which is the
+   * difference between a page that says there are no plans and one that has
+   * not looked. The server renders on the unread state, so the first render in
+   * the browser has to match it.
+   */
+  restored: boolean
+  /**
+   * The plan the URL names, and so the one `rooms`, `furniture` and `openings`
+   * hold. Null on any page that is not looking at a plan.
+   */
+  projectId: string | null
   rooms: Array<Room>
   furniture: Array<Furniture>
   /** Doors, windows and gaps, each attached to one wall of one room. */
@@ -79,6 +107,9 @@ export type PlannerState = {
 }
 
 const initialState: PlannerState = {
+  projects: [],
+  restored: false,
+  projectId: null,
   rooms: [],
   furniture: [],
   openings: [],
@@ -479,6 +510,102 @@ function zoomCentred(state: PlannerState, nextScale: number): Viewport {
   return zoomAt(state.viewport, anchor, clampScale(nextScale))
 }
 
+// --- projects ---------------------------------------------------------------
+
+/**
+ * How the view is set on a plan just opened: framed around what is drawn on
+ * it, or, on a plan with nothing drawn on it yet, with the world origin in the
+ * middle of the canvas, which is where a plan started from scratch grows out
+ * from.
+ */
+function framedOn(
+  state: PlannerState,
+  plan: { rooms: Array<Room>; furniture: Array<Furniture> },
+): Viewport {
+  const bounds = planBounds(plan.rooms, plan.furniture)
+  if (!bounds || state.size.width === 0) {
+    return {
+      tx: state.size.width / 2,
+      ty: state.size.height / 2,
+      scale: DEFAULT_SCALE,
+    }
+  }
+  return fitViewport(bounds, state.size.width, state.size.height)
+}
+
+/**
+ * The library as it stands, with the open project brought up to date from the
+ * plan being edited — which has been the real one since the first thing was
+ * drawn on it. Everything that writes the library down, or hands it from one
+ * project to the next, reads it through here rather than off `state.projects`,
+ * where the open entry is always a step behind.
+ */
+function libraryOf(state: PlannerState): Library {
+  return {
+    version: 1,
+    projects: state.projects.map((p) =>
+      p.id === state.projectId
+        ? {
+            ...p,
+            rooms: state.rooms,
+            furniture: state.furniture,
+            openings: state.openings,
+          }
+        : p,
+    ),
+  }
+}
+
+/** A plan with nothing on it: what the editor shows when the URL names none. */
+const NO_PLAN = { rooms: [], furniture: [], openings: [] }
+
+/**
+ * Open the project the URL names: its plan becomes the plan being edited,
+ * framed in the view and with the history started over, there being nothing in
+ * a plan just opened that an undo could take back.
+ *
+ * An id naming no project opens on nothing rather than on the wrong plan — the
+ * page that asked for it sends the reader back to the list.
+ */
+function opened(
+  state: PlannerState,
+  library: Library,
+  id: string | null,
+): PlannerState {
+  const plan = library.projects.find((p) => p.id === id) ?? NO_PLAN
+  return {
+    ...state,
+    projects: library.projects,
+    projectId: id,
+    rooms: plan.rooms,
+    furniture: plan.furniture,
+    openings: plan.openings,
+    selection: null,
+    renaming: null,
+    draft: null,
+    rect: null,
+    tool: 'select',
+    viewport: framedOn(state, plan),
+    history: EMPTY_HISTORY,
+  }
+}
+
+/**
+ * A blank plan, under the first `Plan n` the library has left free and an id
+ * of its own, which is what a plan is known by from the URL down.
+ */
+function blankProject(taken: Array<string>): Project {
+  let n = 1
+  while (taken.includes(`Plan ${n}`)) n += 1
+  return {
+    id: newId(),
+    name: `Plan ${n}`,
+    rooms: [],
+    furniture: [],
+    openings: [],
+  }
+}
+
 export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   setTool(tool: Tool) {
     setState((s) => ({
@@ -543,16 +670,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   fit() {
-    setState((s) => {
-      const bounds = planBounds(s.rooms, s.furniture)
-      if (!bounds || s.size.width === 0) {
-        return { ...s, viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE } }
-      }
-      return {
-        ...s,
-        viewport: fitViewport(bounds, s.size.width, s.size.height),
-      }
-    })
+    setState((s) => ({ ...s, viewport: framedOn(s, s) }))
   },
 
   select(selection: Selection) {
@@ -1031,53 +1149,164 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     )
   },
 
-  loadPlan(
-    rooms: Array<Room>,
-    furniture: Array<Furniture>,
-    openings: Array<Opening>,
-  ) {
+  // --- projects -------------------------------------------------------------
+
+  /**
+   * Put the saved library in place. Nothing is open at the point this runs —
+   * the routes read the library back before they ask for a plan — so it leaves
+   * whatever is being drawn on alone.
+   */
+  loadLibrary(library: Library) {
+    setState((s) => ({ ...s, projects: library.projects, restored: true }))
+  },
+
+  /**
+   * Show the plan a URL names, putting whatever was being drawn on back in the
+   * library on the way past. Standing still is not a change: asked for the
+   * plan already open, it leaves the view and the history where they are.
+   */
+  openProject(id: string | null) {
+    setState((s) => (id === s.projectId ? s : opened(s, libraryOf(s), id)))
+  },
+
+  /**
+   * Put the plan being drawn on back in the library, and leave the editor.
+   * Called when the editor comes off the page, which is what lets everything
+   * else read `projects` straight: with nothing open there is no working copy
+   * out in front of it, and the list on the way in can be trusted.
+   */
+  closeProject() {
     setState((s) => ({
       ...s,
-      rooms,
-      furniture,
-      openings,
-      selection: null,
-      renaming: null,
-      history: EMPTY_HISTORY,
+      projects: libraryOf(s).projects,
+      projectId: null,
     }))
+  },
+
+  /** Add a blank plan to the library, and say what to point the URL at. */
+  newProject(): string {
+    const plan = blankProject(get().projects.map((p) => p.name))
+    setState((s) => ({
+      ...s,
+      projects: [...libraryOf(s).projects, plan],
+    }))
+    return plan.id
+  },
+
+  /**
+   * Take a copy of the open plan, which is how one layout is tried against
+   * another rather than drawn over it. Returns the copy's id, for the URL.
+   */
+  duplicateProject(): string | null {
+    const state = get()
+    const open = libraryOf(state).projects.find((p) => p.id === state.projectId)
+    if (!open) return null
+    const plan: Project = {
+      ...open,
+      id: newId(),
+      name: copyName(
+        open.name,
+        state.projects.map((p) => p.name),
+      ),
+    }
+    setState((s) => ({ ...s, projects: [...libraryOf(s).projects, plan] }))
+    return plan.id
+  },
+
+  /** Rename the open project. Its name is not part of what an undo takes back. */
+  renameProject(name: string) {
+    setState((s) => ({
+      ...s,
+      projects: s.projects.map((p) =>
+        p.id === s.projectId ? { ...p, name } : p,
+      ),
+    }))
+  },
+
+  /**
+   * Throw a project away, for good: a plan deleted is not a change to a plan,
+   * and there is no undo on this side of the editor. Throwing away the open
+   * one leaves the editor with nothing to show, which is the page's cue to go
+   * back to the list.
+   */
+  deleteProject(id: string) {
+    setState((s) => {
+      const library = libraryOf(s)
+      const projects = library.projects.filter((p) => p.id !== id)
+      if (projects.length === library.projects.length) return s
+      return id === s.projectId
+        ? opened(s, { ...library, projects }, null)
+        : { ...s, projects }
+    })
   },
 }))
 
 // --- persistence ------------------------------------------------------------
 
-const STORAGE_KEY = 'rmplnr.plan.v1'
+const LIBRARY_KEY = 'rmplnr.projects.v1'
 const PREFS_KEY = 'rmplnr.prefs.v1'
 
+/** The one plan the editor saved before there were projects to keep them in. */
+const PLAN_KEY = 'rmplnr.plan.v1'
+
 /**
- * Read the saved plan. Returns null when there is nothing stored, or when the
- * stored payload no longer matches the schema, so stale data can never crash
- * the editor. Client-only: call this from an effect.
+ * Openings still hanging on a wall that is there to hang on. One whose room or
+ * wall has since gone has nothing to hold it, and would otherwise sit in the
+ * plan doing nothing for ever.
  */
-export function loadStoredPlan(): {
-  rooms: Array<Room>
-  furniture: Array<Furniture>
-  openings: Array<Opening>
-} | null {
+function attached(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+): Array<Opening> {
+  return openings.filter((o) => {
+    const room = rooms.find((r) => r.id === o.roomId)
+    return room !== undefined && o.wall < room.points.length
+  })
+}
+
+/**
+ * The plan saved before projects, if one is still there, under an id and a
+ * name of its own so that it takes its place among them. It is left where it
+ * lies rather than cleared away once read: it costs nothing, and it is the
+ * only copy until the library beside it has been written for the first time.
+ */
+function loadStoredPlan(): Project | null {
+  const raw = localStorage.getItem(PLAN_KEY)
+  if (!raw) return null
+  const parsed = PlanSchema.safeParse(JSON.parse(raw))
+  if (!parsed.success) return null
+  const { rooms, furniture, openings } = parsed.data
+  return {
+    id: newId(),
+    name: 'Plan 1',
+    rooms,
+    furniture,
+    openings: attached(rooms, openings),
+  }
+}
+
+/**
+ * Read the saved library, carrying across the single plan saved before there
+ * were projects for the times nothing has been saved since. Returns null when
+ * there is nothing stored, or when what is stored no longer matches the
+ * schema, so stale data can never crash the editor rather than merely leave it
+ * with nothing to open.
+ */
+function readLibrary(): Library | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = PlanSchema.safeParse(JSON.parse(raw))
+    const raw = localStorage.getItem(LIBRARY_KEY)
+    if (!raw) {
+      const plan = loadStoredPlan()
+      return plan && { version: 1, projects: [plan] }
+    }
+    const parsed = LibrarySchema.safeParse(JSON.parse(raw))
     if (!parsed.success) return null
-    const { rooms, furniture, openings } = parsed.data
     return {
-      rooms,
-      furniture,
-      // An opening whose room or wall is no longer there has nothing to hang
-      // on, and would otherwise sit in the plan doing nothing for ever.
-      openings: openings.filter((o) => {
-        const room = rooms.find((r) => r.id === o.roomId)
-        return room !== undefined && o.wall < room.points.length
-      }),
+      version: 1,
+      projects: parsed.data.projects.map((p) => ({
+        ...p,
+        openings: attached(p.rooms, p.openings),
+      })),
     }
   } catch {
     return null
@@ -1088,7 +1317,7 @@ export function loadStoredPlan(): {
  * Read the saved editor preferences, on the same be-forgiving terms as the
  * plan: anything unreadable falls back to the defaults. Client-only.
  */
-export function loadStoredPrefs(): Prefs | null {
+function loadStoredPrefs(): Prefs | null {
   try {
     const raw = localStorage.getItem(PREFS_KEY)
     if (!raw) return null
@@ -1099,18 +1328,18 @@ export function loadStoredPrefs(): Prefs | null {
   }
 }
 
-/** Persist the plan and the preferences on change. Returns an unsubscribe. */
-export function startAutosave(debounceMs = 300): () => void {
+/** Persist the library and the preferences on change. Returns an unsubscribe. */
+function startAutosave(debounceMs = 300): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const subscription = plannerStore.subscribe(() => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      const { rooms, furniture, openings, units, collide } = plannerStore.state
+      const { units, collide } = plannerStore.state
       try {
         localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ version: 1, rooms, furniture, openings }),
+          LIBRARY_KEY,
+          JSON.stringify(libraryOf(plannerStore.state)),
         )
         localStorage.setItem(
           PREFS_KEY,
@@ -1125,5 +1354,32 @@ export function startAutosave(debounceMs = 300): () => void {
   return () => {
     clearTimeout(timer)
     subscription.unsubscribe()
+  }
+}
+
+/**
+ * Bring back what the browser was left holding — the library, and the
+ * preferences it is read through — and keep writing it down from then on.
+ *
+ * Every page that touches a plan calls this before it does, and only the first
+ * call does anything: the library belongs to the app rather than to any one
+ * page, and reading it twice would talk over an edit still waiting to be
+ * saved. localStorage is client-only, so this must be called from an effect,
+ * never during a render the server also has to make.
+ */
+export function restoreLibrary(): void {
+  if (plannerStore.state.restored) return
+  // Subscribed before anything is read rather than after, so that what the
+  // read makes of what it found is written straight back down. A plan carried
+  // over from before there were projects is given an id on the way in, and an
+  // id is what its URL is: it had better be the same one next time.
+  startAutosave()
+  plannerStore.actions.loadLibrary(
+    readLibrary() ?? { version: 1, projects: [] },
+  )
+  const prefs = loadStoredPrefs()
+  if (prefs) {
+    plannerStore.actions.setUnits(prefs.units)
+    plannerStore.actions.setCollide(prefs.collide)
   }
 }

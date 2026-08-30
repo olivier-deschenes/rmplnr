@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 
 import { Canvas } from './canvas.tsx'
@@ -7,31 +8,31 @@ import { Toolbar } from './toolbar.tsx'
 
 import { TooltipProvider } from '#/components/ui/tooltip.tsx'
 
-import {
-  loadStoredPlan,
-  loadStoredPrefs,
-  plannerStore,
-  startAutosave,
-} from '#/lib/planner/store.ts'
+import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
 
-export function Planner() {
-  // localStorage is client-only, so restore and start autosaving after mount.
+export function Planner({ projectId }: { projectId: string }) {
+  // localStorage is client-only, so the library is read back after mount —
+  // before the plan is asked for, which is why both live in the one effect.
+  // Leaving hands the plan back to the library, so that the list on the way
+  // out has the room just drawn on it rather than the plan as it was opened.
   useEffect(() => {
-    const stored = loadStoredPlan()
-    if (stored) {
-      plannerStore.actions.loadPlan(
-        stored.rooms,
-        stored.furniture,
-        stored.openings,
-      )
-    }
-    const prefs = loadStoredPrefs()
-    if (prefs) {
-      plannerStore.actions.setUnits(prefs.units)
-      plannerStore.actions.setCollide(prefs.collide)
-    }
-    return startAutosave()
-  }, [])
+    restoreLibrary()
+    plannerStore.actions.openProject(projectId)
+    return () => plannerStore.actions.closeProject()
+  }, [projectId])
+
+  // A plan that is not in the library is not a plan to draw on: an old link,
+  // or the one just deleted from the toolbar. Either way the list is where the
+  // reader should be, and `replace` keeps it out of the way of the back button.
+  const navigate = useNavigate()
+  const missing = useSelector(
+    plannerStore,
+    (s) => s.restored && !s.projects.some((p) => p.id === projectId),
+  )
+
+  useEffect(() => {
+    if (missing) navigate({ to: '/', replace: true })
+  }, [missing, navigate])
 
   // The canvas reports its size once it has laid out; frame the plan then.
   const width = useSelector(plannerStore, (s) => s.size.width)
@@ -40,17 +41,7 @@ export function Planner() {
   useEffect(() => {
     if (framed.current || width === 0) return
     framed.current = true
-    const state = plannerStore.state
-    if (state.rooms.length > 0 || state.furniture.length > 0) {
-      plannerStore.actions.fit()
-    } else {
-      // Nothing to frame yet: put the world origin in the middle of the canvas.
-      plannerStore.actions.setViewport({
-        ...state.viewport,
-        tx: state.size.width / 2,
-        ty: state.size.height / 2,
-      })
-    }
+    plannerStore.actions.fit()
   }, [width])
 
   return (

@@ -470,11 +470,23 @@ function EmptyPanel({ units }: { units: Units }) {
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
+  const name = useSelector(
+    plannerStore,
+    (s) => s.projects.find((p) => p.id === s.projectId)?.name ?? '',
+  )
   const total = rooms.reduce((sum, r) => sum + polygonArea(r.points), 0)
 
   return (
     <>
       <SectionTitle>Plan</SectionTitle>
+      {/*
+        The plan's own name, in the same place a room's or an item's would be:
+        with nothing selected, what the panel is about is the plan itself.
+      */}
+      <NameField
+        value={name}
+        onChange={(next) => plannerStore.actions.renameProject(next)}
+      />
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
         <dt>Floor area</dt>
         <dd className="text-foreground text-right tabular-nums">

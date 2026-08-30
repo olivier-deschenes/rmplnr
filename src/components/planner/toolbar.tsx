@@ -1,12 +1,16 @@
+import { useState } from 'react'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { formatForDisplay } from '@tanstack/react-hotkeys'
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconArrowLeft,
   IconBarrierBlock,
   IconBrackets,
   IconChevronDown,
   IconCooker,
+  IconCopy,
   IconDoor,
   IconFocusCentered,
   IconMagnet,
@@ -18,10 +22,21 @@ import {
   IconSofa,
   IconSquareDashed,
   IconTable,
+  IconTrash,
   IconVectorTriangle,
   IconWindow,
 } from '@tabler/icons-react'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#/components/ui/alert-dialog.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import {
   DropdownMenu,
@@ -30,6 +45,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
 import { Kbd } from '#/components/ui/kbd.tsx'
@@ -191,6 +207,104 @@ function AddMenu() {
   )
 }
 
+/**
+ * The plans the editor keeps, and the one open in it.
+ *
+ * A project is a plan under a name of its own, so the menu is named after the
+ * plan being drawn on rather than after itself: what the bar shows is where
+ * the work is, and the list under it is everywhere else it could be. Renaming
+ * is not here — the name is a field in the inspector, beside the rest of what
+ * the plan is.
+ *
+ * Which plan is open is the URL's to say, so everything here that opens one
+ * navigates rather than reaching into the store. Deleting is the exception,
+ * and only looks like one: the plan goes, the editor is left with nothing to
+ * show, and the page sends the reader back to the list of its own accord.
+ */
+function ProjectMenu() {
+  const projects = useSelector(plannerStore, (s) => s.projects)
+  const projectId = useSelector(plannerStore, (s) => s.projectId)
+  const open = projects.find((p) => p.id === projectId)
+  // Deleting a plan is not a change to one, and there is no undo waiting on
+  // the other side of it, so it is asked about first.
+  const [confirming, setConfirming] = useState(false)
+  const actions = plannerStore.actions
+  const navigate = useNavigate()
+
+  const show = (id: string | null) =>
+    id && navigate({ to: '/p/$projectId', params: { projectId: id } })
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="max-w-44">
+            <span className="truncate">{open?.name}</span>
+            <IconChevronDown
+              data-icon="inline-end"
+              className="text-muted-foreground"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-52">
+          <DropdownMenuLabel>Plans</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={projectId ?? ''} onValueChange={show}>
+            {projects.map((project) => (
+              <DropdownMenuRadioItem key={project.id} value={project.id}>
+                <span className="truncate">{project.name}</span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => show(actions.newProject())}>
+            <IconPlus />
+            New plan
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => show(actions.duplicateProject())}>
+            <IconCopy />
+            Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => setConfirming(true)}
+          >
+            <IconTrash />
+            Delete
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link to="/">
+              <IconArrowLeft />
+              All plans
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {open?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The plan and everything drawn on it are gone for good.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              size="sm"
+              variant="destructive"
+              onClick={() => projectId && actions.deleteProject(projectId)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
 /** Home for editor-wide settings, so the toolbar proper stays about drawing. */
 function OptionsMenu() {
   const units = useSelector(plannerStore, (s) => s.units)
@@ -237,6 +351,10 @@ export function Toolbar() {
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
+      <ProjectMenu />
+
+      <Separator orientation="vertical" className="mx-1 h-5" />
+
       <ToggleGroup
         type="single"
         variant="outline"
