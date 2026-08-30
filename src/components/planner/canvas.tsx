@@ -185,10 +185,11 @@ type Drag =
   | { mode: 'rect' }
 
 /**
- * The drags the plan measures the room left around: something being placed,
- * rather than the plan itself being drawn. A room or one of its walls on the
- * move has no clearance to report — it is the thing everything else is
- * measured off — and the snap guides already say what its edges have found.
+ * The drags the plan goes on measuring through: something being placed, rather
+ * than the plan itself being drawn. A room or one of its walls on the move has
+ * no clearance to report — it is the thing everything else is measured off —
+ * and the snap guides already say what its edges have found, so a drag outside
+ * this list puts the selection's clearances away until it is let go of.
  */
 const MEASURED: Array<Drag['mode']> = [
   'move-furniture',
@@ -1033,12 +1034,16 @@ export function Canvas() {
     ...dimensions.map((label) => label.box),
   ]
 
-  // How much room is left around whatever is on the move, worked out afresh on
-  // each frame of the drag and gone the moment it is let go of. Its numbers go
-  // beside everything the plan already says, the room labels among them: they
-  // are the last thing laid out, so they are the ones that give way.
+  // How much room is left around whatever is selected, worked out afresh on
+  // every render so that it follows a drag frame by frame. Selecting something
+  // is already asking where it sits, so the numbers stand as long as it is
+  // held — it is letting go of the selection, not of the drag, that puts them
+  // away. Only a drag that redraws the plan itself takes them down meanwhile.
+  // Their numbers go beside everything the plan already says, the room labels
+  // among them: they are the last thing laid out, so they are the ones that
+  // give way.
   const clearances =
-    dragMode && MEASURED.includes(dragMode)
+    !dragMode || MEASURED.includes(dragMode)
       ? clearancesFor(selection, rooms, furniture, openings)
       : []
   const spoken =
