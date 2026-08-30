@@ -86,71 +86,59 @@ function RepositoryPicker({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Select
-          value={controller.repository?.id ?? ''}
-          disabled={controller.busy}
-          onValueChange={(repositoryId) =>
-            void controller.selectRepository(repositoryId)
-          }
+    <div className="flex items-center gap-2">
+      <Select
+        value={controller.repository?.id ?? ''}
+        disabled={controller.busy}
+        onValueChange={(repositoryId) =>
+          void controller.selectRepository(repositoryId)
+        }
+      >
+        <SelectTrigger
+          id="github-repository"
+          aria-label="Repository"
+          className="w-full"
         >
-          <SelectTrigger
-            id="github-repository"
-            aria-label="Repository"
-            className="w-full"
-          >
-            <SelectValue placeholder="Choose a repository" />
-          </SelectTrigger>
-          <SelectContent>
-            {controller.repositories.map((repository) => (
-              <SelectItem key={repository.id} value={repository.id}>
-                {repository.fullName}
-                {repository.isPrivate ? ' · Private' : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <SelectValue placeholder="Choose a repository" />
+        </SelectTrigger>
+        <SelectContent>
+          {controller.repositories.map((repository) => (
+            <SelectItem key={repository.id} value={repository.id}>
+              {repository.fullName}
+              {repository.isPrivate ? ' · Private' : ''}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label="Refresh repositories"
+        title="Refresh repositories"
+        disabled={controller.busy}
+        onClick={() => void controller.refreshRepositories()}
+      >
+        <IconRefresh />
+      </Button>
+      {controller.repository ? (
         <Button
+          asChild
           type="button"
           variant="ghost"
           size="icon"
-          aria-label="Refresh repositories"
-          title="Refresh repositories"
-          disabled={controller.busy}
-          onClick={() => void controller.refreshRepositories()}
+          aria-label="Open repository on GitHub"
+          title="Open repository on GitHub"
         >
-          <IconRefresh />
-        </Button>
-        {controller.repository ? (
-          <Button
-            asChild
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Open repository on GitHub"
-            title="Open repository on GitHub"
+          <a
+            href={controller.repository.htmlUrl}
+            target="_blank"
+            rel="noreferrer"
           >
-            <a
-              href={controller.repository.htmlUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <IconExternalLink />
-            </a>
-          </Button>
-        ) : null}
-      </div>
-      <p className="text-muted-foreground">
-        Missing one?{' '}
-        <TextLink href={NEW_REPOSITORY_URL}>Create a repository</TextLink>
-        {installUrl ? (
-          <>
-            {' · '}
-            <TextLink href={installUrl}>Grant rmplnr access</TextLink>
-          </>
-        ) : null}
-      </p>
+            <IconExternalLink />
+          </a>
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -209,10 +197,6 @@ function PlanSelection({
           Draw a plan, then select it here.
         </p>
       )}
-      <p className="text-muted-foreground">
-        Changes here are staged — they reach GitHub on the next commit.
-        Unselecting keeps the browser copy and removes the GitHub file.
-      </p>
     </section>
   )
 }
@@ -238,7 +222,7 @@ export function GitHubRepositoryDialog({
             <IconBrandGithub className="size-4" />
             <DialogTitle>GitHub sync</DialogTitle>
           </div>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             Choose the account and repository your plans sync with.
           </DialogDescription>
         </DialogHeader>
@@ -302,9 +286,6 @@ export function GitHubRepositoryDialog({
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {connectedConnection.user.login}
-                </p>
-                <p className="text-muted-foreground truncate">
-                  Connected · remote changes are always reviewed first
                 </p>
               </div>
               <Button

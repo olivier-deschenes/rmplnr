@@ -338,29 +338,24 @@ export function GitHubCommitDialog({
             <ToneDot tone={status.tone} />
             <DialogTitle>{status.title}</DialogTitle>
           </div>
-          <DialogDescription>
-            {status.detail}
-            {controller.repository ? (
-              <>
-                {' · '}
-                <TextLink href={controller.repository.htmlUrl}>
-                  {controller.repository.fullName}
-                </TextLink>
-              </>
-            ) : null}
-          </DialogDescription>
+          {controller.repository ? (
+            <DialogDescription>
+              <TextLink href={controller.repository.htmlUrl}>
+                {controller.repository.fullName}
+              </TextLink>
+            </DialogDescription>
+          ) : (
+            <DialogDescription className="sr-only">
+              {status.detail}
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         {!ready ? (
-          <div className="space-y-4">
-            <p className="text-muted-foreground">
-              Connect GitHub and pick a repository before committing.
-            </p>
-            <Button type="button" onClick={onManageRepository}>
-              <IconSettings />
-              Set up GitHub sync
-            </Button>
-          </div>
+          <Button type="button" onClick={onManageRepository}>
+            <IconSettings />
+            Set up GitHub sync
+          </Button>
         ) : (
           <div className="space-y-4">
             <IncomingReview controller={controller} />

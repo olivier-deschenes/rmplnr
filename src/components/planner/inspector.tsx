@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
-import { formatForDisplay } from '@tanstack/react-hotkeys'
 
 import { HistoryPanel } from './history.tsx'
 
@@ -14,11 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui/select.tsx'
-import { Separator } from '#/components/ui/separator.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
-import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import {
   HINGED_KINDS,
   OPENING_KINDS,
@@ -42,8 +39,6 @@ import {
   toLength,
 } from '#/lib/planner/units.ts'
 import { MIN_SIZE } from '#/lib/planner/types.ts'
-
-import type { Hotkey } from '@tanstack/react-hotkeys'
 
 import type {
   Furniture,
@@ -236,14 +231,6 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
         rooms looks exactly like one wall with a room behind it. So the panel
         names them, and selecting the room lights those walls up on the plan.
       */}
-      {/*
-        Both ways of reshaping a room are gestures on the canvas with nothing
-        in the panel to stand for them, so the panel is where they are named.
-      */}
-      <p className="text-muted-foreground text-[11px]">
-        Drag a wall to push the room out, or a corner to reshape it.
-        Double-click a wall to break it in two, or the room itself to rename it.
-      </p>
       <dl className="text-muted-foreground grid gap-y-1 text-[11px]">
         <dt>Shares walls with</dt>
         <dd className="text-foreground">
@@ -447,26 +434,7 @@ function OpeningPanel({
   )
 }
 
-/**
- * Writes a binding the way the reader's own machine writes it: ⌘ Z on a Mac
- * and Ctrl+Z everywhere else, off the one table the canvas registers.
- *
- * Which of the two is only knowable in the browser, and the panel is rendered
- * on the server first, so the opening pass puts down the Mac form the legend
- * has always shown and the machine corrects it once mounted. On a Mac — where
- * the guess is right — there is nothing to correct.
- */
-function useKeys() {
-  const [platform, setPlatform] = useState<'mac' | undefined>('mac')
-  useEffect(() => setPlatform(undefined), [])
-  return (...bindings: Array<Hotkey>) =>
-    bindings
-      .map((binding) => formatForDisplay(binding, { platform }))
-      .join(' / ')
-}
-
 function EmptyPanel({ units }: { units: Units }) {
-  const keys = useKeys()
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
@@ -504,38 +472,6 @@ function EmptyPanel({ units }: { units: Units }) {
         <dd className="text-foreground text-right tabular-nums">
           {openings.length}
         </dd>
-      </dl>
-      <Separator />
-      <SectionTitle>Keys</SectionTitle>
-      <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-        <dt className="text-foreground">
-          {keys(TOOL_KEYS.select, TOOL_KEYS.room, TOOL_KEYS.rect)}
-        </dt>
-        <dd>Select, draw a room, or a rectangle</dd>
-        <dt className="text-foreground">
-          {keys(OPENING_KEYS.door, OPENING_KEYS.window, OPENING_KEYS.opening)}
-        </dt>
-        <dd>Cut a door, window, or gap into a wall</dd>
-        <dt className="text-foreground">Click</dt>
-        <dd>Add a corner; click the first to close</dd>
-        <dt className="text-foreground">Drag</dt>
-        <dd>Sizes a rectangle; empty space pans</dd>
-        <dt className="text-foreground">Double-click</dt>
-        <dd>Rename a room or an item; break a selected wall in two</dd>
-        <dt className="text-foreground">Pinch</dt>
-        <dd>Or ⌘ + scroll to zoom</dd>
-        <dt className="text-foreground">{keys(EDIT_KEYS.removeAlt)}</dt>
-        <dd>Delete the selection</dd>
-        <dt className="text-foreground">{keys(EDIT_KEYS.duplicate)}</dt>
-        <dd>Duplicate the selection</dd>
-        <dt className="text-foreground">
-          {keys(EDIT_KEYS.copy, EDIT_KEYS.paste)}
-        </dt>
-        <dd>Copy it, and put down another</dd>
-        <dt className="text-foreground">
-          {keys(EDIT_KEYS.undo, EDIT_KEYS.redo)}
-        </dt>
-        <dd>Undo, redo</dd>
       </dl>
     </>
   )
