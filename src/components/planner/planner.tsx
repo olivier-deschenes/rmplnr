@@ -26,7 +26,10 @@ export function Planner() {
       )
     }
     const prefs = loadStoredPrefs()
-    if (prefs) plannerStore.actions.setUnits(prefs.units)
+    if (prefs) {
+      plannerStore.actions.setUnits(prefs.units)
+      plannerStore.actions.setCollide(prefs.collide)
+    }
     return startAutosave()
   }, [])
 

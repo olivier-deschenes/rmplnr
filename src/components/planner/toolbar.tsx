@@ -2,6 +2,7 @@ import { useSelector } from '@tanstack/react-store'
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconBarrierBlock,
   IconBrackets,
   IconChevronDown,
   IconDoor,
@@ -222,6 +223,7 @@ export function Toolbar() {
   const tool = useSelector(plannerStore, (s) => s.tool)
   const openingKind = useSelector(plannerStore, (s) => s.openingKind)
   const snap = useSelector(plannerStore, (s) => s.snap)
+  const collide = useSelector(plannerStore, (s) => s.collide)
   const units = useSelector(plannerStore, (s) => s.units)
   const scale = useSelector(plannerStore, (s) => s.viewport.scale)
   const canUndo = useSelector(plannerStore, (s) => s.history.past.length > 0)
@@ -296,6 +298,25 @@ export function Toolbar() {
           onPressedChange={() => actions.toggleSnap()}
         >
           <IconMagnet />
+        </Toggle>
+      </Hint>
+
+      {/*
+        Furniture holds itself out of the walls and out of everything else,
+        which is what the plan is for. Turned off for the times a plan has to
+        say something a real room could not — a rug under a table, or two
+        layouts drawn over each other to be compared.
+      */}
+      <Hint label="Keep furniture out of walls and other furniture">
+        <Toggle
+          variant="outline"
+          size="sm"
+          className={LONE_TOGGLE}
+          aria-label="Collision"
+          pressed={collide}
+          onPressedChange={() => actions.toggleCollide()}
+        >
+          <IconBarrierBlock />
         </Toggle>
       </Hint>
 

@@ -76,6 +76,8 @@ export const UnitsSchema = z.enum(['metric', 'imperial'])
 export const PrefsSchema = z.object({
   version: z.literal(1),
   units: UnitsSchema,
+  /** Missing from preferences saved before furniture could get in the way. */
+  collide: z.boolean().default(true),
 })
 
 export type Point = z.infer<typeof PointSchema>

@@ -18,6 +18,7 @@ import {
   reattachOpenings,
   wallAt,
 } from './openings.ts'
+import { blockersFor, fits, settleFurniture } from './collision.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
   describeFurniture,
@@ -58,6 +59,8 @@ export type PlannerState = {
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
   snap: boolean
+  /** Whether furniture is held out of the walls and out of each other. */
+  collide: boolean
   /** Display only: the plan itself is always stored in centimetres. */
   units: Units
   viewport: Viewport
@@ -80,6 +83,7 @@ const initialState: PlannerState = {
   tool: 'select',
   openingKind: 'door',
   snap: true,
+  collide: true,
   units: 'metric',
   viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE },
   draft: null,
@@ -193,6 +197,72 @@ function reshaped(
 }
 
 /**
+ * What the plan puts in one piece of furniture's way, as it now stands. Empty
+ * when collision is switched off, which leaves every placement below going
+ * through untouched rather than needing a case of its own.
+ */
+function inTheWayOf(state: PlannerState, exclude?: string) {
+  return state.collide
+    ? blockersFor(state.rooms, state.furniture, state.openings, exclude)
+    : []
+}
+
+/** How far apart the spots tried when looking for somewhere to put something. */
+const CASCADE = 20
+
+/** How far out that search goes before it gives up and drops it where asked. */
+const CASCADE_RINGS = 12
+
+/**
+ * Somewhere to put a new piece of furniture, tried nearest first: the spot
+ * asked for, then the ring of spots around it, then the ring around that. A
+ * new item is meant to land where the eye already is, so a plain cascade off
+ * down the diagonal is no good — a crowded corner would send it clean out of
+ * the room and off to one side of everything.
+ */
+const CASCADE_SPOTS: Array<Point> = (() => {
+  const spots: Array<Point> = [{ x: 0, y: 0 }]
+  for (let ring = 1; ring <= CASCADE_RINGS; ring++) {
+    for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
+        spots.push({ x: dx * CASCADE, y: dy * CASCADE })
+      }
+    }
+  }
+  return spots
+})()
+
+/** Whether a patch asks a piece of furniture to take up any different floor. */
+function displaced(from: Furniture, to: Furniture): boolean {
+  return (
+    from.x !== to.x ||
+    from.y !== to.y ||
+    from.w !== to.w ||
+    from.h !== to.h ||
+    from.rotation !== to.rotation
+  )
+}
+
+/**
+ * Where a piece of furniture asked to stand at `to` actually ends up. Every
+ * route into a piece of furniture — a drag, a handle, an arrow key, a typed
+ * field — comes through here, so there is one place that decides how near it
+ * gets, and nothing can be got into a wall by taking a different way in.
+ *
+ * A patch that leaves the footprint alone, such as a rename, is not a
+ * placement and is not measured against anything.
+ */
+function placed(
+  state: PlannerState,
+  from: Furniture,
+  to: Furniture,
+): Furniture {
+  if (!state.collide || !displaced(from, to)) return to
+  return settleFurniture(from, to, inTheWayOf(state, from.id))
+}
+
+/**
  * Zoom the view without moving what is in the middle of the canvas, which is
  * what the toolbar's zoom controls want: there is no pointer to zoom towards.
  */
@@ -214,6 +284,14 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 
   toggleSnap() {
     setState((s) => ({ ...s, snap: !s.snap }))
+  },
+
+  toggleCollide() {
+    setState((s) => ({ ...s, collide: !s.collide }))
+  },
+
+  setCollide(collide: boolean) {
+    setState((s) => ({ ...s, collide }))
   },
 
   setUnits(units: Units) {
@@ -298,27 +376,31 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     const preset = FURNITURE_PRESETS[kind]
     const raw = viewCentre(state)
     const centre = snapPoint(raw, activeSnapStep(state))
-    // Cascade off anything already sitting on that spot, so a newly added item
-    // is never hidden underneath the last one.
-    while (
-      state.furniture.some(
-        (f) => Math.abs(f.x - centre.x) < 1 && Math.abs(f.y - centre.y) < 1,
-      )
-    ) {
-      centre.x += 20
-      centre.y += 20
-    }
     const count = state.furniture.filter((f) => f.kind === kind).length + 1
-    const item: Furniture = {
+    const shape = {
       id: newId(),
       kind,
       name: `${preset.label} ${count}`,
-      x: centre.x,
-      y: centre.y,
       w: preset.w,
       h: preset.h,
       rotation: 0,
     }
+    // Somewhere the new item can actually stand, so that it is never dropped
+    // inside a wall or hidden underneath the last one. A plan with nowhere
+    // free within reach gets it on the spot asked for regardless: an item
+    // overlapping something is at least there to be seen and dragged away,
+    // which is more than one flung to the far side of the plan would be.
+    const blockers = inTheWayOf(state)
+    const free = CASCADE_SPOTS.map((offset) => ({
+      x: centre.x + offset.x,
+      y: centre.y + offset.y,
+    })).find(
+      (spot) =>
+        !state.furniture.some(
+          (f) => Math.abs(f.x - spot.x) < 1 && Math.abs(f.y - spot.y) < 1,
+        ) && fits({ ...shape, ...spot }, blockers),
+    )
+    const item: Furniture = { ...shape, ...(free ?? centre) }
     setState((s) => ({
       ...s,
       history: commit(s, null, `Added ${item.name}`),
@@ -401,6 +483,9 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       const current = s.furniture.find((f) => f.id === id)
       if (!current) return s
+      // The step is named after what was asked for rather than what the walls
+      // allowed, so a drag held against one still reads as the one move it is.
+      const next = placed(s, current, { ...current, ...patch })
       return {
         ...s,
         history: commit(
@@ -408,9 +493,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           patchLabel('furniture', id, patch),
           describeFurniture(current, patch),
         ),
-        furniture: s.furniture.map((f) =>
-          f.id === id ? { ...f, ...patch } : f,
-        ),
+        furniture: s.furniture.map((f) => (f.id === id ? next : f)),
       }
     })
   },
@@ -579,7 +662,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         ...s,
         history,
         furniture: s.furniture.map((f) =>
-          f.id === id ? { ...f, x: f.x + dx, y: f.y + dy } : f,
+          f.id === id ? placed(s, f, { ...f, x: f.x + dx, y: f.y + dy }) : f,
         ),
       }
     })
@@ -800,13 +883,16 @@ export function startAutosave(debounceMs = 300): () => void {
   const subscription = plannerStore.subscribe(() => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      const { rooms, furniture, openings, units } = plannerStore.state
+      const { rooms, furniture, openings, units, collide } = plannerStore.state
       try {
         localStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({ version: 1, rooms, furniture, openings }),
         )
-        localStorage.setItem(PREFS_KEY, JSON.stringify({ version: 1, units }))
+        localStorage.setItem(
+          PREFS_KEY,
+          JSON.stringify({ version: 1, units, collide }),
+        )
       } catch {
         // Storage full or blocked; editing carries on regardless.
       }
