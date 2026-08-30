@@ -12,6 +12,7 @@ import {
   SharedWalls,
 } from './shapes.tsx'
 import {
+  Clearances,
   DraftOverlay,
   FurnitureEditor,
   FurnitureLabels,
@@ -26,8 +27,13 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
+import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
-import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
+import {
+  furnitureNames,
+  roomLabelBoxes,
+  wallLabels,
+} from '#/lib/planner/dimensions.ts'
 import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
 import {
   SNAP_REACH_PX,
@@ -178,6 +184,21 @@ type Drag =
   | { mode: 'opening-end'; id: string; end: 'start' | 'end' }
   | { mode: 'rect' }
 
+/**
+ * The drags the plan measures the room left around: something being placed,
+ * rather than the plan itself being drawn. A room or one of its walls on the
+ * move has no clearance to report — it is the thing everything else is
+ * measured off — and the snap guides already say what its edges have found.
+ */
+const MEASURED: Array<Drag['mode']> = [
+  'move-furniture',
+  'move-closet',
+  'resize',
+  'rotate',
+  'opening',
+  'opening-end',
+]
+
 export function Canvas() {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<Drag | null>(null)
@@ -205,6 +226,8 @@ export function Canvas() {
   const [panning, setPanning] = useState(false)
   /** The lines the thing being dragged has locked onto, while it is dragged. */
   const [guides, setGuides] = useState<Array<Guide>>([])
+  /** What the drag under way is doing, for the things drawn only during one. */
+  const [dragMode, setDragMode] = useState<Drag['mode'] | null>(null)
   /** The wall an opening or closet tool is hovering, and where along it. */
   const [ghost, setGhost] = useState<{
     roomId: string
@@ -281,6 +304,17 @@ export function Canvas() {
 
   const capture = (pointerId: number) => {
     svgRef.current?.setPointerCapture(pointerId)
+  }
+
+  /**
+   * Take hold of the pointer for a drag. What it is doing is put up in state as
+   * well as in the ref the move handler works from: the ref is what a drag runs
+   * on, and the state is what the drawing is rendered from.
+   */
+  const begin = (drag: Drag, pointerId: number) => {
+    dragRef.current = drag
+    setDragMode(drag.mode)
+    capture(pointerId)
   }
 
   // The room tool leaves its guides up between clicks, which is what makes them
@@ -434,15 +468,17 @@ export function Canvas() {
 
   function beginPan(event: React.PointerEvent) {
     const vp = plannerStore.state.viewport
-    dragRef.current = {
-      mode: 'pan',
-      startScreen: toScreen(event),
-      startTx: vp.tx,
-      startTy: vp.ty,
-      moved: false,
-    }
     setPanning(true)
-    capture(event.pointerId)
+    begin(
+      {
+        mode: 'pan',
+        startScreen: toScreen(event),
+        startTx: vp.tx,
+        startTy: vp.ty,
+        moved: false,
+      },
+      event.pointerId,
+    )
   }
 
   function onCanvasPointerDown(event: React.PointerEvent) {
@@ -479,8 +515,7 @@ export function Canvas() {
     // Rectangle tool: drag out the two opposite corners in one gesture.
     if (state.tool === 'rect') {
       actions.beginRect(settle(toWorld(event)))
-      dragRef.current = { mode: 'rect' }
-      capture(event.pointerId)
+      begin({ mode: 'rect' }, event.pointerId)
       return
     }
 
@@ -700,6 +735,7 @@ export function Canvas() {
     if (drag?.mode === 'rect') actions.commitRect()
     if (drag) actions.sealHistory()
     dragRef.current = null
+    setDragMode(null)
     setPanning(false)
     setGuides([])
     if (svgRef.current?.hasPointerCapture(event.pointerId)) {
@@ -793,21 +829,25 @@ export function Canvas() {
       )
       const wall = host && wallAt(host.points, attachment.wall)
       if (!wall) return
-      dragRef.current = {
-        mode: 'move-closet',
-        id: room.id,
-        grabT: projectT(wall, toWorld(event)) - attachment.t,
-      }
-      capture(event.pointerId)
+      begin(
+        {
+          mode: 'move-closet',
+          id: room.id,
+          grabT: projectT(wall, toWorld(event)) - attachment.t,
+        },
+        event.pointerId,
+      )
       return
     }
-    dragRef.current = {
-      mode: 'move-room',
-      id: room.id,
-      grab: toWorld(event),
-      origin: room.points,
-    }
-    capture(event.pointerId)
+    begin(
+      {
+        mode: 'move-room',
+        id: room.id,
+        grab: toWorld(event),
+        origin: room.points,
+      },
+      event.pointerId,
+    )
   }
 
   function onFurniturePointerDown(item: Furniture, event: React.PointerEvent) {
@@ -815,29 +855,29 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'furniture', id: item.id })
-    dragRef.current = {
-      mode: 'move-furniture',
-      id: item.id,
-      grab: toWorld(event),
-      origin: item,
-    }
-    capture(event.pointerId)
+    begin(
+      {
+        mode: 'move-furniture',
+        id: item.id,
+        grab: toWorld(event),
+        origin: item,
+      },
+      event.pointerId,
+    )
   }
 
   function onResizeHandleDown(handle: Handle, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
-    dragRef.current = { mode: 'resize', id: current.id, handle }
-    capture(event.pointerId)
+    begin({ mode: 'resize', id: current.id, handle }, event.pointerId)
   }
 
   function onRotateHandleDown(event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
-    dragRef.current = { mode: 'rotate', id: current.id }
-    capture(event.pointerId)
+    begin({ mode: 'rotate', id: current.id }, event.pointerId)
   }
 
   function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
@@ -845,24 +885,21 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'opening', id: opening.id })
-    dragRef.current = { mode: 'opening', id: opening.id }
-    capture(event.pointerId)
+    begin({ mode: 'opening', id: opening.id }, event.pointerId)
   }
 
   function onOpeningEndDown(end: 'start' | 'end', event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'opening') return
-    dragRef.current = { mode: 'opening-end', id: current.id, end }
-    capture(event.pointerId)
+    begin({ mode: 'opening-end', id: current.id, end }, event.pointerId)
   }
 
   function onVertexDown(index: number, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'room') return
-    dragRef.current = { mode: 'vertex', roomId: current.id, index }
-    capture(event.pointerId)
+    begin({ mode: 'vertex', roomId: current.id, index }, event.pointerId)
   }
 
   /** Take hold of a whole side of the selected room, to push it across. */
@@ -874,14 +911,16 @@ export function Canvas() {
     if (current?.type !== 'room') return
     const room = plannerStore.state.rooms.find((r) => r.id === current.id)
     if (!room) return
-    dragRef.current = {
-      mode: 'wall',
-      roomId: current.id,
-      index,
-      grab: toWorld(event),
-      origin: room.points,
-    }
-    capture(event.pointerId)
+    begin(
+      {
+        mode: 'wall',
+        roomId: current.id,
+        index,
+        grab: toWorld(event),
+        origin: room.points,
+      },
+      event.pointerId,
+    )
   }
 
   const selectedRoom =
@@ -990,6 +1029,19 @@ export function Canvas() {
     ...names.map((label) => label.box),
     ...dimensions.map((label) => label.box),
   ]
+
+  // How much room is left around whatever is on the move, worked out afresh on
+  // each frame of the drag and gone the moment it is let go of. Its numbers go
+  // beside everything the plan already says, the room labels among them: they
+  // are the last thing laid out, so they are the ones that give way.
+  const clearances =
+    dragMode && MEASURED.includes(dragMode)
+      ? clearancesFor(selection, rooms, furniture, openings)
+      : []
+  const spoken =
+    clearances.length === 0
+      ? written
+      : [...written, ...roomLabelBoxes(rooms, viewport, units)]
 
   // Every room's walls, with the openings of any room sharing them already cut
   // through. Recomputed each render, as the dimensions are: the plans this
@@ -1139,6 +1191,12 @@ export function Canvas() {
       />
       <WallDimensions labels={dimensions} />
       <SnapGuides guides={guides} viewport={viewport} />
+      <Clearances
+        clearances={clearances}
+        viewport={viewport}
+        units={units}
+        avoid={spoken}
+      />
 
       {tool === 'select' && selectedRoom?.kind !== 'closet' && selectedRoom && (
         <RoomEditor

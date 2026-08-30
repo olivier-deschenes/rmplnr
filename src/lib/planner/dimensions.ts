@@ -220,6 +220,20 @@ function roomLabelBox(room: Room, vp: Viewport, units: Units): Box {
 }
 
 /**
+ * Where each room's own name and area is written. The layouts here work around
+ * these as a matter of course; they are handed out for the labels that come and
+ * go — the clearances put up while something is dragged — which are laid beside
+ * what the plan already says rather than laid out along with it.
+ */
+export function roomLabelBoxes(
+  rooms: Array<Room>,
+  vp: Viewport,
+  units: Units,
+): Array<Box> {
+  return rooms.map((room) => roomLabelBox(room, vp, units))
+}
+
+/**
  * Where a piece of furniture's name is written, or null when the item has no
  * room for it.
  *

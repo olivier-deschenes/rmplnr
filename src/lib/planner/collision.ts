@@ -65,7 +65,7 @@ function blockerOf(points: Array<Point>): Blocker {
 }
 
 /** Where a shape starts and ends, measured along `axis`. */
-function spanAlong(points: Array<Point>, axis: Point): [number, number] {
+export function spanAlong(points: Array<Point>, axis: Point): [number, number] {
   let min = Infinity
   let max = -Infinity
   for (const p of points) {

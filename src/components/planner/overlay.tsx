@@ -10,7 +10,13 @@ import {
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
-import { STEP, findSpot, uprightAngle } from '#/lib/planner/dimensions.ts'
+import {
+  LABEL_HEIGHT,
+  STEP,
+  findSpot,
+  textWidth,
+  uprightAngle,
+} from '#/lib/planner/dimensions.ts'
 import { openingEnds, wallAt } from '#/lib/planner/openings.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
@@ -25,6 +31,7 @@ import type {
   Viewport,
 } from '#/lib/planner/types.ts'
 import type { Box, NameLabel, WallLabel } from '#/lib/planner/dimensions.ts'
+import type { Clearance } from '#/lib/planner/clearances.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
@@ -157,6 +164,99 @@ export function SnapGuides({
           />
         )
       })}
+    </g>
+  )
+}
+
+/** How long the tick closing each end of a clearance is, in pixels. */
+const TICK = 7
+/** Clear space either side of a number standing on its own line. */
+const CLEARANCE_GAP = 6
+/** Where along its line a number may sit, as a fraction of the room it has. */
+const CLEARANCE_SLIDES = [0, 0.5, -0.5, 1, -1]
+
+/**
+ * How much room is left around the thing being moved, while it is being moved.
+ *
+ * Each gap is drawn the way a gap is drawn on a drawing: a line across it,
+ * ticked at both ends, with the number written on the line itself — which is
+ * also what keeps it legible, since the plate the number sits on breaks the
+ * line rather than lying over it. Where something is already written there the
+ * number slides along its own line to get clear, and a gap too narrow to hold
+ * it at all has it written just past the far end, out in the open.
+ *
+ * Each number joins the list the next one keeps out of, so the four sides of a
+ * cabinet in a tight corner never write over one another.
+ */
+export function Clearances({
+  clearances,
+  viewport,
+  units,
+  /** Boxes a number keeps off: what the plan already has written on it. */
+  avoid,
+}: {
+  clearances: Array<Clearance>
+  viewport: Viewport
+  units: Units
+  avoid: Array<Box>
+}) {
+  const taken = [...avoid]
+
+  const drawn = clearances.map(({ key, from, to, distance }) => {
+    const a = worldToScreen(from, viewport)
+    const b = worldToScreen(to, viewport)
+    const run = Math.hypot(b.x - a.x, b.y - a.y) || 1
+    const along = { x: (b.x - a.x) / run, y: (b.y - a.y) / run }
+    const tick = { x: (-along.y * TICK) / 2, y: (along.x * TICK) / 2 }
+
+    const text = formatLength(distance, units)
+    const needed = textWidth(text) + CLEARANCE_GAP * 2
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    // How far the number can slide and still stand on the line it measures.
+    const runway = Math.max(0, (run - needed) / 2)
+    const centres = [
+      ...(run >= needed
+        ? CLEARANCE_SLIDES.map((slide) => ({
+            x: mid.x + along.x * runway * slide,
+            y: mid.y + along.y * runway * slide,
+          }))
+        : []),
+      // The last resort, and the only place a hand-width gap can be written:
+      // just past the far end, clear of the thing that is on the move.
+      { x: b.x + along.x * (needed / 2), y: b.y + along.y * (needed / 2) },
+    ]
+
+    const angle = uprightAngle(along)
+    const spot = findSpot(centres, text, angle, taken)
+    const box: Box = spot?.box ?? {
+      centre: centres[centres.length - 1],
+      w: textWidth(text),
+      h: LABEL_HEIGHT,
+      angle,
+    }
+    taken.push(box)
+    return { key, a, b, tick, text, box }
+  })
+
+  return (
+    <g className="pointer-events-none">
+      {drawn.map(({ key, a, b, tick, text, box }) => (
+        <g key={key} className="stroke-muted-foreground" strokeWidth={1}>
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+          {[a, b].map((end, i) => (
+            <line
+              key={i}
+              x1={end.x - tick.x}
+              y1={end.y - tick.y}
+              x2={end.x + tick.x}
+              y2={end.y + tick.y}
+            />
+          ))}
+          <g stroke="none">
+            <Plate box={box} text={text} />
+          </g>
+        </g>
+      ))}
     </g>
   )
 }
