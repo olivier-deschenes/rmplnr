@@ -4,6 +4,7 @@ import { currentProjects, plannerStore } from './store.ts'
 import { closetSize } from './closets.ts'
 import { translatePolygon } from './geometry.ts'
 import { snapTargets } from './snapping.ts'
+import { wallGaps } from './walls.ts'
 
 import type { Project } from './types.ts'
 
@@ -105,7 +106,7 @@ describe('upsertProjects', () => {
 })
 
 describe('closets', () => {
-  it('adds an exterior closet with sliding doors by default', () => {
+  it('adds an open-front closet and an independent sliding door', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
 
@@ -114,7 +115,7 @@ describe('closets', () => {
     )
     expect(closet).toBeDefined()
     if (!closet) throw new Error('Closet was not added')
-    expect(closet.attachment).toMatchObject({
+    expect(closet.attachment).toEqual({
       roomId: 'room-1',
       wall: 0,
       t: 0.5,
@@ -123,7 +124,7 @@ describe('closets', () => {
     expect(closet.points.slice(2).every((point) => point.y < 0)).toBe(true)
 
     const opening = plannerStore.state.openings.find(
-      (candidate) => candidate.id === closet.attachment?.openingId,
+      (candidate) => candidate.roomId === closet.id,
     )
     expect(opening).toMatchObject({
       kind: 'sliding-door',
@@ -137,7 +138,30 @@ describe('closets', () => {
     })
   })
 
-  it('resizes the closet and fits its opening to the shared wall', () => {
+  it('stays open when its independently selectable door is removed', () => {
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.addCloset('room-1', 0, 0.5)
+    const closet = plannerStore.state.rooms.find(
+      (room) => room.kind === 'closet',
+    )!
+    const door = plannerStore.state.openings.find(
+      (opening) => opening.roomId === closet.id,
+    )!
+
+    plannerStore.actions.select({ type: 'opening', id: door.id })
+    plannerStore.actions.deleteSelected()
+
+    expect(plannerStore.state.rooms).toContainEqual(closet)
+    expect(plannerStore.state.openings).toEqual([])
+    expect(wallGaps(plannerStore.state.rooms, [], closet.id, 0)).toContainEqual(
+      [0, 1],
+    )
+    expect(wallGaps(plannerStore.state.rooms, [], 'room-1', 0)).toContainEqual([
+      0.275, 0.725,
+    ])
+  })
+
+  it('resizes the closet and fits the door riding on its front', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
     const closet = plannerStore.state.rooms.find(
@@ -152,7 +176,7 @@ describe('closets', () => {
     expect(closetSize(resized)).toEqual({ width: 120, depth: 80 })
     expect(
       plannerStore.state.openings.find(
-        (opening) => opening.id === resized.attachment?.openingId,
+        (opening) => opening.roomId === resized.id,
       )?.width,
     ).toBe(120)
   })

@@ -16,8 +16,6 @@ export const ClosetAttachmentSchema = z.object({
   wall: z.number().int().min(0),
   /** Centre of the closet, as a fraction along the host wall. */
   t: z.number().min(0).max(1),
-  /** The opening that connects the room and closet. */
-  openingId: z.string(),
 })
 
 export const RoomSchema = z.object({

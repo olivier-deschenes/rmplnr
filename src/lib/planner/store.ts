@@ -1,6 +1,6 @@
 import { createStore } from '@tanstack/store'
 
-import { DEFAULT_ROOM, FURNITURE_PRESETS, OPENING_PRESETS } from './presets.ts'
+import { DEFAULT_ROOM, FURNITURE_PRESETS } from './presets.ts'
 import {
   DEFAULT_CLOSET,
   closetSize,
@@ -22,6 +22,7 @@ import {
 import {
   clampT,
   fittedWidth,
+  openingInWall,
   openingWall,
   reattachOpenings,
   wallAt,
@@ -251,8 +252,8 @@ function reshaped(
 }
 
 /**
- * Keep attached closets on their host rooms, then fit their built-in openings
- * back onto the shared wall if that wall became shorter.
+ * Keep attached closets on their host rooms, then fit the independent openings
+ * riding on their walls if the closet became shorter.
  */
 function flowedClosets(
   rooms: Array<Room>,
@@ -797,9 +798,8 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   /**
-   * Put a shallow room against the outside of a wall and cut its entrance into
-   * the shared wall. The entrance belongs to the closet, so deleting the
-   * closet takes the whole addition back down in one move.
+   * Put an open-front recess against the outside of a wall, then add an ordinary
+   * sliding door to it. The door stays independently selectable and editable.
    */
   addCloset(roomId: string, wall: number, t: number) {
     const state = get()
@@ -810,10 +810,9 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     if (!host || !frame) return
 
     const id = newId()
-    const openingId = newId()
     const count =
       state.rooms.filter((room) => room.kind === 'closet').length + 1
-    const attachment = { roomId, wall, t, openingId }
+    const attachment = { roomId, wall, t }
     const placement = placeCloset(
       frame,
       attachment,
@@ -827,20 +826,13 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       points: placement.points,
       attachment: placement.attachment,
     }
-    const width = fittedWidth(
-      OPENING_PRESETS['sliding-door'].width,
-      placement.width,
-    )
-    const opening: Opening = {
-      id: openingId,
+    const opening = openingInWall(wallAt(closet.points, 0)!, {
+      id: newId(),
       kind: 'sliding-door',
       roomId: id,
       wall: 0,
       t: 0.5,
-      width,
-      hinge: 'start',
-      swing: 'in',
-    }
+    })
 
     setState((s) => ({
       ...s,
@@ -884,7 +876,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           : room,
       )
       const openings = s.openings.map((opening) => {
-        if (opening.id !== attachment.openingId) return opening
+        if (opening.roomId !== closet.id) return opening
         const width = fittedWidth(opening.width, placement.width)
         return {
           ...opening,
@@ -928,17 +920,13 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     if (!room) return
     const frame = wallAt(room.points, wall)
     if (!frame) return
-    const width = fittedWidth(OPENING_PRESETS[kind].width, frame.length)
-    const opening: Opening = {
+    const opening = openingInWall(frame, {
       id: newId(),
       kind,
       roomId,
       wall,
-      t: clampT(t, width, frame.length),
-      width,
-      hinge: 'start',
-      swing: 'in',
-    }
+      t,
+    })
     setState((s) => ({
       ...s,
       history: commit(s, null, `Added ${openingName(kind)} to ${room.name}`),

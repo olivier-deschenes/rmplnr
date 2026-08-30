@@ -36,7 +36,6 @@ import {
   snapTargets,
   wallAxis,
 } from '#/lib/planner/snapping.ts'
-import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import {
   EDIT_KEYS,
   NUDGE_COARSE,
@@ -49,6 +48,7 @@ import {
   fittedWidth,
   nearestWall,
   openingEnds,
+  openingInWall,
   pointOnWall,
   openingWall,
   projectT,
@@ -844,13 +844,6 @@ export function Canvas() {
     if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
-    const closet = plannerStore.state.rooms.find(
-      (room) => room.attachment?.openingId === opening.id,
-    )
-    if (closet) {
-      actions.select({ type: 'room', id: closet.id })
-      return
-    }
     actions.select({ type: 'opening', id: opening.id })
     dragRef.current = { mode: 'opening', id: opening.id }
     capture(event.pointerId)
@@ -899,8 +892,6 @@ export function Canvas() {
     selection?.type === 'furniture'
       ? furniture.find((f) => f.id === selection.id)
       : undefined
-  const selectedClosetOpeningId = selectedRoom?.attachment?.openingId
-
   // Every opening paired with the wall it is drawn along; one whose wall has
   // gone — a room mid-edit — simply drops out of the drawing.
   const placed = openings.flatMap((opening) => {
@@ -931,7 +922,6 @@ export function Canvas() {
             roomId: ghost.roomId,
             wall: ghost.wall,
             t: ghost.t,
-            openingId: 'closet-opening-ghost',
           },
           DEFAULT_CLOSET.width,
           DEFAULT_CLOSET.depth,
@@ -946,22 +936,26 @@ export function Canvas() {
         attachment: closetGhostPlacement.attachment,
       }
     : null
-  const closetGhostOpening: Opening | null = closetGhostPlacement
-    ? {
+  const closetGhostWall = closetGhostRoom && wallAt(closetGhostRoom.points, 0)
+  const closetGhostOpening: Opening | null = closetGhostWall
+    ? openingInWall(closetGhostWall, {
         id: 'closet-opening-ghost',
         kind: 'sliding-door',
         roomId: 'closet-ghost',
         wall: 0,
         t: 0.5,
-        width: fittedWidth(
-          OPENING_PRESETS['sliding-door'].width,
-          closetGhostPlacement.width,
-        ),
-        hinge: 'start',
-        swing: 'in',
-      }
+      })
     : null
-  const closetGhostWall = closetGhostRoom && wallAt(closetGhostRoom.points, 0)
+  const openingGhost =
+    tool === 'opening' && ghost && ghostWall
+      ? openingInWall(ghostWall, {
+          id: 'opening-ghost',
+          kind: openingKind,
+          roomId: ghost.roomId,
+          wall: ghost.wall,
+          t: ghost.t,
+        })
+      : null
 
   const nearFirst =
     !!draft &&
@@ -1117,27 +1111,11 @@ export function Canvas() {
               key={opening.id}
               opening={opening}
               wall={wall}
-              selected={
-                opening.id === selection?.id ||
-                opening.id === selectedClosetOpeningId
-              }
+              selected={opening.id === selection?.id}
             />
           ))}
-          {tool === 'opening' && ghost && ghostWall && (
-            <OpeningShape
-              ghost
-              wall={ghostWall}
-              opening={{
-                id: 'ghost',
-                kind: openingKind,
-                roomId: ghost.roomId,
-                wall: ghost.wall,
-                t: ghost.t,
-                width: OPENING_PRESETS[openingKind].width,
-                hinge: 'start',
-                swing: 'in',
-              }}
-            />
+          {openingGhost && ghostWall && (
+            <OpeningShape ghost wall={ghostWall} opening={openingGhost} />
           )}
           {closetGhostOpening && closetGhostWall && (
             <OpeningShape

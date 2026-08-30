@@ -32,7 +32,6 @@ function toCanonicalRoom(room: Room): Room {
             roomId: room.attachment.roomId,
             wall: room.attachment.wall,
             t: room.attachment.t,
-            openingId: room.attachment.openingId,
           },
         }
       : {}),

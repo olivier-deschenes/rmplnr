@@ -1,4 +1,5 @@
 import { distance, outwardSign } from './geometry.ts'
+import { OPENING_PRESETS } from './presets.ts'
 import { MIN_SIZE } from './types.ts'
 
 import type { Opening, Point, Room } from './types.ts'
@@ -23,6 +24,9 @@ export type Wall = {
   /** Unit vector across the wall, pointing out of the room. */
   normal: Point
 }
+
+type OpeningPlacement = Pick<Opening, 'id' | 'kind' | 'roomId' | 'wall' | 't'> &
+  Partial<Pick<Opening, 'width' | 'hinge' | 'swing'>>
 
 /** The wall running from `points[index]` to the point after it. */
 export function wallAt(points: Array<Point>, index: number): Wall | null {
@@ -57,6 +61,24 @@ export function fittedWidth(width: number, length: number): number {
 export function clampT(t: number, width: number, length: number): number {
   const half = fittedWidth(width, length) / 2 / length
   return Math.min(1 - half, Math.max(half, t))
+}
+
+/** Build any door, window or gap through the same wall-fitting path. */
+export function openingInWall(
+  frame: Wall,
+  placement: OpeningPlacement,
+): Opening {
+  const width = fittedWidth(
+    placement.width ?? OPENING_PRESETS[placement.kind].width,
+    frame.length,
+  )
+  return {
+    ...placement,
+    width,
+    t: clampT(placement.t, width, frame.length),
+    hinge: placement.hinge ?? 'start',
+    swing: placement.swing ?? 'in',
+  }
 }
 
 export function pointOnWall(wall: Wall, t: number): Point {

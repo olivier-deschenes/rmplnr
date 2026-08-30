@@ -32,14 +32,6 @@ export const OPENING_PRESETS: Record<
 
 export const OPENING_KINDS = Object.keys(OPENING_PRESETS) as Array<OpeningKind>
 
-/** The wall treatments a closet may use, default first. */
-export const CLOSET_OPENING_KINDS = [
-  'sliding-door',
-  'door',
-  'double-door',
-  'opening',
-] as const satisfies ReadonlyArray<OpeningKind>
-
 /** The three the toolbar draws with; the rest are a menu away in the inspector. */
 export const OPENING_TOOLS = [
   'door',

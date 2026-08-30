@@ -88,7 +88,7 @@ describe('serializeProject', () => {
     )
   })
 
-  it('preserves a closet and its host-wall attachment', () => {
+  it('preserves a closet and its independent door', () => {
     const closet: Project['rooms'][number] = {
       id: 'closet-1',
       kind: 'closet',
@@ -103,10 +103,22 @@ describe('serializeProject', () => {
         roomId: 'room-1',
         wall: 0,
         t: 0.5,
-        openingId: 'closet-door-1',
       },
     }
-    const project = plan({ rooms: [...plan().rooms, closet] })
+    const door: Project['openings'][number] = {
+      id: 'closet-door-1',
+      kind: 'sliding-door',
+      roomId: closet.id,
+      wall: 0,
+      t: 0.5,
+      width: 160,
+      hinge: 'start',
+      swing: 'in',
+    }
+    const project = plan({
+      rooms: [...plan().rooms, closet],
+      openings: [...plan().openings, door],
+    })
 
     expect(parseProjectFile(serializeProject(project))).toEqual(project)
   })

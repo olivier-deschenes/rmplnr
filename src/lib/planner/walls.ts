@@ -78,7 +78,7 @@ export function sharedWalls(
 ): Array<Share> {
   const room = rooms.find((r) => r.id === roomId)
   const frame = room ? wallAt(room.points, index) : null
-  if (!frame) return []
+  if (!room || !frame) return []
 
   const shares: Array<Share> = []
   for (const other of rooms) {
@@ -153,9 +153,27 @@ export function wallGaps(
 ): Array<Span> {
   const room = rooms.find((r) => r.id === roomId)
   const frame = room ? wallAt(room.points, index) : null
-  if (!frame) return []
+  if (!room || !frame) return []
 
   const gaps: Array<Span> = []
+
+  // A closet is an open-front recess, not a small room with another copy of
+  // the host wall across its face. Keep its front open even when it has no
+  // door, and carry that same opening through every room sharing the host wall.
+  if (room.kind === 'closet' && index === 0) gaps.push([0, 1])
+  for (const closet of rooms) {
+    const attachment = closet.kind === 'closet' ? closet.attachment : undefined
+    if (!attachment) continue
+    if (closet.id === roomId && index === 0) continue
+    const host = rooms.find((candidate) => candidate.id === attachment.roomId)
+    const hostWall = host && wallAt(host.points, attachment.wall)
+    const front = wallAt(closet.points, 0)
+    if (!hostWall || !front) continue
+    const isHostWall = roomId === attachment.roomId && index === attachment.wall
+    if (!isHostWall && !sharedSpan(frame, hostWall)) continue
+    const span = spanBetween(frame, front.a, front.b)
+    if (span) gaps.push(span)
+  }
 
   for (const opening of openings) {
     if (opening.roomId === roomId && opening.wall === index) {
