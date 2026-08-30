@@ -1,4 +1,5 @@
 import { useSelector } from '@tanstack/react-store'
+import { formatForDisplay } from '@tanstack/react-hotkeys'
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -48,6 +49,7 @@ import {
   OPENING_TOOLS,
 } from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
+import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import {
   UNITS,
   UNIT_HINT,
@@ -57,6 +59,8 @@ import {
 
 import type { ReactElement } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
+import type { Hotkey } from '@tanstack/react-hotkeys'
+import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type {
   FurnitureKind,
   OpeningKind,
@@ -94,7 +98,7 @@ function Hint({
   children,
 }: {
   label: string
-  keys?: string
+  keys?: Hotkey
   children: ReactElement
 }) {
   return (
@@ -102,7 +106,7 @@ function Hint({
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        {keys && <Kbd>{keys}</Kbd>}
+        {keys && <Kbd>{formatForDisplay(keys)}</Kbd>}
       </TooltipContent>
     </Tooltip>
   )
@@ -110,23 +114,20 @@ function Hint({
 
 /** The ways to put a room down, in the order the bar offers them. */
 const DRAW_TOOLS: Array<{
-  tool: Tool
+  tool: DrawTool
   icon: TablerIcon
   label: string
-  keys: string
 }> = [
-  { tool: 'select', icon: IconPointer, label: 'Select and move', keys: 'V' },
+  { tool: 'select', icon: IconPointer, label: 'Select and move' },
   {
     tool: 'room',
     icon: IconVectorTriangle,
     label: 'Draw a room corner by corner',
-    keys: 'R',
   },
   {
     tool: 'rect',
     icon: IconRectangle,
     label: 'Drag out a rectangular room',
-    keys: 'E',
   },
 ]
 
@@ -139,11 +140,11 @@ const DRAW_TOOLS: Array<{
  */
 const OPENING_TOOL_UI: Record<
   (typeof OPENING_TOOLS)[number],
-  { icon: TablerIcon; keys: string }
+  { icon: TablerIcon }
 > = {
-  door: { icon: IconDoor, keys: 'D' },
-  window: { icon: IconWindow, keys: 'W' },
-  opening: { icon: IconBrackets, keys: 'O' },
+  door: { icon: IconDoor },
+  window: { icon: IconWindow },
+  opening: { icon: IconBrackets },
 }
 
 /** One per kind, so nothing can reach the Add menu faceless. */
@@ -244,8 +245,8 @@ export function Toolbar() {
         value={tool}
         onValueChange={(value) => value && actions.setTool(value as Tool)}
       >
-        {DRAW_TOOLS.map(({ tool: value, icon: Icon, label, keys }) => (
-          <Hint key={value} label={label} keys={keys}>
+        {DRAW_TOOLS.map(({ tool: value, icon: Icon, label }) => (
+          <Hint key={value} label={label} keys={TOOL_KEYS[value]}>
             <ToggleGroupItem
               value={value}
               className={SELECTED_TOOL}
@@ -272,10 +273,10 @@ export function Toolbar() {
         }
       >
         {OPENING_TOOLS.map((kind) => {
-          const { icon: Icon, keys } = OPENING_TOOL_UI[kind]
+          const { icon: Icon } = OPENING_TOOL_UI[kind]
           const label = `Place ${OPENING_PRESETS[kind].label.toLowerCase()} on a wall`
           return (
-            <Hint key={kind} label={label} keys={keys}>
+            <Hint key={kind} label={label} keys={OPENING_KEYS[kind]}>
               <ToggleGroupItem
                 value={kind}
                 className={SELECTED_TOOL}
@@ -325,7 +326,7 @@ export function Toolbar() {
       </Hint>
 
       <div className="ml-auto flex items-center gap-0.5">
-        <Hint label="Undo" keys="⌘Z">
+        <Hint label="Undo" keys={EDIT_KEYS.undo}>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -336,7 +337,7 @@ export function Toolbar() {
             <IconArrowBackUp />
           </Button>
         </Hint>
-        <Hint label="Redo" keys="⇧⌘Z">
+        <Hint label="Redo" keys={EDIT_KEYS.redo}>
           <Button
             variant="ghost"
             size="icon-sm"

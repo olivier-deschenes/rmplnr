@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
+import { formatForDisplay } from '@tanstack/react-hotkeys'
 
 import { HistoryPanel } from './history.tsx'
 
@@ -17,6 +18,7 @@ import { Separator } from '#/components/ui/separator.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
+import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import {
   HINGED_KINDS,
   OPENING_KINDS,
@@ -40,6 +42,8 @@ import {
   toLength,
 } from '#/lib/planner/units.ts'
 import { MIN_SIZE } from '#/lib/planner/types.ts'
+
+import type { Hotkey } from '@tanstack/react-hotkeys'
 
 import type {
   Furniture,
@@ -443,7 +447,26 @@ function OpeningPanel({
   )
 }
 
+/**
+ * Writes a binding the way the reader's own machine writes it: ⌘ Z on a Mac
+ * and Ctrl+Z everywhere else, off the one table the canvas registers.
+ *
+ * Which of the two is only knowable in the browser, and the panel is rendered
+ * on the server first, so the opening pass puts down the Mac form the legend
+ * has always shown and the machine corrects it once mounted. On a Mac — where
+ * the guess is right — there is nothing to correct.
+ */
+function useKeys() {
+  const [platform, setPlatform] = useState<'mac' | undefined>('mac')
+  useEffect(() => setPlatform(undefined), [])
+  return (...bindings: Array<Hotkey>) =>
+    bindings
+      .map((binding) => formatForDisplay(binding, { platform }))
+      .join(' / ')
+}
+
 function EmptyPanel({ units }: { units: Units }) {
+  const keys = useKeys()
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
@@ -473,9 +496,13 @@ function EmptyPanel({ units }: { units: Units }) {
       <Separator />
       <SectionTitle>Keys</SectionTitle>
       <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-        <dt className="text-foreground">V / R / E</dt>
+        <dt className="text-foreground">
+          {keys(TOOL_KEYS.select, TOOL_KEYS.room, TOOL_KEYS.rect)}
+        </dt>
         <dd>Select, draw a room, or a rectangle</dd>
-        <dt className="text-foreground">D / W / O</dt>
+        <dt className="text-foreground">
+          {keys(OPENING_KEYS.door, OPENING_KEYS.window, OPENING_KEYS.opening)}
+        </dt>
         <dd>Cut a door, window, or gap into a wall</dd>
         <dt className="text-foreground">Click</dt>
         <dd>Add a corner; click the first to close</dd>
@@ -485,13 +512,17 @@ function EmptyPanel({ units }: { units: Units }) {
         <dd>Rename a room or an item; break a selected wall in two</dd>
         <dt className="text-foreground">Pinch</dt>
         <dd>Or ⌘ + scroll to zoom</dd>
-        <dt className="text-foreground">⌫</dt>
+        <dt className="text-foreground">{keys(EDIT_KEYS.removeAlt)}</dt>
         <dd>Delete the selection</dd>
-        <dt className="text-foreground">⌘D</dt>
+        <dt className="text-foreground">{keys(EDIT_KEYS.duplicate)}</dt>
         <dd>Duplicate the selection</dd>
-        <dt className="text-foreground">⌘C / ⌘V</dt>
+        <dt className="text-foreground">
+          {keys(EDIT_KEYS.copy, EDIT_KEYS.paste)}
+        </dt>
         <dd>Copy it, and put down another</dd>
-        <dt className="text-foreground">⌘Z / ⇧⌘Z</dt>
+        <dt className="text-foreground">
+          {keys(EDIT_KEYS.undo, EDIT_KEYS.redo)}
+        </dt>
         <dd>Undo, redo</dd>
       </dl>
     </>

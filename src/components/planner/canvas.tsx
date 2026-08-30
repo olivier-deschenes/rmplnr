@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
+import { useHotkeys, useKeyHold } from '@tanstack/react-hotkeys'
 
 import { Grid } from './grid.tsx'
 import {
@@ -36,6 +37,13 @@ import {
 } from '#/lib/planner/snapping.ts'
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import {
+  EDIT_KEYS,
+  NUDGE_COARSE,
+  NUDGE_KEYS,
+  OPENING_KEYS,
+  TOOL_KEYS,
+} from '#/lib/planner/shortcuts.ts'
+import {
   clampT,
   fittedWidth,
   nearestWall,
@@ -65,11 +73,14 @@ import type {
   Furniture,
   Handle,
   Opening,
+  OpeningKind,
   Point,
   Rename,
   Room,
   Viewport,
 } from '#/lib/planner/types.ts'
+import type { DrawTool } from '#/lib/planner/shortcuts.ts'
+import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
@@ -168,7 +179,10 @@ type Drag =
 export function Canvas() {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<Drag | null>(null)
-  const spaceRef = useRef(false)
+  // Space held turns any drag into a pan. The tracker keeps the key's state
+  // itself and clears it when the window loses focus, so a space held on the
+  // way out never comes back stuck down.
+  const spaceHeld = useKeyHold(EDIT_KEYS.pan)
 
   const {
     rooms,
@@ -312,118 +326,109 @@ export function Canvas() {
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  useEffect(() => {
-    const isTyping = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable)
+  /**
+   * Escape backs out of whatever reaches furthest in: the draft first, then
+   * the rectangle, then the tool, and only then the selection.
+   */
+  const cancel = () => {
+    const state = plannerStore.state
+    if (state.draft) actions.cancelDraft()
+    else if (state.rect) actions.cancelRect()
+    else if (state.tool !== 'select') actions.setTool('select')
+    else actions.select(null)
+  }
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isTyping(event.target)) return
-      const state = plannerStore.state
-      const a = plannerStore.actions
+  const nudge = (delta: readonly [number, number], reach: number) => {
+    const step = (activeSnapStep(plannerStore.state) ?? 1) * reach
+    actions.nudgeSelection(delta[0] * step, delta[1] * step)
+  }
 
-      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
-        const key = event.key.toLowerCase()
-        if (key === 'z') {
-          event.preventDefault()
-          if (event.shiftKey) a.redo()
-          else a.undo()
-        } else if (key === 'y') {
-          event.preventDefault()
-          a.redo()
-        } else if (key === 'c') {
-          // With nothing selected there is nothing here to copy, and the
-          // browser's own copy — of whatever text is selected on the page — is
-          // left to go through.
-          if (!state.selection) return
-          event.preventDefault()
-          a.copySelection()
-        } else if (key === 'v') {
-          event.preventDefault()
-          a.paste()
-        } else if (key === 'd') {
-          // Taken whether or not it does anything, so that the plan never
-          // answers a duplicate with the browser's bookmark dialogue.
-          event.preventDefault()
-          a.duplicateSelection()
-        }
-        // Everything below this point is a bare key, and the browser has its
-        // own uses for the combinations: ⌘R reloads rather than drawing a room.
-        return
-      }
-
-      if (event.key === ' ') {
-        spaceRef.current = true
-        event.preventDefault()
-        return
-      }
-      if (event.key === 'Escape') {
-        if (state.draft) a.cancelDraft()
-        else if (state.rect) a.cancelRect()
-        else if (state.tool !== 'select') a.setTool('select')
-        else a.select(null)
-        return
-      }
-      if (event.key === 'Enter') {
-        if (state.draft) a.commitDraft()
-        return
-      }
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault()
-        if (state.draft) a.popDraftPoint()
-        else a.deleteSelected()
-        return
-      }
-      if (event.key === 'v' || event.key === 'V') return a.setTool('select')
-      if (event.key === 'r' || event.key === 'R') return a.setTool('room')
-      if (event.key === 'e' || event.key === 'E') return a.setTool('rect')
-      if (event.key === 'd' || event.key === 'D') {
-        return a.setOpeningTool('door')
-      }
-      if (event.key === 'w' || event.key === 'W') {
-        return a.setOpeningTool('window')
-      }
-      if (event.key === 'o' || event.key === 'O') {
-        return a.setOpeningTool('opening')
-      }
-
-      const step = (activeSnapStep(state) ?? 1) * (event.shiftKey ? 10 : 1)
-      const nudge: Record<string, [number, number] | undefined> = {
-        ArrowLeft: [-step, 0],
-        ArrowRight: [step, 0],
-        ArrowUp: [0, -step],
-        ArrowDown: [0, step],
-      }
-      const delta = nudge[event.key]
-      if (delta && state.selection) {
-        event.preventDefault()
-        a.nudgeSelection(delta[0], delta[1])
-      }
-    }
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === ' ') spaceRef.current = false
-      // A run of arrow-key repeats reads as one nudge, which ends here.
-      if (event.key.startsWith('Arrow')) plannerStore.actions.sealHistory()
-    }
-
-    // Space held as the window loses focus is never let go of here, so it is
-    // dropped along with the focus rather than left stuck down.
-    const onBlur = () => {
-      spaceRef.current = false
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    window.addEventListener('blur', onBlur)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-      window.removeEventListener('blur', onBlur)
-    }
-  }, [])
+  // Registrations rather than a switch over `event.key`: the manager holds the
+  // one listener and resolves Mod to ⌘ or Ctrl per platform.
+  useHotkeys(
+    [
+      { hotkey: EDIT_KEYS.undo, callback: () => actions.undo() },
+      { hotkey: EDIT_KEYS.redo, callback: () => actions.redo() },
+      { hotkey: EDIT_KEYS.redoAlt, callback: () => actions.redo() },
+      // With nothing selected there is nothing here to copy. A disabled
+      // registration is passed over before it can take the event, so the
+      // browser's own copy — of whatever text is selected on the page — is left
+      // to go through.
+      {
+        hotkey: EDIT_KEYS.copy,
+        callback: () => actions.copySelection(),
+        options: { enabled: selection !== null },
+      },
+      { hotkey: EDIT_KEYS.paste, callback: () => actions.paste() },
+      // Taken whether or not it does anything, so that the plan never answers a
+      // duplicate with the browser's bookmark dialogue.
+      {
+        hotkey: EDIT_KEYS.duplicate,
+        callback: () => actions.duplicateSelection(),
+      },
+      { hotkey: EDIT_KEYS.cancel, callback: cancel },
+      // Enter is left to the browser until there is a draft for it to close.
+      {
+        hotkey: EDIT_KEYS.commit,
+        callback: () => actions.commitDraft(),
+        options: { enabled: draft !== null },
+      },
+      // A draft gives up its last corner before the plan gives up anything.
+      ...[EDIT_KEYS.remove, EDIT_KEYS.removeAlt].map((hotkey) => ({
+        hotkey,
+        callback: () =>
+          plannerStore.state.draft
+            ? actions.popDraftPoint()
+            : actions.deleteSelected(),
+      })),
+      // Space is held rather than struck, and `useKeyHold` below is what reads
+      // it. It is registered all the same so that the press is taken off the
+      // page, where it would otherwise click whichever button has the focus.
+      { hotkey: EDIT_KEYS.pan, callback: () => {} },
+      ...(Object.entries(TOOL_KEYS) as Array<[DrawTool, Hotkey]>).map(
+        ([value, hotkey]) => ({
+          hotkey,
+          callback: () => actions.setTool(value),
+        }),
+      ),
+      ...(Object.entries(OPENING_KEYS) as Array<[OpeningKind, Hotkey]>).map(
+        ([kind, hotkey]) => ({
+          hotkey,
+          callback: () => actions.setOpeningTool(kind),
+        }),
+      ),
+      ...NUDGE_KEYS.flatMap(({ key, shifted, delta }) => [
+        {
+          hotkey: key,
+          callback: () => nudge(delta, 1),
+          options: { enabled: selection !== null },
+        },
+        {
+          hotkey: shifted,
+          callback: () => nudge(delta, NUDGE_COARSE),
+          options: { enabled: selection !== null },
+        },
+        // A run of arrow-key repeats reads as one nudge, which ends on release.
+        // Shift may have been let go of by then or not, so both endings are
+        // listened for — and each shares its key with the press it closes, which
+        // is a conflict only in the sense that the manager cannot tell the two
+        // apart by name.
+        ...[key, shifted].map((hotkey) => ({
+          hotkey,
+          callback: () => actions.sealHistory(),
+          options: {
+            eventType: 'keyup' as const,
+            conflictBehavior: 'allow' as const,
+          },
+        })),
+      ]),
+    ],
+    // A field with the focus keeps its keys: the name box is where Escape
+    // abandons a rename and ⌘Z takes back a letter, neither of which the plan
+    // has any business answering. The library would otherwise let those two
+    // through on the grounds that they are rarely meant for the text.
+    { ignoreInputs: true },
+  )
 
   function beginPan(event: React.PointerEvent) {
     const vp = plannerStore.state.viewport
@@ -440,7 +445,7 @@ export function Canvas() {
 
   function onCanvasPointerDown(event: React.PointerEvent) {
     const state = plannerStore.state
-    if (event.button === 1 || spaceRef.current || state.tool === 'select') {
+    if (event.button === 1 || spaceHeld || state.tool === 'select') {
       beginPan(event)
       return
     }
@@ -662,7 +667,7 @@ export function Canvas() {
   function onPointerUp(event: React.PointerEvent) {
     const drag = dragRef.current
     // A pan that never moved was really just a click on empty space.
-    if (drag?.mode === 'pan' && !drag.moved && !spaceRef.current) {
+    if (drag?.mode === 'pan' && !drag.moved && !spaceHeld) {
       actions.select(null)
     }
     if (drag?.mode === 'rect') actions.commitRect()
@@ -750,7 +755,7 @@ export function Canvas() {
   }
 
   function onRoomPointerDown(room: Room, event: React.PointerEvent) {
-    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'room', id: room.id })
@@ -764,7 +769,7 @@ export function Canvas() {
   }
 
   function onFurniturePointerDown(item: Furniture, event: React.PointerEvent) {
-    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'furniture', id: item.id })
@@ -794,7 +799,7 @@ export function Canvas() {
   }
 
   function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
-    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'opening', id: opening.id })
@@ -820,7 +825,7 @@ export function Canvas() {
 
   /** Take hold of a whole side of the selected room, to push it across. */
   function onWallDown(index: number, event: React.PointerEvent) {
-    if (event.button === 1 || spaceRef.current) return beginPan(event)
+    if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
     const current = plannerStore.state.selection
