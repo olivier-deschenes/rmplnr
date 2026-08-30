@@ -172,7 +172,7 @@ function PlanSelection({
         </p>
       </div>
       {projects.length > 0 ? (
-        <div className="max-h-56 divide-y overflow-y-auto border">
+        <div className="divide-y border">
           {projects.map((project) => {
             const checked = controller.isProjectSelected(project.id)
             const baseline = controller.workspace?.baseProjects[project.id]
@@ -232,7 +232,7 @@ export function GitHubRepositoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto text-xs sm:max-w-xl">
+      <DialogContent className="right-4 left-4 mx-auto w-fit max-w-none translate-x-0 text-xs sm:max-w-none">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-8">
             <IconBrandGithub className="size-4" />

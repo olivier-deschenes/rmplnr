@@ -236,7 +236,7 @@ function PendingChanges({
   }
 
   return (
-    <div className="max-h-56 divide-y overflow-y-auto border">
+    <div className="divide-y border">
       {changeKinds.flatMap(({ key, label, icon: Icon }) =>
         changes[key].map((projectId) => (
           <div
@@ -332,7 +332,7 @@ export function GitHubCommitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto text-xs sm:max-w-xl">
+      <DialogContent className="right-4 left-4 mx-auto w-fit max-w-none translate-x-0 text-xs sm:max-w-none">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-8">
             <ToneDot tone={status.tone} />
