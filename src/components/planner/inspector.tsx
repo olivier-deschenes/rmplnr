@@ -23,7 +23,6 @@ import {
   SIDED_KINDS,
 } from '#/lib/planner/presets.ts'
 import { wallAt } from '#/lib/planner/openings.ts'
-import { neighbours } from '#/lib/planner/walls.ts'
 import {
   normalizeAngle,
   polygonArea,
@@ -180,9 +179,6 @@ function SelectionActions() {
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
-  const rooms = useSelector(plannerStore, (s) => s.rooms)
-  // Which rooms this one is actually built onto, rather than merely near.
-  const joined = neighbours(rooms, room.id)
 
   return (
     <>
@@ -219,24 +215,6 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
           {formatArea(polygonArea(room.points), units, 2)}
-        </dd>
-        <dt>Corners</dt>
-        <dd className="text-foreground text-right tabular-nums">
-          {room.points.length}
-        </dd>
-      </dl>
-      {/*
-        A room pushed up against another shares the wall between them, and that
-        is not something the drawing can say on its own: one wall between two
-        rooms looks exactly like one wall with a room behind it. So the panel
-        names them, and selecting the room lights those walls up on the plan.
-      */}
-      <dl className="text-muted-foreground grid gap-y-1 text-[11px]">
-        <dt>Shares walls with</dt>
-        <dd className="text-foreground">
-          {joined.length === 0
-            ? 'Nothing — drag it against another room'
-            : joined.map((other) => other.name).join(', ')}
         </dd>
       </dl>
       <SelectionActions />
