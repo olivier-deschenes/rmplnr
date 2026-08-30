@@ -24,7 +24,7 @@ import type {
   Units,
   Viewport,
 } from '#/lib/planner/types.ts'
-import type { Box, WallLabel } from '#/lib/planner/dimensions.ts'
+import type { Box, NameLabel, WallLabel } from '#/lib/planner/dimensions.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
@@ -202,9 +202,44 @@ export function RoomLabels({
   )
 }
 
+/**
+ * What each piece of furniture is called, written across it in the same hand a
+ * room's name is written in, on a plate of its own so that the glyph underneath
+ * — a sofa's seat line, a tabletop — never runs through the letters.
+ *
+ * Where each name goes is settled in `dimensions.ts`, along with everything
+ * else the plan writes on itself. A name with nowhere to stand on its own item
+ * is left off rather than spilled over the drawing: zooming in brings it back,
+ * and the inspector says what the thing is called whatever the zoom.
+ */
+export function FurnitureLabels({
+  labels,
+  /** The item whose name is being typed over, and so is not written here. */
+  renaming,
+}: {
+  labels: Array<NameLabel>
+  renaming?: string
+}) {
+  return (
+    <g className="pointer-events-none">
+      {labels.map(
+        ({ id, text, box }) =>
+          id !== renaming && (
+            <Plate
+              key={id}
+              box={box}
+              text={text}
+              className="fill-foreground text-[11px] font-medium"
+            />
+          ),
+      )}
+    </g>
+  )
+}
+
 /** How much of the canvas a name is given to be typed in, in pixels. */
-const NAME_WIDTH = 150
-const NAME_HEIGHT = 32
+const FIELD_WIDTH = 150
+const FIELD_HEIGHT = 32
 
 /**
  * A name being typed over where it is written on the plan: a room's own label,
@@ -243,10 +278,10 @@ export function NameEditor({
 
   return (
     <foreignObject
-      x={at.x - NAME_WIDTH / 2}
-      y={at.y - NAME_HEIGHT / 2}
-      width={NAME_WIDTH}
-      height={NAME_HEIGHT}
+      x={at.x - FIELD_WIDTH / 2}
+      y={at.y - FIELD_HEIGHT / 2}
+      width={FIELD_WIDTH}
+      height={FIELD_HEIGHT}
     >
       <Input
         ref={ref}
@@ -270,7 +305,16 @@ export function NameEditor({
 }
 
 /** A number on its own opaque plate, so the grid never runs through digits. */
-function Plate({ box, text }: { box: Box; text: string }) {
+function Plate({
+  box,
+  text,
+  className = 'fill-muted-foreground text-[10px]',
+}: {
+  box: Box
+  text: string
+  /** How the text is written; the default is the hand dimensions use. */
+  className?: string
+}) {
   return (
     <g
       transform={`translate(${box.centre.x} ${box.centre.y}) rotate(${box.angle})`}
@@ -285,7 +329,7 @@ function Plate({ box, text }: { box: Box; text: string }) {
       <text
         textAnchor="middle"
         dominantBaseline="central"
-        className="fill-muted-foreground text-[10px]"
+        className={className}
       >
         {text}
       </text>
@@ -419,7 +463,7 @@ export function FurnitureEditor({
   item: Furniture
   viewport: Viewport
   units: Units
-  /** Boxes the size readout backs away from: the wall dimensions on show. */
+  /** Boxes the size readout backs away from: what the plan already says. */
   avoid: Array<Box>
   onHandleDown: (handle: Handle, event: React.PointerEvent) => void
   onRotateDown: (event: React.PointerEvent) => void
@@ -513,7 +557,7 @@ export function OpeningEditor({
   wall: Wall
   viewport: Viewport
   units: Units
-  /** Boxes the width readout backs away from: the wall dimensions on show. */
+  /** Boxes the width readout backs away from: what the plan already says. */
   avoid: Array<Box>
   onEndDown: (end: 'start' | 'end', event: React.PointerEvent) => void
 }) {

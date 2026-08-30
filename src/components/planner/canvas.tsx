@@ -13,6 +13,7 @@ import {
 import {
   DraftOverlay,
   FurnitureEditor,
+  FurnitureLabels,
   NameEditor,
   OpeningEditor,
   RectPreview,
@@ -24,7 +25,7 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
-import { wallLabels } from '#/lib/planner/dimensions.ts'
+import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
 import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
 import {
   SNAP_REACH_PX,
@@ -865,6 +866,20 @@ export function Canvas() {
     size,
   )
 
+  // Where each item's own name is written across it, which is worked out the
+  // same way and against the same room labels.
+  const names = furnitureNames(rooms, furniture, viewport, units)
+
+  // Everything already written on the plan by the time a selection's own
+  // readout looks for somewhere to sit. The order is what settles a clash: the
+  // names take their places, the dimensions work around the footprints they sit
+  // in, and the readout — the one label the selection brought with it — gives
+  // way to both.
+  const written = [
+    ...names.map((label) => label.box),
+    ...dimensions.map((label) => label.box),
+  ]
+
   // Every room's walls, with the openings of any room sharing them already cut
   // through. Recomputed each render, as the dimensions are: the plans this
   // holds are a handful of rooms, and walls that lagged a drag by a frame would
@@ -993,6 +1008,10 @@ export function Canvas() {
         units={units}
         renaming={renaming?.type === 'room' ? renaming.id : undefined}
       />
+      <FurnitureLabels
+        labels={names}
+        renaming={renaming?.type === 'furniture' ? renaming.id : undefined}
+      />
       <WallDimensions labels={dimensions} />
       <SnapGuides guides={guides} viewport={viewport} />
 
@@ -1009,7 +1028,7 @@ export function Canvas() {
           item={selectedFurniture}
           viewport={viewport}
           units={units}
-          avoid={dimensions.map((label) => label.box)}
+          avoid={written}
           onHandleDown={onResizeHandleDown}
           onRotateDown={onRotateHandleDown}
         />
@@ -1020,7 +1039,7 @@ export function Canvas() {
           wall={selectedOpening.wall}
           viewport={viewport}
           units={units}
-          avoid={dimensions.map((label) => label.box)}
+          avoid={written}
           onEndDown={onOpeningEndDown}
         />
       )}

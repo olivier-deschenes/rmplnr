@@ -46,13 +46,24 @@ export type WallLabel = {
   leader: { from: Point; to: Point } | null
 }
 
+/** A name written across the thing it belongs to. */
+export type NameLabel = { id: string; text: string; box: Box }
+
 export const LABEL_FONT = 10
 export const LABEL_HEIGHT = LABEL_FONT + 6
 /** How much further out each ring of placements sits than the last. */
 export const STEP = 16
 
+/**
+ * What a name is written at, wherever one is written on the plan: a room's
+ * across its floor, a piece of furniture's across its footprint. A shade larger
+ * than a dimension, because it is what the thing is rather than how big it is.
+ */
+export const NAME_FONT = 11
+export const NAME_HEIGHT = NAME_FONT + 6
+
 /** The app is monospaced throughout, so label widths need no measuring. */
-const CHAR_WIDTH = LABEL_FONT * 0.6
+const CHAR_RATIO = 0.6
 const PAD_X = 4
 
 /** Clear space between a wall and the near edge of its label. */
@@ -83,8 +94,9 @@ const OFFSCREEN = 250
  */
 const REACH = GAP + LABEL_HEIGHT / 2 + (RINGS - 1) * STEP + 80
 
-function textWidth(text: string): number {
-  return text.length * CHAR_WIDTH + PAD_X * 2
+/** How wide `text` comes out at `font` pixels, the plate's padding and all. */
+export function textWidth(text: string, font: number = LABEL_FONT): number {
+  return text.length * font * CHAR_RATIO + PAD_X * 2
 }
 
 function boxCorners(box: Box): Array<Point> {
@@ -197,12 +209,104 @@ function roomLabelBox(room: Room, vp: Viewport, units: Units): Box {
     // Two lines: the name sits on the centroid, the area 14px below it.
     centre: { x: at.x, y: at.y + 4 },
     w: Math.max(
-      textWidth(room.name),
+      textWidth(room.name, NAME_FONT),
       textWidth(formatArea(polygonArea(room.points), units)),
     ),
     h: 30,
     angle: 0,
   }
+}
+
+/**
+ * Where a piece of furniture's name is written, or null when the item has no
+ * room for it.
+ *
+ * A name stays inside the footprint it belongs to — a name floating beside a
+ * sofa would be a name belonging to nothing — so it is written in the middle
+ * and, if something is already there, stepped out along the item's own axes as
+ * far as the footprint allows. It is written upright, the way a room's name is,
+ * so what has to fit inside the turned footprint is the upright plate: with
+ * `c` and `s` the cosine and sine of the rotation, a `w` by `h` plate takes
+ * `w·c + h·s` of the item's width and `w·s + h·c` of its height.
+ */
+function namePlacement(
+  item: Furniture,
+  vp: Viewport,
+  taken: Array<Box>,
+): Box | null {
+  const w = textWidth(item.name, NAME_FONT)
+  const h = NAME_HEIGHT
+  const rad = (item.rotation * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+
+  // What the upright plate takes up along each of the item's own two axes.
+  const plate = {
+    x: w * Math.abs(cos) + h * Math.abs(sin),
+    y: w * Math.abs(sin) + h * Math.abs(cos),
+  }
+  const footprint = { x: item.w * vp.scale, y: item.h * vp.scale }
+  if (plate.x > footprint.x || plate.y > footprint.y) return null
+
+  // How far the plate may step from the middle and still stand on the item,
+  // less the margin that keeps it off the item's own outline.
+  const runway = {
+    x: Math.max(0, (footprint.x - plate.x) / 2 - MARGIN),
+    y: Math.max(0, (footprint.y - plate.y) / 2 - MARGIN),
+  }
+
+  const centre = worldToScreen({ x: item.x, y: item.y }, vp)
+  // The middle first, then out along the item's own axes: across the short one
+  // to begin with, which on most furniture is the shorter move of the two.
+  const offsets = [
+    { x: 0, y: 0 },
+    { x: 0, y: runway.y },
+    { x: 0, y: -runway.y },
+    { x: runway.x, y: 0 },
+    { x: -runway.x, y: 0 },
+  ]
+
+  for (const offset of offsets) {
+    const box: Box = {
+      centre: {
+        x: centre.x + offset.x * cos - offset.y * sin,
+        y: centre.y + offset.x * sin + offset.y * cos,
+      },
+      w,
+      h,
+      angle: 0,
+    }
+    if (!taken.some((other) => overlaps(grow(box, MARGIN), other))) return box
+  }
+  return null
+}
+
+/**
+ * What each piece of furniture is called, laid out across the plan.
+ *
+ * The only thing a name has to work around is a room's own label, which is
+ * written at the centroid whatever happens to be standing there. The wall
+ * dimensions need no such care in return: they already dodge the whole
+ * footprint, and a name never leaves the footprint it belongs to.
+ */
+export function furnitureNames(
+  rooms: Array<Room>,
+  furniture: Array<Furniture>,
+  vp: Viewport,
+  units: Units,
+): Array<NameLabel> {
+  const taken = rooms.map((room) => roomLabelBox(room, vp, units))
+  const labels: Array<NameLabel> = []
+
+  for (const item of furniture) {
+    const box = namePlacement(item, vp, taken)
+    if (!box) continue
+    // Two items only overlap when the plan is being drawn with collisions off,
+    // but when they do their names should not be written over each other.
+    taken.push(box)
+    labels.push({ id: item.id, text: item.name, box })
+  }
+  return labels
 }
 
 /**
