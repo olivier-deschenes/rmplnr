@@ -5,6 +5,7 @@ import {
   IconBarrierBlock,
   IconBrackets,
   IconChevronDown,
+  IconCooker,
   IconDoor,
   IconFocusCentered,
   IconMagnet,
@@ -14,6 +15,7 @@ import {
   IconRectangle,
   IconSettings,
   IconSofa,
+  IconSquareDashed,
   IconTable,
   IconVectorTriangle,
   IconWindow,
@@ -148,6 +150,8 @@ const OPENING_TOOL_UI: Record<
 const FURNITURE_ICONS: Record<FurnitureKind, TablerIcon> = {
   table: IconTable,
   sofa: IconSofa,
+  kitchen: IconCooker,
+  box: IconSquareDashed,
 }
 
 /**

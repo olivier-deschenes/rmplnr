@@ -7,6 +7,8 @@ export const FURNITURE_PRESETS: Record<
 > = {
   table: { label: 'Table', w: 140, h: 80 },
   sofa: { label: 'Sofa', w: 200, h: 90 },
+  kitchen: { label: 'Kitchen', w: 240, h: 60 },
+  box: { label: 'Box', w: 100, h: 100 },
 }
 
 /** Footprint for a rectangle room dropped with a click instead of a drag. */

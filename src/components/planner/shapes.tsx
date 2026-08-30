@@ -1,7 +1,14 @@
 import { openingEnds, pointOnWall, wallAt } from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
-import type { Furniture, Opening, Point, Room } from '#/lib/planner/types.ts'
+import type { ReactElement } from 'react'
+import type {
+  Furniture,
+  FurnitureKind,
+  Opening,
+  Point,
+  Room,
+} from '#/lib/planner/types.ts'
 import type { Span, Wall } from '#/lib/planner/openings.ts'
 
 /** A wall never thins below this on screen, however far the plan is zoomed out. */
@@ -116,6 +123,7 @@ export function FurnitureShape({
 }: FurnitureShapeProps) {
   const left = item.x - item.w / 2
   const top = item.y - item.h / 2
+  const Glyph = FURNITURE_GLYPHS[item.kind]
 
   return (
     <g
@@ -127,11 +135,7 @@ export function FurnitureShape({
       onPointerDown={onPointerDown}
     >
       <rect x={left} y={top} width={item.w} height={item.h} />
-      {item.kind === 'table' ? (
-        <TableGlyph left={left} top={top} w={item.w} h={item.h} />
-      ) : (
-        <SofaGlyph left={left} top={top} w={item.w} h={item.h} />
-      )}
+      <Glyph left={left} top={top} w={item.w} h={item.h} />
     </g>
   )
 }
@@ -170,6 +174,75 @@ function SofaGlyph({ left, top, w, h }: GlyphProps) {
       />
     </>
   )
+}
+
+/**
+ * A run of kitchen units with its back to the top edge. The counter itself is
+ * only a rectangle, so what says kitchen is what stands on it: a sink at one
+ * end and a four-ring hob at the other, drawn the way a plan draws them.
+ */
+function KitchenGlyph({ left, top, w, h }: GlyphProps) {
+  const margin = Math.min(w, h) * 0.12
+  const depth = h - margin * 2
+  const bay = Math.min(w * 0.3, depth * 1.5)
+  const midY = top + h / 2
+  const sinkX = left + w * 0.27
+  const hobX = left + w * 0.73
+  const ring = Math.min(bay, depth) * 0.18
+  return (
+    <>
+      <rect
+        x={sinkX - bay / 2}
+        y={top + margin}
+        width={bay}
+        height={depth}
+        rx={margin}
+        fill="none"
+      />
+      <circle cx={sinkX} cy={midY} r={ring * 0.45} fill="none" />
+      {BURNERS.map(([dx, dy]) => (
+        <circle
+          key={`${dx},${dy}`}
+          cx={hobX + dx * bay * 0.27}
+          cy={midY + dy * depth * 0.27}
+          r={ring}
+          fill="none"
+        />
+      ))}
+    </>
+  )
+}
+
+/** The four corners of the hob, as unit offsets from its centre. */
+const BURNERS = [
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1],
+] as const
+
+/**
+ * Nothing at all, and on purpose. A box is whatever the plan needs it to be —
+ * a fridge, a rug, a chimney breast, a crate of something in the way — so it is
+ * given no symbol to be read as one thing rather than another. What it is comes
+ * from the name written over it and the footprint it is dragged out to.
+ */
+function BoxGlyph(): ReactElement {
+  return <></>
+}
+
+/**
+ * One glyph per kind, so a kind cannot reach the plan wearing another's face.
+ * The box is the one blank in here, and its comment says why.
+ */
+const FURNITURE_GLYPHS: Record<
+  FurnitureKind,
+  (props: GlyphProps) => ReactElement
+> = {
+  table: TableGlyph,
+  sofa: SofaGlyph,
+  kitchen: KitchenGlyph,
+  box: BoxGlyph,
 }
 
 // --- openings ---------------------------------------------------------------

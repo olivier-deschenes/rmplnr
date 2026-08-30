@@ -16,7 +16,7 @@ export const RoomSchema = z.object({
   points: z.array(PointSchema).min(3),
 })
 
-export const FurnitureKindSchema = z.enum(['table', 'sofa'])
+export const FurnitureKindSchema = z.enum(['table', 'sofa', 'kitchen', 'box'])
 
 export const FurnitureSchema = z.object({
   id: z.string(),
