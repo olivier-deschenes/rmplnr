@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
+import { IconLock, IconLockOpen } from '@tabler/icons-react'
 
 import { HistoryPanel } from './history.tsx'
 
@@ -58,12 +59,14 @@ function NumberField({
   onCommit,
   min,
   precision = 0,
+  disabled = false,
 }: {
   label: string
   value: number
   onCommit: (next: number) => void
   min?: number
   precision?: number
+  disabled?: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
 
@@ -84,6 +87,7 @@ function NumberField({
       <span className="text-muted-foreground text-[10px]">{label}</span>
       <Input
         type="number"
+        disabled={disabled}
         value={draft ?? String(Number(value.toFixed(precision)))}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
@@ -106,12 +110,14 @@ function LengthField({
   units,
   onCommit,
   min,
+  disabled = false,
 }: {
   label: string
   cm: number
   units: Units
   onCommit: (nextCm: number) => void
   min?: number
+  disabled?: boolean
 }) {
   return (
     <NumberField
@@ -119,6 +125,7 @@ function LengthField({
       value={toLength(cm, units)}
       min={min === undefined ? undefined : toLength(min, units)}
       precision={lengthPrecision(units)}
+      disabled={disabled}
       onCommit={(next) => onCommit(fromLength(next, units))}
     />
   )
@@ -156,7 +163,13 @@ function NameField({
  * panel. Both have a key to themselves on the canvas; the buttons are here for
  * the times the pointer is already in the panel, and to say that they exist.
  */
-function SelectionActions({ duplicate = true }: { duplicate?: boolean }) {
+function SelectionActions({
+  duplicate = true,
+  deletable = true,
+}: {
+  duplicate?: boolean
+  deletable?: boolean
+}) {
   return (
     <div className={`grid gap-2 ${duplicate ? 'grid-cols-2' : ''}`}>
       {duplicate && (
@@ -171,6 +184,7 @@ function SelectionActions({ duplicate = true }: { duplicate?: boolean }) {
       <Button
         variant="outline"
         size="sm"
+        disabled={!deletable}
         onClick={() => plannerStore.actions.deleteSelected()}
       >
         Delete
@@ -232,10 +246,30 @@ function ClosetPanel({
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
+  // A room is drawn locked, so the padlock is the first thing this panel has
+  // to say about it: everything below it that changes the outline is held
+  // until it is off.
+  const locked = room.locked === true
 
   return (
     <>
-      <SectionTitle>Room</SectionTitle>
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Room</SectionTitle>
+        <Button
+          variant={locked ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-6 gap-1 px-2 text-[10px]"
+          aria-pressed={locked}
+          onClick={() => actions.setRoomLocked(room.id, !locked)}
+        >
+          {locked ? (
+            <IconLock className="size-3" />
+          ) : (
+            <IconLockOpen className="size-3" />
+          )}
+          {locked ? 'Locked' : 'Unlocked'}
+        </Button>
+      </div>
       <NameField
         value={room.name}
         onChange={(name) => actions.updateRoom(room.id, { name })}
@@ -246,6 +280,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           cm={bounds.w}
           units={units}
           min={MIN_SIZE}
+          disabled={locked}
           onCommit={(w) =>
             actions.updateRoom(room.id, {
               points: scalePolygon(room.points, w, bounds.h),
@@ -257,6 +292,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           cm={bounds.h}
           units={units}
           min={MIN_SIZE}
+          disabled={locked}
           onCommit={(h) =>
             actions.updateRoom(room.id, {
               points: scalePolygon(room.points, bounds.w, h),
@@ -270,7 +306,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           {formatArea(polygonArea(room.points), units, 2)}
         </dd>
       </dl>
-      <SelectionActions />
+      <SelectionActions deletable={!locked} />
     </>
   )
 }

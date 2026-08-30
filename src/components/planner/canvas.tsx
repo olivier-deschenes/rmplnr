@@ -780,7 +780,7 @@ export function Canvas() {
     const spot =
       room && nearestWall([room], world, WALL_GRAB / 2 / state.viewport.scale)
     const frame = room && spot && wallAt(room.points, spot.wall)
-    if (room?.kind !== 'closet' && spot && frame) {
+    if (room?.kind !== 'closet' && !room?.locked && spot && frame) {
       actions.insertVertex(
         room.id,
         spot.wall,
@@ -822,6 +822,9 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'room', id: room.id })
+    // A locked room still takes the click — it can be selected, renamed and
+    // built into — but the drag that would carry it off never starts.
+    if (room.locked) return
     const attachment = room.attachment
     if (room.kind === 'closet' && attachment) {
       const host = plannerStore.state.rooms.find(
@@ -1198,17 +1201,20 @@ export function Canvas() {
         avoid={spoken}
       />
 
-      {tool === 'select' && selectedRoom?.kind !== 'closet' && selectedRoom && (
-        <RoomEditor
-          room={selectedRoom}
-          gaps={selectedRoom.points.map((_, i) =>
-            wallGaps(rooms, openings, selectedRoom.id, i),
-          )}
-          viewport={viewport}
-          onVertexDown={onVertexDown}
-          onWallDown={onWallDown}
-        />
-      )}
+      {tool === 'select' &&
+        selectedRoom?.kind !== 'closet' &&
+        !selectedRoom?.locked &&
+        selectedRoom && (
+          <RoomEditor
+            room={selectedRoom}
+            gaps={selectedRoom.points.map((_, i) =>
+              wallGaps(rooms, openings, selectedRoom.id, i),
+            )}
+            viewport={viewport}
+            onVertexDown={onVertexDown}
+            onWallDown={onWallDown}
+          />
+        )}
       {tool === 'select' && selectedFurniture && (
         <FurnitureEditor
           item={selectedFurniture}

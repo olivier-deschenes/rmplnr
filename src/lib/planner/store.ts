@@ -207,10 +207,14 @@ function viewCentre(state: PlannerState): Point {
 
 /** Add a finished polygon as a room, select it, and hand the tool back. */
 function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
+  // A room lands locked: the shape has just been traced, and the very next
+  // click is far more likely to be aimed at something else than at dragging it
+  // somewhere new. The inspector's padlock lets it go again.
   const room: Room = {
     id: newId(),
     name: `Room ${state.rooms.length + 1}`,
     points,
+    locked: true,
   }
   return {
     ...state,
@@ -987,6 +991,9 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       const current = s.rooms.find((r) => r.id === id)
       if (!current) return s
+      // A locked room still answers to a rename and to the padlock itself;
+      // it is only its outline that is held.
+      if (patch.points && current.locked) return s
       const rooms = s.rooms.map((room) =>
         room.id === id ? { ...room, ...patch } : room,
       )
@@ -1005,10 +1012,29 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /** Hold a room where it is, or let it go again. */
+  setRoomLocked(id: string, locked: boolean) {
+    setState((s) => {
+      const room = s.rooms.find((r) => r.id === id)
+      if (!room || room.locked === locked) return s
+      return {
+        ...s,
+        history: commit(
+          s,
+          null,
+          `${locked ? 'Locked' : 'Unlocked'} ${room.name}`,
+        ),
+        rooms: s.rooms.map((candidate) =>
+          candidate.id === id ? { ...candidate, locked } : candidate,
+        ),
+      }
+    })
+  },
+
   moveVertex(roomId: string, index: number, point: Point) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
-      if (!room) return s
+      if (!room || room.locked) return s
       const rooms = s.rooms.map((candidate) =>
         candidate.id === roomId
           ? {
@@ -1041,7 +1067,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   moveWall(roomId: string, index: number, points: Array<Point>) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
-      if (!room) return s
+      if (!room || room.locked) return s
       // A push that went nowhere — held at the far side of the room, or not far
       // enough to cross a snap step — is not a change, and must not leave a
       // step to undo. Both presses of a double-click land as a still pointer,
@@ -1065,7 +1091,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   insertVertex(roomId: string, afterIndex: number, point: Point) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
-      if (!room) return s
+      if (!room || room.locked) return s
       const points = [...room.points]
       points.splice(afterIndex + 1, 0, point)
       return reshaped(
@@ -1079,7 +1105,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   deleteVertex(roomId: string, index: number) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
-      if (!room || room.points.length <= 3) return s
+      if (!room || room.locked || room.points.length <= 3) return s
       return reshaped(
         {
           ...s,
@@ -1097,6 +1123,9 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const { type, id } = s.selection
       const removedRooms = new Set<string>()
       if (type === 'room') {
+        // A locked room is held against deletion too, and holds the closets
+        // that would have come down with it.
+        if (s.rooms.find((room) => room.id === id)?.locked) return s
         removedRooms.add(id)
         // A host room takes its attached closets with it; otherwise they would
         // be left floating with a reference to a wall that no longer exists.
@@ -1156,6 +1185,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       }
       if (type === 'room') {
         const room = s.rooms.find((candidate) => candidate.id === id)
+        if (room?.locked) return s
         const attachment = room?.attachment
         if (room?.kind === 'closet' && attachment) {
           const host = s.rooms.find(

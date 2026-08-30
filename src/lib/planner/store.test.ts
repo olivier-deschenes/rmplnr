@@ -207,3 +207,46 @@ describe('closets', () => {
     expect(plannerStore.state.openings).toEqual([])
   })
 })
+
+describe('locked rooms', () => {
+  beforeEach(() => {
+    plannerStore.actions.openProject(PLAN_A)
+  })
+
+  it('locks a room as it is drawn', () => {
+    plannerStore.actions.beginRect({ x: 0, y: 0 })
+    plannerStore.actions.updateRect({ x: 200, y: 100 })
+    plannerStore.actions.commitRect()
+
+    const drawn = plannerStore.state.rooms.at(-1)!
+    expect(drawn.locked).toBe(true)
+  })
+
+  it('holds its outline and itself until it is unlocked', () => {
+    plannerStore.actions.setRoomLocked('room-1', true)
+    const before = plannerStore.state.rooms[0]
+
+    plannerStore.actions.updateRoom('room-1', {
+      points: translatePolygon(before.points, 100, 50),
+    })
+    plannerStore.actions.moveVertex('room-1', 0, { x: 50, y: 50 })
+    plannerStore.actions.nudgeSelection(10, 0)
+    plannerStore.actions.select({ type: 'room', id: 'room-1' })
+    plannerStore.actions.deleteSelected()
+
+    expect(plannerStore.state.rooms[0].points).toEqual(before.points)
+    expect(plannerStore.state.rooms).toHaveLength(1)
+
+    // A rename still goes through, and so does the outline once it is let go.
+    plannerStore.actions.updateRoom('room-1', { name: 'Kitchen' })
+    expect(plannerStore.state.rooms[0].name).toBe('Kitchen')
+
+    plannerStore.actions.setRoomLocked('room-1', false)
+    plannerStore.actions.updateRoom('room-1', {
+      points: translatePolygon(before.points, 100, 50),
+    })
+    expect(plannerStore.state.rooms[0].points).toEqual(
+      translatePolygon(before.points, 100, 50),
+    )
+  })
+})

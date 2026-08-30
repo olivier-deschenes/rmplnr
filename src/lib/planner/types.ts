@@ -25,6 +25,15 @@ export const RoomSchema = z.object({
   /** Ordinary rooms omit this; closets carry their wall attachment below. */
   kind: z.literal('closet').optional(),
   attachment: ClosetAttachmentSchema.optional(),
+  /**
+   * A locked room keeps its shape and its place: it can still be selected and
+   * renamed, and doors and closets can still be put in its walls, but nothing
+   * moves it, reshapes it, or deletes it until it is unlocked. New rooms are
+   * locked, so that the one just drawn is not dragged out of true by the next
+   * click. Missing from plans saved before rooms could be locked, which reads
+   * as unlocked.
+   */
+  locked: z.boolean().optional(),
 })
 
 export const FurnitureKindSchema = z.enum(['table', 'sofa', 'kitchen', 'box'])
