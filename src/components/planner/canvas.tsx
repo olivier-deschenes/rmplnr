@@ -34,7 +34,7 @@ import {
   roomLabelBoxes,
   wallLabels,
 } from '#/lib/planner/dimensions.ts'
-import { sharedSpansOf, wallPath } from '#/lib/planner/walls.ts'
+import { sharedSpansOf, wallGaps, wallPath } from '#/lib/planner/walls.ts'
 import {
   SNAP_REACH_PX,
   alignTo,
@@ -1201,6 +1201,9 @@ export function Canvas() {
       {tool === 'select' && selectedRoom?.kind !== 'closet' && selectedRoom && (
         <RoomEditor
           room={selectedRoom}
+          gaps={selectedRoom.points.map((_, i) =>
+            wallGaps(rooms, openings, selectedRoom.id, i),
+          )}
           viewport={viewport}
           onVertexDown={onVertexDown}
           onWallDown={onWallDown}

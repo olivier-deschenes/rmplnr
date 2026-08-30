@@ -17,7 +17,7 @@ import {
   textWidth,
   uprightAngle,
 } from '#/lib/planner/dimensions.ts'
-import { openingEnds, wallAt } from '#/lib/planner/openings.ts'
+import { openingEnds, wallAt, wallSegments } from '#/lib/planner/openings.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
@@ -33,7 +33,7 @@ import type {
 import type { Box, NameLabel, WallLabel } from '#/lib/planner/dimensions.ts'
 import type { Clearance } from '#/lib/planner/clearances.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
-import type { Wall } from '#/lib/planner/openings.ts'
+import type { Span, Wall } from '#/lib/planner/openings.ts'
 
 const HANDLE_SIZE = 8
 const ROTATE_OFFSET = 26
@@ -479,11 +479,14 @@ export function WallDimensions({ labels }: { labels: Array<WallLabel> }) {
  */
 export function RoomEditor({
   room,
+  gaps,
   viewport,
   onVertexDown,
   onWallDown,
 }: {
   room: Room
+  /** What is cut through each wall, wall by wall: the doorways and windows. */
+  gaps: Array<Array<Span>>
   viewport: Viewport
   onVertexDown: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
@@ -493,14 +496,44 @@ export function RoomEditor({
     const frame = wallAt(room.points, i)
     const a = worldToScreen(point, viewport)
     const b = worldToScreen(next, viewport)
+    // The wall as it is actually built: the stretches either side of every
+    // opening cut through it. A doorway is a hole rather than a piece of wall,
+    // so neither the band nor the bar has any business lying across one.
+    const bands = (
+      frame ? wallSegments(frame, gaps[i] ?? []) : [[point, next]]
+    ).map(([from, to]) => ({
+      a: worldToScreen(from, viewport),
+      b: worldToScreen(to, viewport),
+    }))
+    // The bar goes on the longest standing stretch rather than at the middle
+    // of the wall, which on a wall with a door in the middle of it is a hole.
+    const longest = bands.reduce<{ a: Point; b: Point } | null>(
+      (best, band) =>
+        !best ||
+        Math.hypot(band.b.x - band.a.x, band.b.y - band.a.y) >
+          Math.hypot(best.b.x - best.a.x, best.b.y - best.a.y)
+          ? band
+          : best,
+      null,
+    )
     return {
       a,
       b,
-      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      bands,
+      mid: longest && {
+        x: (longest.a.x + longest.b.x) / 2,
+        y: (longest.a.y + longest.b.y) / 2,
+      },
       angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
-      // Never longer than a good part of the wall it lies on, so a short wall
-      // keeps its corners clear of the handle in the middle of it.
-      length: Math.min(BAR_LENGTH, Math.hypot(b.x - a.x, b.y - a.y) * 0.6),
+      // Never longer than a good part of the stretch it lies on, so a short
+      // one keeps its ends clear of the handle in the middle of it.
+      length: longest
+        ? Math.min(
+            BAR_LENGTH,
+            Math.hypot(longest.b.x - longest.a.x, longest.b.y - longest.a.y) *
+              0.6,
+          )
+        : 0,
       // The normal is a world direction, and the page has the same directions
       // as the world — only bigger — so it names the cursor as it stands.
       cursor: frame ? resizeCursor(frame.normal, 0) : 'cursor-move',
@@ -512,32 +545,38 @@ export function RoomEditor({
       {/*
         The whole wall takes the drag, not just the handle on it: a side is a
         big thing to have to grab by eight pixels in the middle. The band is
-        laid over the wall as it is drawn, so what pushes is what it looks like.
+        laid over the wall as it is drawn, so what pushes is what it looks like
+        — and it stops at the jambs, so the door underneath keeps its own
+        clicks and can still be slid along the wall it hangs on.
       */}
-      {walls.map((wall, i) => (
-        <line
-          key={`wall-${i}`}
-          x1={wall.a.x}
-          y1={wall.a.y}
-          x2={wall.b.x}
-          y2={wall.b.y}
-          stroke="transparent"
-          strokeWidth={WALL_GRAB}
-          strokeLinecap="butt"
-          className={wall.cursor}
-          onPointerDown={(event) => onWallDown(i, event)}
-        />
-      ))}
-      {walls.map((wall, i) => (
-        <Bar
-          key={`bar-${i}`}
-          at={wall.mid}
-          angle={wall.angle}
-          length={wall.length}
-          className={wall.cursor}
-          onPointerDown={(event) => onWallDown(i, event)}
-        />
-      ))}
+      {walls.flatMap((wall, i) =>
+        wall.bands.map((band, j) => (
+          <line
+            key={`wall-${i}-${j}`}
+            x1={band.a.x}
+            y1={band.a.y}
+            x2={band.b.x}
+            y2={band.b.y}
+            stroke="transparent"
+            strokeWidth={WALL_GRAB}
+            strokeLinecap="butt"
+            className={wall.cursor}
+            onPointerDown={(event) => onWallDown(i, event)}
+          />
+        )),
+      )}
+      {walls.map((wall, i) =>
+        wall.mid ? (
+          <Bar
+            key={`bar-${i}`}
+            at={wall.mid}
+            angle={wall.angle}
+            length={wall.length}
+            className={wall.cursor}
+            onPointerDown={(event) => onWallDown(i, event)}
+          />
+        ) : null,
+      )}
       {/* Corners last, so the one at the end of a wall wins the pointer. */}
       {room.points.map((point, i) => (
         <Square

@@ -420,9 +420,31 @@ export function OpeningShape({
   )
 }
 
+/** The quarter disc a leaf sweeps, filled, for the pointer to land in. */
+function sector(
+  hinge: Point,
+  jamb: Point,
+  towards: Point,
+  length: number,
+): string {
+  const tip = step(hinge, towards, length)
+  const cross =
+    (tip.x - hinge.x) * (jamb.y - hinge.y) -
+    (tip.y - hinge.y) * (jamb.x - hinge.x)
+  return (
+    `M${hinge.x},${hinge.y} L${tip.x},${tip.y} ` +
+    `A${length},${length} 0 0 ${cross > 0 ? 1 : 0} ${jamb.x},${jamb.y} Z`
+  )
+}
+
 /**
- * The band a click on an opening lands in. It is invisible and is kept below
- * the furniture, so a sofa pushed against a window still takes its own clicks.
+ * What a click on an opening lands in: the whole of the ground its symbol
+ * covers, not just the gap in the wall. A door is mostly the quarter disc it
+ * swings through — the biggest thing about it on the page, and the part a hand
+ * reaches for — so that sweep is filled here and takes the pointer too.
+ *
+ * All of it is invisible, and all of it is kept below the furniture: a sofa
+ * standing in a doorway's swing still takes its own clicks.
  */
 export function OpeningTarget({
   opening,
@@ -433,18 +455,48 @@ export function OpeningTarget({
   wall: Wall
   onPointerDown: (event: React.PointerEvent) => void
 }) {
-  const { start, end } = openingEnds(wall, opening)
+  const { start, end, centre, width } = openingEnds(wall, opening)
+  const across = wall.normal
+  const towards =
+    opening.swing === 'out' ? across : { x: -across.x, y: -across.y }
+  const hinged = opening.hinge === 'start' ? start : end
+  const latch = opening.hinge === 'start' ? end : start
+  const panel = [
+    start,
+    end,
+    step(end, towards, SLIDE),
+    step(start, towards, SLIDE),
+  ]
+
   return (
-    <line
-      x1={start.x}
-      y1={start.y}
-      x2={end.x}
-      y2={end.y}
-      className="stroke-transparent cursor-move"
-      strokeWidth={14}
-      strokeLinecap="round"
-      {...CRISP}
+    <g
+      fill="transparent"
+      stroke="transparent"
+      className="cursor-move"
       onPointerDown={onPointerDown}
-    />
+    >
+      {/* The gap itself, always: a window or a cased opening is only this. */}
+      <line
+        x1={start.x}
+        y1={start.y}
+        x2={end.x}
+        y2={end.y}
+        strokeWidth={14}
+        strokeLinecap="round"
+        {...CRISP}
+      />
+      {opening.kind === 'door' && (
+        <path d={sector(hinged, latch, towards, width)} />
+      )}
+      {opening.kind === 'double-door' && (
+        <>
+          <path d={sector(start, centre, towards, width / 2)} />
+          <path d={sector(end, centre, towards, width / 2)} />
+        </>
+      )}
+      {opening.kind === 'sliding-door' && (
+        <polygon points={panel.map((p) => `${p.x},${p.y}`).join(' ')} />
+      )}
+    </g>
   )
 }
