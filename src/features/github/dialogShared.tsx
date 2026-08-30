@@ -1,5 +1,5 @@
 import { cn } from '#/lib/utils.ts'
-import { serializeProject } from '#/lib/planner/planSerialization.ts'
+import { downloadProjectJson } from '#/lib/planner/projectExport.ts'
 
 import { syncToneBackground } from './syncStatus.ts'
 
@@ -54,15 +54,7 @@ export function nameFor(
  * repository's.
  */
 export function downloadProjectFile(project: Project): void {
-  const blob = new Blob([serializeProject(project)], {
-    type: 'application/json',
-  })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${project.id}.json`
-  link.click()
-  URL.revokeObjectURL(url)
+  downloadProjectJson(project, `${project.id}.json`)
 }
 
 export function TextLink({

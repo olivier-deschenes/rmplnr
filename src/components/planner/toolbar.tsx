@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { formatForDisplay } from '@tanstack/react-hotkeys'
+import { toast } from 'sonner'
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -11,12 +12,15 @@ import {
   IconChevronDown,
   IconCooker,
   IconCopy,
+  IconDownload,
   IconDoor,
   IconFocusCentered,
+  IconJson,
   IconMagnet,
   IconMinus,
   IconPlus,
   IconPointer,
+  IconPhoto,
   IconRectangle,
   IconSettings,
   IconSofa,
@@ -63,13 +67,14 @@ import { GitHubRepositoryDialog } from '#/features/github/GitHubRepositoryDialog
 import { GitHubSyncControls } from '#/features/github/GitHubSyncControls.tsx'
 import { useGithubSync } from '#/features/github/useGithubSync.ts'
 
+import { downloadProjectJson } from '#/lib/planner/projectExport.ts'
 import {
   FURNITURE_KINDS,
   FURNITURE_PRESETS,
   OPENING_PRESETS,
   OPENING_TOOLS,
 } from '#/lib/planner/presets.ts'
-import { plannerStore } from '#/lib/planner/store.ts'
+import { currentProjects, plannerStore } from '#/lib/planner/store.ts'
 import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import {
   UNITS,
@@ -124,10 +129,10 @@ function Hint({
 }) {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipTrigger asChild>{ children }</TooltipTrigger>
       <TooltipContent side="bottom">
-        {label}
-        {keys && <Kbd>{formatForDisplay(keys)}</Kbd>}
+        { label }
+        { keys && <Kbd>{ formatForDisplay(keys) }</Kbd> }
       </TooltipContent>
     </Tooltip>
   )
@@ -139,18 +144,18 @@ const DRAW_TOOLS: Array<{
   icon: TablerIcon
   label: string
 }> = [
-  { tool: 'select', icon: IconPointer, label: 'Select and move' },
-  {
-    tool: 'room',
-    icon: IconVectorTriangle,
-    label: 'Draw a room corner by corner',
-  },
-  {
-    tool: 'rect',
-    icon: IconRectangle,
-    label: 'Drag out a rectangular room',
-  },
-]
+    { tool: 'select', icon: IconPointer, label: 'Select and move' },
+    {
+      tool: 'room',
+      icon: IconVectorTriangle,
+      label: 'Draw a room corner by corner',
+    },
+    {
+      tool: 'rect',
+      icon: IconRectangle,
+      label: 'Drag out a rectangular room',
+    },
+  ]
 
 /**
  * The face and shortcut key of each kind of opening the toolbar draws with.
@@ -195,18 +200,18 @@ function AddMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-36">
-        {FURNITURE_KINDS.map((kind) => {
+        { FURNITURE_KINDS.map((kind) => {
           const Icon = FURNITURE_ICONS[kind]
           return (
             <DropdownMenuItem
-              key={kind}
-              onSelect={() => plannerStore.actions.addFurniture(kind)}
+              key={ kind }
+              onSelect={ () => plannerStore.actions.addFurniture(kind) }
             >
               <Icon />
-              {FURNITURE_PRESETS[kind].label}
+              { FURNITURE_PRESETS[kind].label }
             </DropdownMenuItem>
           )
-        })}
+        }) }
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -244,7 +249,7 @@ function ProjectMenu() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="max-w-44">
-            <span className="truncate">{open?.name}</span>
+            <span className="truncate">{ open?.name }</span>
             <IconChevronDown
               data-icon="inline-end"
               className="text-muted-foreground"
@@ -253,25 +258,25 @@ function ProjectMenu() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-52">
           <DropdownMenuLabel>Plans</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={projectId ?? ''} onValueChange={show}>
-            {projects.map((project) => (
-              <DropdownMenuRadioItem key={project.id} value={project.id}>
-                <span className="truncate">{project.name}</span>
+          <DropdownMenuRadioGroup value={ projectId ?? '' } onValueChange={ show }>
+            { projects.map((project) => (
+              <DropdownMenuRadioItem key={ project.id } value={ project.id }>
+                <span className="truncate">{ project.name }</span>
               </DropdownMenuRadioItem>
-            ))}
+            )) }
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => show(actions.newProject())}>
+          <DropdownMenuItem onSelect={ () => show(actions.newProject()) }>
             <IconPlus />
             New plan
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => show(actions.duplicateProject())}>
+          <DropdownMenuItem onSelect={ () => show(actions.duplicateProject()) }>
             <IconCopy />
             Duplicate
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onSelect={() => setConfirming(true)}
+            onSelect={ () => setConfirming(true) }
           >
             <IconTrash />
             Delete
@@ -286,10 +291,10 @@ function ProjectMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+      <AlertDialog open={ confirming } onOpenChange={ setConfirming }>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {open?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete { open?.name }?</AlertDialogTitle>
             <AlertDialogDescription>
               The plan and everything drawn on it are gone for good.
             </AlertDialogDescription>
@@ -299,7 +304,7 @@ function ProjectMenu() {
             <AlertDialogAction
               size="sm"
               variant="destructive"
-              onClick={() => projectId && actions.deleteProject(projectId)}
+              onClick={ () => projectId && actions.deleteProject(projectId) }
             >
               Delete
             </AlertDialogAction>
@@ -307,6 +312,60 @@ function ProjectMenu() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+/** Download the open plan without hiding the action in the plan switcher. */
+function ExportMenu() {
+  // The library entry for the open plan trails the live canvas until it is
+  // closed. Files must take the current rooms, furniture and openings instead.
+  const current = () => {
+    const state = plannerStore.state
+    return currentProjects(state).find(
+      (project) => project.id === state.projectId,
+    )
+  }
+
+  const downloadJson = () => {
+    const project = current()
+    if (project) downloadProjectJson(project)
+  }
+
+  const downloadPng = async () => {
+    const project = current()
+    if (!project) return
+
+    try {
+      const { downloadProjectPng } = await import('./planImage.tsx')
+      await downloadProjectPng(project, plannerStore.state.units)
+    } catch {
+      toast.error('Could not export the PNG image.')
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm">
+          <IconDownload data-icon="inline-start" />
+          Export
+          <IconChevronDown
+            data-icon="inline-end"
+            className="text-muted-foreground"
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem onSelect={ () => void downloadPng() }>
+          <IconPhoto />
+          PNG image
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={ downloadJson }>
+          <IconJson />
+          JSON
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -327,20 +386,20 @@ function GitHubSync() {
   return (
     <>
       <GitHubSyncControls
-        controller={controller}
-        onOpenRepository={() => setDialog('repository')}
-        onOpenCommit={() => setDialog('commit')}
+        controller={ controller }
+        onOpenRepository={ () => setDialog('repository') }
+        onOpenCommit={ () => setDialog('commit') }
       />
       <GitHubRepositoryDialog
-        open={dialog === 'repository'}
-        onOpenChange={(open) => setDialog(open ? 'repository' : null)}
-        controller={controller}
+        open={ dialog === 'repository' }
+        onOpenChange={ (open) => setDialog(open ? 'repository' : null) }
+        controller={ controller }
       />
       <GitHubCommitDialog
-        open={dialog === 'commit'}
-        onOpenChange={(open) => setDialog(open ? 'commit' : null)}
-        controller={controller}
-        onManageRepository={() => setDialog('repository')}
+        open={ dialog === 'commit' }
+        onOpenChange={ (open) => setDialog(open ? 'commit' : null) }
+        controller={ controller }
+        onManageRepository={ () => setDialog('repository') }
       />
     </>
   )
@@ -360,19 +419,19 @@ function OptionsMenu() {
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuLabel>Units</DropdownMenuLabel>
         <DropdownMenuRadioGroup
-          value={units}
-          onValueChange={(value) =>
+          value={ units }
+          onValueChange={ (value) =>
             plannerStore.actions.setUnits(value as Units)
           }
         >
-          {UNITS.map((value) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              {UNIT_LABEL[value]}
+          { UNITS.map((value) => (
+            <DropdownMenuRadioItem key={ value } value={ value }>
+              { UNIT_LABEL[value] }
               <span className="text-muted-foreground text-[10px]">
-                {UNIT_HINT[value]}
+                { UNIT_HINT[value] }
               </span>
             </DropdownMenuRadioItem>
-          ))}
+          )) }
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -400,21 +459,21 @@ export function Toolbar() {
         type="single"
         variant="outline"
         size="sm"
-        spacing={0}
-        value={tool}
-        onValueChange={(value) => value && actions.setTool(value as Tool)}
+        spacing={ 0 }
+        value={ tool }
+        onValueChange={ (value) => value && actions.setTool(value as Tool) }
       >
-        {DRAW_TOOLS.map(({ tool: value, icon: Icon, label }) => (
-          <Hint key={value} label={label} keys={TOOL_KEYS[value]}>
+        { DRAW_TOOLS.map(({ tool: value, icon: Icon, label }) => (
+          <Hint key={ value } label={ label } keys={ TOOL_KEYS[value] }>
             <ToggleGroupItem
-              value={value}
-              className={SELECTED_TOOL}
-              aria-label={label}
+              value={ value }
+              className={ SELECTED_TOOL }
+              aria-label={ label }
             >
               <Icon />
             </ToggleGroupItem>
           </Hint>
-        ))}
+        )) }
       </ToggleGroup>
 
       {/*
@@ -425,41 +484,41 @@ export function Toolbar() {
         type="single"
         variant="outline"
         size="sm"
-        spacing={0}
-        value={tool === 'opening' ? openingKind : ''}
-        onValueChange={(value) =>
+        spacing={ 0 }
+        value={ tool === 'opening' ? openingKind : '' }
+        onValueChange={ (value) =>
           value && actions.setOpeningTool(value as OpeningKind)
         }
       >
-        {OPENING_TOOLS.map((kind) => {
+        { OPENING_TOOLS.map((kind) => {
           const { icon: Icon } = OPENING_TOOL_UI[kind]
           const label = `Place ${OPENING_PRESETS[kind].label.toLowerCase()} on a wall`
           return (
-            <Hint key={kind} label={label} keys={OPENING_KEYS[kind]}>
+            <Hint key={ kind } label={ label } keys={ OPENING_KEYS[kind] }>
               <ToggleGroupItem
-                value={kind}
-                className={SELECTED_TOOL}
-                aria-label={label}
+                value={ kind }
+                className={ SELECTED_TOOL }
+                aria-label={ label }
               >
                 <Icon />
               </ToggleGroupItem>
             </Hint>
           )
-        })}
+        }) }
       </ToggleGroup>
 
       <AddMenu />
 
       <Separator orientation="vertical" className="mx-1 h-5" />
 
-      <Hint label={`Snap to ${formatSnapStep(units)}`}>
+      <Hint label={ `Snap to ${formatSnapStep(units)}` }>
         <Toggle
           variant="outline"
           size="sm"
-          className={LONE_TOGGLE}
+          className={ LONE_TOGGLE }
           aria-label="Snap to grid"
-          pressed={snap}
-          onPressedChange={() => actions.toggleSnap()}
+          pressed={ snap }
+          onPressedChange={ () => actions.toggleSnap() }
         >
           <IconMagnet />
         </Toggle>
@@ -475,34 +534,34 @@ export function Toolbar() {
         <Toggle
           variant="outline"
           size="sm"
-          className={LONE_TOGGLE}
+          className={ LONE_TOGGLE }
           aria-label="Collision"
-          pressed={collide}
-          onPressedChange={() => actions.toggleCollide()}
+          pressed={ collide }
+          onPressedChange={ () => actions.toggleCollide() }
         >
           <IconBarrierBlock />
         </Toggle>
       </Hint>
 
       <div className="ml-auto flex items-center gap-0.5">
-        <Hint label="Undo" keys={EDIT_KEYS.undo}>
+        <Hint label="Undo" keys={ EDIT_KEYS.undo }>
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label="Undo"
-            disabled={!canUndo}
-            onClick={() => actions.undo()}
+            disabled={ !canUndo }
+            onClick={ () => actions.undo() }
           >
             <IconArrowBackUp />
           </Button>
         </Hint>
-        <Hint label="Redo" keys={EDIT_KEYS.redo}>
+        <Hint label="Redo" keys={ EDIT_KEYS.redo }>
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label="Redo"
-            disabled={!canRedo}
-            onClick={() => actions.redo()}
+            disabled={ !canRedo }
+            onClick={ () => actions.redo() }
           >
             <IconArrowForwardUp />
           </Button>
@@ -515,7 +574,7 @@ export function Toolbar() {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom out"
-            onClick={() => actions.zoomBy(1 / 1.25)}
+            onClick={ () => actions.zoomBy(1 / 1.25) }
           >
             <IconMinus />
           </Button>
@@ -529,10 +588,10 @@ export function Toolbar() {
             variant="ghost"
             size="sm"
             className="text-muted-foreground w-11 px-0 tabular-nums"
-            aria-label={`${Math.round(scale * 100)}% — reset zoom to 100%`}
-            onClick={() => actions.zoomTo(1)}
+            aria-label={ `${Math.round(scale * 100)}% — reset zoom to 100%` }
+            onClick={ () => actions.zoomTo(1) }
           >
-            {Math.round(scale * 100)}%
+            { Math.round(scale * 100) }%
           </Button>
         </Hint>
         <Hint label="Zoom in">
@@ -540,7 +599,7 @@ export function Toolbar() {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom in"
-            onClick={() => actions.zoomBy(1.25)}
+            onClick={ () => actions.zoomBy(1.25) }
           >
             <IconPlus />
           </Button>
@@ -550,7 +609,7 @@ export function Toolbar() {
             variant="ghost"
             size="icon-sm"
             aria-label="Fit plan to view"
-            onClick={() => actions.fit()}
+            onClick={ () => actions.fit() }
           >
             <IconFocusCentered />
           </Button>
@@ -558,6 +617,7 @@ export function Toolbar() {
 
         <Separator orientation="vertical" className="mx-1.5 h-5" />
 
+        <ExportMenu />
         <GitHubSync />
         <OptionsMenu />
       </div>
