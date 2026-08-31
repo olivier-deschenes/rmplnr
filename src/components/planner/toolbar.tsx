@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { formatForDisplay } from '@tanstack/react-hotkeys'
 import { toast } from 'sonner'
 import {
+  IconAlertTriangle,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconArrowLeft,
@@ -12,6 +13,7 @@ import {
   IconChevronDown,
   IconCooker,
   IconCopy,
+  IconDeviceFloppy,
   IconDownload,
   IconDoor,
   IconFocusCentered,
@@ -75,7 +77,7 @@ import {
   OPENING_PRESETS,
   OPENING_TOOLS,
 } from '#/lib/planner/presets.ts'
-import { currentProjects, plannerStore } from '#/lib/planner/store.ts'
+import { currentProjects, plannerStore, saveNow } from '#/lib/planner/store.ts'
 import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import {
   UNITS,
@@ -88,6 +90,7 @@ import type { ReactElement } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
+import type { SaveFailure } from '#/lib/planner/store.ts'
 import type {
   FurnitureKind,
   OpeningKind,
@@ -325,6 +328,94 @@ function ProjectMenu() {
   )
 }
 
+/**
+ * What a refused write says, in the terms the reader can do something about.
+ * Every one of them ends the same way, because with storage refusing the plan
+ * exists only in this tab and exporting it is the way out.
+ */
+const SAVE_FAILURES: Record<SaveFailure, { label: string; detail: string }> = {
+  quota: {
+    label: 'Storage full',
+    detail:
+      'This browser has no room left for plans. Export this one, or delete a plan you no longer need.',
+  },
+  blocked: {
+    label: 'Not saving',
+    detail:
+      'This browser is blocking local storage, so edits are not being kept. Export the plan to keep it.',
+  },
+  unknown: {
+    label: 'Not saved',
+    detail:
+      'The browser refused the last change, so it is only in this tab. Export the plan to keep it.',
+  },
+}
+
+/**
+ * Whether what is on the canvas has made it into the browser yet.
+ *
+ * Plans live in this browser and nowhere else, so the one thing the bar owes
+ * the reader is a straight answer about whether that has actually happened.
+ * Resting, it is a word in the corner; refused, it becomes the loudest thing
+ * in the bar and a button that tries again, because from that point on the
+ * work is only in this tab.
+ *
+ * The resting states are not a live region: they change on every edit, and a
+ * screen reader reading "Saving. Saved." over each keystroke would drown out
+ * the drawing. A failure is announced instead, once, as a toast.
+ */
+function SaveStatus() {
+  const status = useSelector(plannerStore, (s) => s.persistence.status)
+  const failure = useSelector(plannerStore, (s) => s.persistence.failure)
+  const failed = status === 'error'
+  const problem = SAVE_FAILURES[failure ?? 'unknown']
+
+  useEffect(() => {
+    if (!failed) {
+      toast.dismiss('planner-save')
+      return
+    }
+    toast.error(problem.label, {
+      id: 'planner-save',
+      description: problem.detail,
+    })
+  }, [failed, problem])
+
+  if (failed) {
+    return (
+      <Hint label={`${problem.detail} Click to try saving again.`}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive gap-1.5 px-2"
+          onClick={() => saveNow()}
+        >
+          <IconAlertTriangle />
+          {problem.label}
+        </Button>
+      </Hint>
+    )
+  }
+
+  return (
+    <Hint
+      label={
+        status === 'saving'
+          ? 'Saving this plan in your browser.'
+          : 'Saved in this browser. Nothing is sent anywhere else.'
+      }
+    >
+      <span
+        tabIndex={0}
+        className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs whitespace-nowrap"
+      >
+        <IconDeviceFloppy className="size-3.5" />
+        {status === 'saving' ? 'Saving' : 'Saved'}
+      </span>
+    </Hint>
+  )
+}
+
 /** Download the open plan without hiding the action in the plan switcher. */
 function ExportMenu() {
   // The library entry for the open plan trails the live canvas until it is
@@ -462,6 +553,7 @@ export function Toolbar() {
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
       <ProjectMenu />
+      <SaveStatus />
 
       <Separator orientation="vertical" className="mx-1 h-5" />
 

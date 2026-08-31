@@ -80,7 +80,7 @@ bun run cf-types:check
 - Lock-only changes alter the serialized content/hash.
 - rmplnr cannot create an external project file that its own parser rejects.
 
-### 3. [ ] Make local autosave trustworthy
+### 3. [x] Make local autosave trustworthy
 
 **Priority:** P0  
 **Dependencies:** Task 1

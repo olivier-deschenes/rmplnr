@@ -66,6 +66,22 @@ import type {
   Viewport,
 } from './types.ts'
 
+/**
+ * How a change gets from the canvas into the browser's storage: `saving` from
+ * the moment it lands until it is written down, `saved` once it is, and
+ * `error` when the browser refused to take it.
+ */
+export type SaveStatus = 'saved' | 'saving' | 'error'
+
+/** Why a write was refused, in the terms the reader can act on. */
+export type SaveFailure = 'quota' | 'blocked' | 'unknown'
+
+export type Persistence = {
+  status: SaveStatus
+  /** What went wrong last, kept while a retry is in flight. */
+  failure: SaveFailure | null
+}
+
 export type PlannerState = {
   /**
    * Every plan saved, the open one among them. Its entry here is the copy last
@@ -113,6 +129,11 @@ export type PlannerState = {
   size: { width: number; height: number }
   /** Steps taken and steps taken back, for undo and redo. */
   history: History
+  /**
+   * Where the library stands with the browser's storage. Nothing to save is
+   * saved, so this starts where it will spend most of its life.
+   */
+  persistence: Persistence
 }
 
 const initialState: PlannerState = {
@@ -135,6 +156,7 @@ const initialState: PlannerState = {
   rect: null,
   size: { width: 0, height: 0 },
   history: EMPTY_HISTORY,
+  persistence: { status: 'saved', failure: null },
 }
 
 const newId = () => crypto.randomUUID()
@@ -1392,6 +1414,23 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   /**
+   * Say where the library stands with storage. Only the autosave calls this:
+   * the status is a report of what actually reached the browser, and one set
+   * from anywhere else would be a promise nothing had kept.
+   *
+   * Standing still is not a change — the same status set twice over must not
+   * wake the editor, or a drag would repaint the bar on every frame.
+   */
+  setPersistence(persistence: Persistence) {
+    setState((s) =>
+      s.persistence.status === persistence.status &&
+      s.persistence.failure === persistence.failure
+        ? s
+        : { ...s, persistence },
+    )
+  },
+
+  /**
    * Show the plan a URL names, putting whatever was being drawn on back in the
    * library on the way past. Standing still is not a change: asked for the
    * plan already open, it leaves the view and the history where they are.
@@ -1543,6 +1582,43 @@ const PREFS_KEY = 'rmplnr.prefs.v1'
 const PLAN_KEY = 'rmplnr.plan.v1'
 
 /**
+ * As much of the Web Storage API as the editor uses. Named so that a test can
+ * hand in a store that is full, or one that throws the way a browser with site
+ * data switched off does.
+ */
+export interface PlannerStorage {
+  getItem: (key: string) => string | null
+  setItem: (key: string, value: string) => void
+}
+
+/**
+ * The browser's own storage, or null where there is none to be had: a browser
+ * with site data blocked throws on the property itself rather than on the
+ * first write, and a null here is what turns that into a visible error state
+ * instead of an exception thrown out of an effect.
+ */
+function browserStorage(): PlannerStorage | null {
+  try {
+    // Typed through a partial global: `localStorage` is declared as always
+    // being there, and the whole point here is the browsers where it is not.
+    return (globalThis as Partial<typeof globalThis>).localStorage ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Where a write went wrong, in the terms the reader can do something about. */
+function failureOf(error: unknown): SaveFailure {
+  const name = error instanceof Error ? error.name : ''
+  // Firefox has a name of its own for a full store, and both browsers throw a
+  // SecurityError rather than a quota error when the storage is walled off.
+  if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return 'quota'
+  }
+  return name === 'SecurityError' ? 'blocked' : 'unknown'
+}
+
+/**
  * Openings still hanging on a wall that is there to hang on. One whose room or
  * wall has since gone has nothing to hold it, and would otherwise sit in the
  * plan doing nothing for ever.
@@ -1563,8 +1639,8 @@ function attached(
  * lies rather than cleared away once read: it costs nothing, and it is the
  * only copy until the library beside it has been written for the first time.
  */
-function loadStoredPlan(): Project | null {
-  const raw = localStorage.getItem(PLAN_KEY)
+function loadStoredPlan(storage: PlannerStorage): Project | null {
+  const raw = storage.getItem(PLAN_KEY)
   if (!raw) return null
   const parsed = PlanSchema.safeParse(JSON.parse(raw))
   if (!parsed.success) return null
@@ -1585,11 +1661,12 @@ function loadStoredPlan(): Project | null {
  * schema, so stale data can never crash the editor rather than merely leave it
  * with nothing to open.
  */
-function readLibrary(): Library | null {
+function readLibrary(storage: PlannerStorage | null): Library | null {
+  if (!storage) return null
   try {
-    const raw = localStorage.getItem(LIBRARY_KEY)
+    const raw = storage.getItem(LIBRARY_KEY)
     if (!raw) {
-      const plan = loadStoredPlan()
+      const plan = loadStoredPlan(storage)
       return plan && { version: 1, projects: [plan] }
     }
     const parsed = LibrarySchema.safeParse(JSON.parse(raw))
@@ -1610,9 +1687,10 @@ function readLibrary(): Library | null {
  * Read the saved editor preferences, on the same be-forgiving terms as the
  * plan: anything unreadable falls back to the defaults. Client-only.
  */
-function loadStoredPrefs(): Prefs | null {
+function readPrefs(storage: PlannerStorage | null): Prefs | null {
+  if (!storage) return null
   try {
-    const raw = localStorage.getItem(PREFS_KEY)
+    const raw = storage.getItem(PREFS_KEY)
     if (!raw) return null
     const parsed = PrefsSchema.safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : null
@@ -1621,32 +1699,160 @@ function loadStoredPrefs(): Prefs | null {
   }
 }
 
-/** Persist the library and the preferences on change. Returns an unsubscribe. */
-function startAutosave(debounceMs = 300): () => void {
+/**
+ * The parts of the state that end up in storage, by reference. Everything else
+ * — the view, the selection, the tool in hand — is not written down, and a
+ * change to it is not a change worth another write. Comparing the references
+ * is enough: every action builds new arrays for what it touches and passes the
+ * rest through untouched.
+ */
+type Persisted = ReadonlyArray<unknown>
+
+function persistedOf(state: PlannerState): Persisted {
+  return [
+    state.projects,
+    state.projectId,
+    state.rooms,
+    state.furniture,
+    state.openings,
+    state.units,
+    state.collide,
+  ]
+}
+
+function samePersisted(a: Persisted, b: Persisted): boolean {
+  return a.every((value, i) => Object.is(value, b[i]))
+}
+
+export interface AutosaveOptions {
+  /** Defaults to the browser's `localStorage`. */
+  storage?: PlannerStorage | null
+  /** Where the page's lifecycle events come from. Defaults to `window`. */
+  lifecycle?: EventTarget | null
+  debounceMs?: number
+}
+
+/**
+ * The running autosave, so that a control in the editor can ask for the write
+ * it is waiting on to happen now. There is only ever one — the library belongs
+ * to the app rather than to any one page.
+ */
+let autosave: { flush: () => void } | null = null
+
+/**
+ * Write the library out now rather than when the debounce is up. Retrying a
+ * failed save is the same thing as flushing a pending one: nothing that failed
+ * to be written is ever marked as written, so it is still waiting.
+ */
+export function saveNow(): void {
+  autosave?.flush()
+}
+
+/**
+ * Persist the library and the preferences on change, and say so as it goes:
+ * `saving` from the moment an edit lands until it is safely down, `error` when
+ * the browser refused it. Returns an unsubscribe.
+ *
+ * Two things keep the promise the status makes. A write is only marked done
+ * once storage has actually taken it, so a refusal leaves the change pending
+ * and the next edit — or a retry — tries it again. And the pending write is
+ * flushed when the page goes away, so the debounce cannot swallow the last
+ * edit before a close.
+ */
+export function startAutosave({
+  storage = browserStorage(),
+  lifecycle = typeof window === 'undefined' ? null : window,
+  debounceMs = 300,
+}: AutosaveOptions = {}): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
+  /** What is waiting to be written, if anything. */
+  let pending: Persisted | null = null
+  /**
+   * What storage is believed to hold, so that an unrelated change — a pan, a
+   * selection, the tool in hand — writes nothing. It starts as what is in the
+   * store right now: whatever is read back in afterwards arrives as new arrays
+   * and is written down like any other change.
+   */
+  let saved: Persisted = persistedOf(plannerStore.state)
+
+  const write = (): void => {
+    clearTimeout(timer)
+    timer = undefined
+    if (pending === null) return
+
+    const state = plannerStore.state
+    const written = persistedOf(state)
+    if (!storage) {
+      plannerStore.actions.setPersistence({
+        status: 'error',
+        failure: 'blocked',
+      })
+      return
+    }
+    try {
+      storage.setItem(LIBRARY_KEY, JSON.stringify(libraryOf(state)))
+      storage.setItem(
+        PREFS_KEY,
+        JSON.stringify({
+          version: 1,
+          units: state.units,
+          collide: state.collide,
+        }),
+      )
+    } catch (error) {
+      // Left pending on purpose: the edit is still only in memory, and the
+      // status has to go on saying so until a write of it gets through.
+      plannerStore.actions.setPersistence({
+        status: 'error',
+        failure: failureOf(error),
+      })
+      return
+    }
+    saved = written
+    pending = null
+    plannerStore.actions.setPersistence({ status: 'saved', failure: null })
+  }
 
   const subscription = plannerStore.subscribe(() => {
+    const next = persistedOf(plannerStore.state)
+    // Already waiting to be written, or already written: either way there is
+    // nothing new here. Both guards also catch the store telling us about the
+    // status we are ourselves in the middle of setting.
+    if (pending !== null && samePersisted(next, pending)) return
+    if (pending === null && samePersisted(next, saved)) return
+
+    pending = next
     clearTimeout(timer)
-    timer = setTimeout(() => {
-      const { units, collide } = plannerStore.state
-      try {
-        localStorage.setItem(
-          LIBRARY_KEY,
-          JSON.stringify(libraryOf(plannerStore.state)),
-        )
-        localStorage.setItem(
-          PREFS_KEY,
-          JSON.stringify({ version: 1, units, collide }),
-        )
-      } catch {
-        // Storage full or blocked; editing carries on regardless.
-      }
-    }, debounceMs)
+    timer = setTimeout(write, debounceMs)
+    // Set last: it comes straight back round to this subscriber, where the
+    // pending set just above is what stops it going round again.
+    plannerStore.actions.setPersistence({
+      status: 'saving',
+      failure: plannerStore.state.persistence.failure,
+    })
   })
+
+  const flush = () => write()
+  /**
+   * `pagehide` is the last event a page reliably gets — a tab closed, a
+   * navigation away, or a phone putting the browser to sleep — and on mobile
+   * a tab may be discarded from hidden without ever firing it.
+   */
+  const onHidden = () => {
+    const doc = (globalThis as Partial<typeof globalThis>).document
+    if (doc?.visibilityState === 'hidden') flush()
+  }
+  lifecycle?.addEventListener('pagehide', flush)
+  lifecycle?.addEventListener('visibilitychange', onHidden)
+
+  autosave = { flush }
 
   return () => {
     clearTimeout(timer)
     subscription.unsubscribe()
+    lifecycle?.removeEventListener('pagehide', flush)
+    lifecycle?.removeEventListener('visibilitychange', onHidden)
+    if (autosave?.flush === flush) autosave = null
   }
 }
 
@@ -1662,15 +1868,24 @@ function startAutosave(debounceMs = 300): () => void {
  */
 export function restoreLibrary(): void {
   if (plannerStore.state.restored) return
+  const storage = browserStorage()
   // Subscribed before anything is read rather than after, so that what the
   // read makes of what it found is written straight back down. A plan carried
   // over from before there were projects is given an id on the way in, and an
   // id is what its URL is: it had better be the same one next time.
-  startAutosave()
+  startAutosave({ storage })
+  // A browser that will not hold anything is worth saying so about before the
+  // first edit is made rather than after it is lost.
+  if (!storage) {
+    plannerStore.actions.setPersistence({
+      status: 'error',
+      failure: 'blocked',
+    })
+  }
   plannerStore.actions.loadLibrary(
-    readLibrary() ?? { version: 1, projects: [] },
+    readLibrary(storage) ?? { version: 1, projects: [] },
   )
-  const prefs = loadStoredPrefs()
+  const prefs = readPrefs(storage)
   if (prefs) {
     plannerStore.actions.setUnits(prefs.units)
     plannerStore.actions.setCollide(prefs.collide)
