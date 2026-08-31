@@ -39,7 +39,13 @@ import {
   lengthUnit,
   toLength,
 } from '#/lib/planner/units.ts'
-import { MIN_SIZE, ProjectNameSchema } from '#/lib/planner/types.ts'
+import { MIN_SIZE } from '#/lib/planner/types.ts'
+import {
+  UNTOUCHED_PLAN_NAME,
+  commitPlanName,
+  refreshPlanName,
+  typePlanName,
+} from '#/lib/planner/planName.ts'
 
 import type {
   Furniture,
@@ -48,6 +54,7 @@ import type {
   Room,
   Units,
 } from '#/lib/planner/types.ts'
+import type { PlanNameEdit } from '#/lib/planner/planName.ts'
 
 /**
  * Numeric field that holds a local draft while typing, so clearing "150" down
@@ -148,15 +155,20 @@ function NameField({
   onChange: (next: string) => void
   required?: boolean
 }) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(() => {
-    if (!required) return null
-    const parsed = ProjectNameSchema.safeParse(value)
-    return parsed.success
-      ? null
-      : (parsed.error.issues[0]?.message ?? 'Enter a plan name.')
-  })
-  const displayed = required ? (draft ?? value) : value
+  const [edit, setEdit] = useState<PlanNameEdit>(UNTOUCHED_PLAN_NAME)
+  /*
+    The stored name arrives after the first render: the library is restored
+    from the browser, and the plan opened, only once the editor is mounted, so
+    the field starts out being handed an empty name it must not complain
+    about. Following the value as it changes keeps what is on show, and any
+    complaint about what used to be there, honest.
+  */
+  const [known, setKnown] = useState(value)
+  if (value !== known) {
+    setKnown(value)
+    setEdit(refreshPlanName(edit))
+  }
+  const displayed = required ? (edit.draft ?? value) : value
 
   const update = (next: string) => {
     if (!required) {
@@ -164,27 +176,16 @@ function NameField({
       return
     }
 
-    setDraft(next)
-    const parsed = ProjectNameSchema.safeParse(next)
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Enter a plan name.')
-      return
-    }
-    setError(null)
-    onChange(parsed.data)
+    const typed = typePlanName(next)
+    setEdit(typed.edit)
+    if (typed.commit !== null) onChange(typed.commit)
   }
 
   const commit = () => {
     if (required) {
-      const parsed = ProjectNameSchema.safeParse(displayed)
-      if (parsed.success) {
-        onChange(parsed.data)
-        setError(null)
-      } else {
-        setError(parsed.error.issues[0]?.message ?? 'Enter a plan name.')
-      }
-      // A blank attempt gives the field back its last valid stored value.
-      setDraft(null)
+      const committed = commitPlanName(displayed)
+      setEdit(committed.edit)
+      if (committed.commit !== null) onChange(committed.commit)
     }
     plannerStore.actions.sealHistory()
   }
@@ -195,25 +196,22 @@ function NameField({
       <Input
         id={required ? 'plan-name' : undefined}
         value={displayed}
-        aria-invalid={required && error !== null}
-        aria-describedby={error ? 'plan-name-error' : undefined}
+        aria-invalid={required && edit.error !== null}
+        aria-describedby={edit.error ? 'plan-name-error' : undefined}
         onChange={(event) => update(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === 'Enter') commit()
-          if (required && event.key === 'Escape') {
-            setDraft(null)
-            setError(null)
-          }
+          if (required && event.key === 'Escape') setEdit(UNTOUCHED_PLAN_NAME)
         }}
       />
-      {error ? (
+      {edit.error ? (
         <span
           id="plan-name-error"
           role="alert"
           className="text-destructive text-[10px]"
         >
-          {error}
+          {edit.error}
         </span>
       ) : null}
     </Label>
