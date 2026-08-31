@@ -776,8 +776,13 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({ ...s, viewport }))
   },
 
+  /** Keep the whole plan visible whenever the canvas changes shape. */
   setSize(width: number, height: number) {
-    setState((s) => ({ ...s, size: { width, height } }))
+    setState((s) => {
+      if (s.size.width === width && s.size.height === height) return s
+      const resized = { ...s, size: { width, height } }
+      return { ...resized, viewport: framedOn(resized, resized) }
+    })
   },
 
   panBy(dx: number, dy: number) {

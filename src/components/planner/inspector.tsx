@@ -17,6 +17,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
+import { cn } from '#/lib/utils.ts'
 import {
   HINGED_KINDS,
   OPENING_KINDS,
@@ -150,10 +151,12 @@ function NameField({
   value,
   onChange,
   required = false,
+  id,
 }: {
   value: string
   onChange: (next: string) => void
   required?: boolean
+  id?: string
 }) {
   const [edit, setEdit] = useState<PlanNameEdit>(UNTOUCHED_PLAN_NAME)
   /*
@@ -191,13 +194,13 @@ function NameField({
   }
 
   return (
-    <Label className="grid gap-1" htmlFor={required ? 'plan-name' : undefined}>
+    <Label className="grid gap-1" htmlFor={id}>
       <span className="text-muted-foreground text-[10px]">Name</span>
       <Input
-        id={required ? 'plan-name' : undefined}
+        id={id}
         value={displayed}
         aria-invalid={required && edit.error !== null}
-        aria-describedby={edit.error ? 'plan-name-error' : undefined}
+        aria-describedby={edit.error && id ? `${id}-error` : undefined}
         onChange={(event) => update(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -207,7 +210,7 @@ function NameField({
       />
       {edit.error ? (
         <span
-          id="plan-name-error"
+          id={id ? `${id}-error` : undefined}
           role="alert"
           className="text-destructive text-[10px]"
         >
@@ -561,7 +564,7 @@ function OpeningPanel({
   )
 }
 
-function EmptyPanel({ units }: { units: Units }) {
+function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
@@ -581,6 +584,7 @@ function EmptyPanel({ units }: { units: Units }) {
       <NameField
         value={name}
         required
+        id={nameId}
         onChange={(next) => plannerStore.actions.renameProject(next)}
       />
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
@@ -605,7 +609,13 @@ function EmptyPanel({ units }: { units: Units }) {
   )
 }
 
-export function Inspector() {
+export function Inspector({
+  className,
+  nameId = 'plan-name',
+}: {
+  className?: string
+  nameId?: string
+}) {
   const selection = useSelector(plannerStore, (s) => s.selection)
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
@@ -631,7 +641,10 @@ export function Inspector() {
       : undefined
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-l">
+    <aside
+      aria-label="Inspector"
+      className={cn('flex w-64 shrink-0 flex-col border-l', className)}
+    >
       {/*
         The panel above scrolls on its own so that the history below it keeps
         its place at the foot of the sidebar, whatever is selected.
@@ -664,7 +677,7 @@ export function Inspector() {
             units={units}
           />
         ) : (
-          <EmptyPanel units={units} />
+          <EmptyPanel units={units} nameId={nameId} />
         )}
       </div>
       <HistoryPanel />

@@ -17,6 +17,7 @@ interface GitHubSyncControlsProps {
   controller: GitHubSyncController
   onOpenRepository: () => void
   onOpenCommit: () => void
+  className?: string
 }
 
 /**
@@ -36,6 +37,7 @@ export function GitHubSyncControls({
   controller,
   onOpenRepository,
   onOpenCommit,
+  className,
 }: GitHubSyncControlsProps) {
   const connected = controller.connection?.status === 'connected'
   const revoked = controller.connection?.status === 'access-revoked'
@@ -69,6 +71,7 @@ export function GitHubSyncControls({
             'gap-1.5 px-2',
             status.tone === 'bad' && 'text-sync-bad',
             !connected && !revoked && 'text-muted-foreground',
+            className,
           )}
           onClick={canCommit ? onOpenCommit : onOpenRepository}
         >

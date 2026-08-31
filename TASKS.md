@@ -147,7 +147,7 @@ bun run cf-types:check
 - A full backup restores every plan without changing valid IDs.
 - Invalid files explain the problem and leave existing plans untouched.
 
-### 6. [ ] Make the editor responsive
+### 6. [x] Make the editor responsive
 
 **Priority:** P0  
 **Dependencies:** Task 1

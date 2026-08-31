@@ -72,6 +72,35 @@ describe('project names', () => {
   })
 })
 
+describe('responsive canvas framing', () => {
+  beforeEach(() => {
+    plannerStore.actions.setSize(1000, 800)
+    plannerStore.actions.openProject(PLAN_A)
+  })
+
+  it('re-fits the plan when the canvas changes size', () => {
+    plannerStore.actions.panBy(73, -41)
+    plannerStore.actions.setSize(600, 400)
+    const resized = plannerStore.state.viewport
+
+    plannerStore.actions.panBy(20, 30)
+    plannerStore.actions.fit()
+
+    expect(plannerStore.state.size).toEqual({ width: 600, height: 400 })
+    expect(plannerStore.state.viewport).toEqual(resized)
+  })
+
+  it('keeps the current view for a duplicate resize notification', () => {
+    plannerStore.actions.setSize(600, 400)
+    plannerStore.actions.panBy(50, 25)
+    const moved = plannerStore.state.viewport
+
+    plannerStore.actions.setSize(600, 400)
+
+    expect(plannerStore.state.viewport).toEqual(moved)
+  })
+})
+
 describe('upsertProjects', () => {
   it('replaces a plan that is not the one open', () => {
     plannerStore.actions.openProject(PLAN_A)

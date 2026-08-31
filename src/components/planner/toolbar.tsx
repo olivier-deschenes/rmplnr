@@ -50,6 +50,7 @@ import {
 import { Button } from '#/components/ui/button.tsx'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -183,6 +184,52 @@ const OPENING_TOOL_UI: Record<
   opening: { icon: IconBrackets },
 }
 
+/** One compact opening picker replaces three adjacent tools on phones. */
+function OpeningMenu() {
+  const tool = useSelector(plannerStore, (s) => s.tool)
+  const openingKind = useSelector(plannerStore, (s) => s.openingKind)
+  const active = OPENING_TOOLS.find((kind) => kind === openingKind) ?? 'door'
+  const Icon = OPENING_TOOL_UI[active].icon
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant={tool === 'opening' ? 'default' : 'outline'}
+          size="icon-sm"
+          className="size-11 sm:hidden"
+          aria-label={`Place ${OPENING_PRESETS[active].label.toLowerCase()}`}
+        >
+          <Icon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuLabel>Place on a wall</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={active}
+          onValueChange={(value) =>
+            plannerStore.actions.setOpeningTool(value as OpeningKind)
+          }
+        >
+          {OPENING_TOOLS.map((kind) => {
+            const KindIcon = OPENING_TOOL_UI[kind].icon
+            return (
+              <DropdownMenuRadioItem
+                key={kind}
+                value={kind}
+                className="min-h-11"
+              >
+                <KindIcon />
+                {OPENING_PRESETS[kind].label}
+              </DropdownMenuRadioItem>
+            )
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 /** One per kind, so nothing can reach the Add menu faceless. */
 const FURNITURE_ICONS: Record<FurnitureKind, TablerIcon> = {
   table: IconTable,
@@ -202,16 +249,24 @@ function AddMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant={tool === 'closet' ? 'default' : 'outline'} size="sm">
+        <Button
+          variant={tool === 'closet' ? 'default' : 'outline'}
+          size="sm"
+          className="max-sm:size-11 max-sm:px-0"
+          aria-label="Add furniture or a closet"
+        >
           <IconPlus data-icon="inline-start" />
-          Add
+          <span className="max-sm:sr-only">Add</span>
           <IconChevronDown
             data-icon="inline-end"
-            className="text-muted-foreground"
+            className="text-muted-foreground max-sm:hidden"
           />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-36">
+      <DropdownMenuContent
+        align="start"
+        className="w-36 max-sm:[&_[data-slot=dropdown-menu-item]]:min-h-11"
+      >
         <DropdownMenuItem
           onSelect={() => plannerStore.actions.setTool('closet')}
         >
@@ -267,7 +322,11 @@ function ProjectMenu() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="max-w-44">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="max-w-44 max-sm:h-11 max-sm:max-w-24"
+          >
             <span className="truncate">{open?.name}</span>
             <IconChevronDown
               data-icon="inline-end"
@@ -393,7 +452,7 @@ function SaveStatus() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-destructive gap-1.5 px-2"
+          className="text-destructive gap-1.5 px-2 max-sm:h-11"
           onClick={() => saveNow()}
         >
           <IconAlertTriangle />
@@ -413,7 +472,7 @@ function SaveStatus() {
     >
       <span
         tabIndex={0}
-        className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs whitespace-nowrap"
+        className="text-muted-foreground flex min-h-7 items-center gap-1.5 px-1 text-xs whitespace-nowrap max-sm:min-h-11"
       >
         <IconDeviceFloppy className="size-3.5" />
         {status === 'saving' ? 'Saving' : 'Saved'}
@@ -422,38 +481,38 @@ function SaveStatus() {
   )
 }
 
+// The library entry for the open plan trails the live canvas until it is
+// closed. Files must take the current rooms, furniture and openings instead.
+function currentProject() {
+  const state = plannerStore.state
+  return currentProjects(state).find(
+    (project) => project.id === state.projectId,
+  )
+}
+
+function downloadJson() {
+  const project = currentProject()
+  if (project) downloadProjectJson(project)
+}
+
+async function downloadPng() {
+  const project = currentProject()
+  if (!project) return
+
+  try {
+    const { downloadProjectPng } = await import('./planImage.tsx')
+    await downloadProjectPng(project, plannerStore.state.units)
+  } catch {
+    toast.error('Could not export the PNG image.')
+  }
+}
+
+function downloadBackup() {
+  downloadLibraryBackup(currentProjects(plannerStore.state))
+}
+
 /** Download the open plan without hiding the action in the plan switcher. */
 function ExportMenu() {
-  // The library entry for the open plan trails the live canvas until it is
-  // closed. Files must take the current rooms, furniture and openings instead.
-  const current = () => {
-    const state = plannerStore.state
-    return currentProjects(state).find(
-      (project) => project.id === state.projectId,
-    )
-  }
-
-  const downloadJson = () => {
-    const project = current()
-    if (project) downloadProjectJson(project)
-  }
-
-  const downloadPng = async () => {
-    const project = current()
-    if (!project) return
-
-    try {
-      const { downloadProjectPng } = await import('./planImage.tsx')
-      await downloadProjectPng(project, plannerStore.state.units)
-    } catch {
-      toast.error('Could not export the PNG image.')
-    }
-  }
-
-  const downloadBackup = () => {
-    downloadLibraryBackup(currentProjects(plannerStore.state))
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -487,6 +546,66 @@ function ExportMenu() {
   )
 }
 
+/** Import and every export in one small-screen menu. */
+function FileMenu({
+  onProjectImported,
+}: {
+  onProjectImported: (id: string) => void
+}) {
+  const [importing, setImporting] = useState(false)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-sm:size-11 max-sm:px-0"
+            aria-label="Import or export"
+          >
+            <IconDownload data-icon="inline-start" />
+            <span className="max-sm:sr-only">Files</span>
+            <IconChevronDown
+              data-icon="inline-end"
+              className="text-muted-foreground max-sm:hidden"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="w-48 max-sm:[&_[data-slot=dropdown-menu-item]]:min-h-11"
+        >
+          <DropdownMenuItem onSelect={() => setImporting(true)}>
+            <IconUpload />
+            Import JSON
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Current plan</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => void downloadPng()}>
+            <IconPhoto />
+            Export PNG
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={downloadJson}>
+            <IconJson />
+            Export JSON
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={downloadBackup}>
+            <IconDownload />
+            Back up all plans
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ImportDialog
+        open={importing}
+        onOpenChange={setImporting}
+        onProjectImported={onProjectImported}
+      />
+    </>
+  )
+}
+
 /**
  * Committing plans to a GitHub repository, and everything it takes to set that
  * up.
@@ -497,7 +616,7 @@ function ExportMenu() {
  * seeing it first: what arrives is shown as a review, and applied only when
  * they confirm it.
  */
-function GitHubSync() {
+function GitHubSync({ className }: { className?: string }) {
   const [dialog, setDialog] = useState<'repository' | 'commit' | null>(null)
   const controller = useGithubSync()
 
@@ -505,6 +624,7 @@ function GitHubSync() {
     <>
       <GitHubSyncControls
         controller={controller}
+        className={className}
         onOpenRepository={() => setDialog('repository')}
         onOpenCommit={() => setDialog('commit')}
       />
@@ -526,24 +646,73 @@ function GitHubSync() {
 /** Home for editor-wide settings, so the toolbar proper stays about drawing. */
 function OptionsMenu() {
   const units = useSelector(plannerStore, (s) => s.units)
+  const collide = useSelector(plannerStore, (s) => s.collide)
+  const actions = plannerStore.actions
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Options">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="max-sm:size-11"
+          aria-label="Options"
+        >
           <IconSettings />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel className="sm:hidden">Drawing</DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          className="min-h-11 sm:hidden"
+          checked={collide}
+          onCheckedChange={() => actions.toggleCollide()}
+        >
+          <IconBarrierBlock />
+          Avoid collisions
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator className="sm:hidden" />
+        <DropdownMenuLabel className="md:hidden">View</DropdownMenuLabel>
+        <DropdownMenuItem
+          className="min-h-11 md:hidden"
+          onSelect={() => actions.zoomBy(1.25)}
+        >
+          <IconPlus />
+          Zoom in
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="min-h-11 md:hidden"
+          onSelect={() => actions.zoomBy(1 / 1.25)}
+        >
+          <IconMinus />
+          Zoom out
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="min-h-11 md:hidden"
+          onSelect={() => actions.zoomTo(1)}
+        >
+          <IconFocusCentered />
+          Reset zoom
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="min-h-11 md:hidden"
+          onSelect={() => actions.fit()}
+        >
+          <IconFocusCentered />
+          Fit plan to view
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="md:hidden" />
         <DropdownMenuLabel>Units</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={units}
-          onValueChange={(value) =>
-            plannerStore.actions.setUnits(value as Units)
-          }
+          onValueChange={(value) => actions.setUnits(value as Units)}
         >
           {UNITS.map((value) => (
-            <DropdownMenuRadioItem key={value} value={value}>
+            <DropdownMenuRadioItem
+              key={value}
+              value={value}
+              className="max-sm:min-h-11"
+            >
               {UNIT_LABEL[value]}
               <span className="text-muted-foreground text-[10px]">
                 {UNIT_HINT[value]}
@@ -556,7 +725,7 @@ function OptionsMenu() {
   )
 }
 
-export function Toolbar() {
+export function Toolbar({ inspector }: { inspector?: ReactElement }) {
   const tool = useSelector(plannerStore, (s) => s.tool)
   const openingKind = useSelector(plannerStore, (s) => s.openingKind)
   const snap = useSelector(plannerStore, (s) => s.snap)
@@ -569,189 +738,208 @@ export function Toolbar() {
   const navigate = useNavigate()
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
-      <ProjectMenu />
-      <SaveStatus />
-
-      <Separator orientation="vertical" className="mx-1 h-5" />
-
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        spacing={0}
-        value={tool}
-        onValueChange={(value) => value && actions.setTool(value as Tool)}
+    <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] border-b xl:flex xl:h-11 xl:items-center xl:gap-2 xl:px-2">
+      <div
+        data-toolbar-section="plan"
+        className="flex h-12 min-w-0 items-center gap-1 pl-2 sm:h-11 xl:h-auto xl:p-0"
       >
-        {DRAW_TOOLS.map(({ tool: value, icon: Icon, label }) => (
-          <Hint key={value} label={label} keys={TOOL_KEYS[value]}>
-            <ToggleGroupItem
-              value={value}
-              className={SELECTED_TOOL}
-              aria-label={label}
-            >
-              <Icon />
-            </ToggleGroupItem>
-          </Hint>
-        ))}
-      </ToggleGroup>
+        <ProjectMenu />
+        <SaveStatus />
+        <Separator
+          orientation="vertical"
+          className="mx-1 hidden h-5 xl:block"
+        />
+      </div>
 
-      {/*
-        Openings are placed on a wall rather than dropped on the floor, so they
-        are tools of their own: pick one, then click the wall to cut it in.
-      */}
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        spacing={0}
-        value={tool === 'opening' ? openingKind : ''}
-        onValueChange={(value) =>
-          value && actions.setOpeningTool(value as OpeningKind)
-        }
+      <div
+        data-toolbar-section="tools"
+        className="order-3 col-span-2 flex h-12 min-w-0 items-center gap-1 overflow-x-auto border-t px-2 sm:h-11 xl:order-none xl:col-auto xl:h-auto xl:flex-1 xl:overflow-visible xl:border-0 xl:p-0 max-sm:gap-0"
       >
-        {OPENING_TOOLS.map((kind) => {
-          const { icon: Icon } = OPENING_TOOL_UI[kind]
-          const label = `Place ${OPENING_PRESETS[kind].label.toLowerCase()} on a wall`
-          return (
-            <Hint key={kind} label={label} keys={OPENING_KEYS[kind]}>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={tool}
+          onValueChange={(value) => value && actions.setTool(value as Tool)}
+        >
+          {DRAW_TOOLS.map(({ tool: value, icon: Icon, label }) => (
+            <Hint key={value} label={label} keys={TOOL_KEYS[value]}>
               <ToggleGroupItem
-                value={kind}
-                className={SELECTED_TOOL}
+                value={value}
+                className={`${SELECTED_TOOL} max-sm:size-11 max-sm:px-0`}
                 aria-label={label}
               >
                 <Icon />
               </ToggleGroupItem>
             </Hint>
-          )
-        })}
-      </ToggleGroup>
+          ))}
+        </ToggleGroup>
 
-      <AddMenu />
+        <OpeningMenu />
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
-
-      <Hint label={`Snap to ${formatSnapStep(units)}`}>
-        <Toggle
+        {/* Openings are wall tools, kept adjacent at larger sizes. */}
+        <ToggleGroup
+          type="single"
           variant="outline"
           size="sm"
-          className={LONE_TOGGLE}
-          aria-label="Snap to grid"
-          pressed={snap}
-          onPressedChange={() => actions.toggleSnap()}
+          spacing={0}
+          className="hidden sm:flex"
+          value={tool === 'opening' ? openingKind : ''}
+          onValueChange={(value) =>
+            value && actions.setOpeningTool(value as OpeningKind)
+          }
         >
-          <IconMagnet />
-        </Toggle>
-      </Hint>
+          {OPENING_TOOLS.map((kind) => {
+            const { icon: Icon } = OPENING_TOOL_UI[kind]
+            const label = `Place ${OPENING_PRESETS[kind].label.toLowerCase()} on a wall`
+            return (
+              <Hint key={kind} label={label} keys={OPENING_KEYS[kind]}>
+                <ToggleGroupItem
+                  value={kind}
+                  className={SELECTED_TOOL}
+                  aria-label={label}
+                >
+                  <Icon />
+                </ToggleGroupItem>
+              </Hint>
+            )
+          })}
+        </ToggleGroup>
 
-      {/*
-        Furniture holds itself out of the walls and out of everything else,
-        which is what the plan is for. Turned off for the times a plan has to
-        say something a real room could not — a rug under a table, or two
-        layouts drawn over each other to be compared.
-      */}
-      <Hint label="Keep furniture out of walls and other furniture">
-        <Toggle
-          variant="outline"
-          size="sm"
-          className={LONE_TOGGLE}
-          aria-label="Collision"
-          pressed={collide}
-          onPressedChange={() => actions.toggleCollide()}
-        >
-          <IconBarrierBlock />
-        </Toggle>
-      </Hint>
+        <AddMenu />
 
-      <div className="ml-auto flex items-center gap-0.5">
-        <Hint label="Undo" keys={EDIT_KEYS.undo}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Undo"
-            disabled={!canUndo}
-            onClick={() => actions.undo()}
-          >
-            <IconArrowBackUp />
-          </Button>
-        </Hint>
-        <Hint label="Redo" keys={EDIT_KEYS.redo}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Redo"
-            disabled={!canRedo}
-            onClick={() => actions.redo()}
-          >
-            <IconArrowForwardUp />
-          </Button>
-        </Hint>
+        <Separator orientation="vertical" className="mx-1 h-5 max-sm:hidden" />
 
-        <Separator orientation="vertical" className="mx-1.5 h-5" />
-
-        <Hint label="Zoom out">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Zoom out"
-            onClick={() => actions.zoomBy(1 / 1.25)}
-          >
-            <IconMinus />
-          </Button>
-        </Hint>
-        {/*
-          The readout doubles as the way back to life size, so its name has to
-          say so — with the percentage it shows still in there.
-        */}
-        <Hint label="Reset zoom to 100%">
-          <Button
-            variant="ghost"
+        <Hint label={`Snap to ${formatSnapStep(units)}`}>
+          <Toggle
+            variant="outline"
             size="sm"
-            className="text-muted-foreground w-11 px-0 tabular-nums"
-            aria-label={`${Math.round(scale * 100)}% — reset zoom to 100%`}
-            onClick={() => actions.zoomTo(1)}
+            className={`${LONE_TOGGLE} max-sm:size-11 max-sm:px-0`}
+            aria-label="Snap to grid"
+            pressed={snap}
+            onPressedChange={() => actions.toggleSnap()}
           >
-            {Math.round(scale * 100)}%
-          </Button>
-        </Hint>
-        <Hint label="Zoom in">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Zoom in"
-            onClick={() => actions.zoomBy(1.25)}
-          >
-            <IconPlus />
-          </Button>
-        </Hint>
-        <Hint label="Fit plan to view">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Fit plan to view"
-            onClick={() => actions.fit()}
-          >
-            <IconFocusCentered />
-          </Button>
+            <IconMagnet />
+          </Toggle>
         </Hint>
 
-        <Separator orientation="vertical" className="mx-1.5 h-5" />
+        {/* Collision remains in Options when its toolbar control is hidden. */}
+        <Hint label="Keep furniture out of walls and other furniture">
+          <Toggle
+            variant="outline"
+            size="sm"
+            className={`${LONE_TOGGLE} max-sm:hidden`}
+            aria-label="Collision"
+            pressed={collide}
+            onPressedChange={() => actions.toggleCollide()}
+          >
+            <IconBarrierBlock />
+          </Toggle>
+        </Hint>
 
-        <ImportDialog
-          trigger={
-            <Button variant="outline" size="sm">
-              <IconUpload data-icon="inline-start" />
-              Import
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 max-sm:gap-0">
+          <Hint label="Undo" keys={EDIT_KEYS.undo}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="max-sm:size-11"
+              aria-label="Undo"
+              disabled={!canUndo}
+              onClick={() => actions.undo()}
+            >
+              <IconArrowBackUp />
             </Button>
-          }
-          onProjectImported={(id) =>
-            navigate({ to: '/p/$projectId', params: { projectId: id } })
-          }
-        />
-        <ExportMenu />
-        <GitHubSync />
+          </Hint>
+          <Hint label="Redo" keys={EDIT_KEYS.redo}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="max-sm:size-11"
+              aria-label="Redo"
+              disabled={!canRedo}
+              onClick={() => actions.redo()}
+            >
+              <IconArrowForwardUp />
+            </Button>
+          </Hint>
+
+          <div className="hidden items-center md:flex">
+            <Separator orientation="vertical" className="mx-1.5 h-5" />
+            <Hint label="Zoom out">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Zoom out"
+                onClick={() => actions.zoomBy(1 / 1.25)}
+              >
+                <IconMinus />
+              </Button>
+            </Hint>
+            <Hint label="Reset zoom to 100%">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground w-11 px-0 tabular-nums"
+                aria-label={`${Math.round(scale * 100)}% — reset zoom to 100%`}
+                onClick={() => actions.zoomTo(1)}
+              >
+                {Math.round(scale * 100)}%
+              </Button>
+            </Hint>
+            <Hint label="Zoom in">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Zoom in"
+                onClick={() => actions.zoomBy(1.25)}
+              >
+                <IconPlus />
+              </Button>
+            </Hint>
+            <Hint label="Fit plan to view">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Fit plan to view"
+                onClick={() => actions.fit()}
+              >
+                <IconFocusCentered />
+              </Button>
+            </Hint>
+          </div>
+        </div>
+      </div>
+
+      <div
+        data-toolbar-section="actions"
+        className="flex h-12 shrink-0 items-center gap-0.5 pr-2 sm:h-11 xl:h-auto xl:p-0"
+      >
+        <div className="xl:hidden">
+          <FileMenu
+            onProjectImported={(id) =>
+              navigate({ to: '/p/$projectId', params: { projectId: id } })
+            }
+          />
+        </div>
+        <div className="hidden items-center gap-0.5 xl:flex">
+          <ImportDialog
+            trigger={
+              <Button variant="outline" size="sm">
+                <IconUpload data-icon="inline-start" />
+                Import
+              </Button>
+            }
+            onProjectImported={(id) =>
+              navigate({ to: '/p/$projectId', params: { projectId: id } })
+            }
+          />
+          <ExportMenu />
+        </div>
+        <GitHubSync className="max-sm:size-11 max-sm:px-0" />
+        {inspector}
         <OptionsMenu />
       </div>
-    </div>
+    </header>
   )
 }

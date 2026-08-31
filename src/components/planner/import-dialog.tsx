@@ -56,13 +56,17 @@ function applied(message: string): void {
 
 export function ImportDialog({
   trigger,
+  open: controlledOpen,
+  onOpenChange,
   onProjectImported,
 }: {
-  trigger: ReactElement
+  trigger?: ReactElement
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   onProjectImported?: (id: string) => void
 }) {
   const projects = useSelector(plannerStore, (state) => state.projects)
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
   const [prepared, setPrepared] = useState<Prepared | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
@@ -83,7 +87,8 @@ export function ImportDialog({
   }
 
   const changeOpen = (next: boolean) => {
-    setOpen(next)
+    if (controlledOpen === undefined) setInternalOpen(next)
+    onOpenChange?.(next)
     if (!next) reset()
   }
 
@@ -135,8 +140,8 @@ export function ImportDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={controlledOpen ?? internalOpen} onOpenChange={changeOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Import rmplnr JSON</DialogTitle>
