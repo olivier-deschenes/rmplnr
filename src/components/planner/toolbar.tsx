@@ -19,6 +19,7 @@ import {
   IconFocusCentered,
   IconHanger,
   IconJson,
+  IconKeyboard,
   IconMagnet,
   IconMinus,
   IconPlus,
@@ -36,6 +37,7 @@ import {
 } from '@tabler/icons-react'
 
 import { ImportDialog } from './import-dialog.tsx'
+import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 
 import {
   AlertDialog,
@@ -644,7 +646,7 @@ function GitHubSync({ className }: { className?: string }) {
 }
 
 /** Home for editor-wide settings, so the toolbar proper stays about drawing. */
-function OptionsMenu() {
+function OptionsMenu({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
   const units = useSelector(plannerStore, (s) => s.units)
   const collide = useSelector(plannerStore, (s) => s.collide)
   const actions = plannerStore.actions
@@ -720,6 +722,14 @@ function OptionsMenu() {
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator className="xl:hidden" />
+        <DropdownMenuItem
+          className="min-h-11 xl:hidden"
+          onSelect={onOpenShortcuts}
+        >
+          <IconKeyboard />
+          Keyboard shortcuts
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -734,6 +744,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
   const scale = useSelector(plannerStore, (s) => s.viewport.scale)
   const canUndo = useSelector(plannerStore, (s) => s.history.past.length > 0)
   const canRedo = useSelector(plannerStore, (s) => s.history.future.length > 0)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const actions = plannerStore.actions
   const navigate = useNavigate()
 
@@ -936,10 +947,22 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           />
           <ExportMenu />
         </div>
+        <Hint label="Keyboard shortcuts">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="hidden xl:inline-flex"
+            aria-label="Keyboard shortcuts"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            <IconKeyboard />
+          </Button>
+        </Hint>
         <GitHubSync className="max-sm:size-11 max-sm:px-0" />
         {inspector}
-        <OptionsMenu />
+        <OptionsMenu onOpenShortcuts={() => setShortcutsOpen(true)} />
       </div>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </header>
   )
 }

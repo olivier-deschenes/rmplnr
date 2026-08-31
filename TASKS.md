@@ -172,7 +172,7 @@ bun run cf-types:check
 - At tablet and desktop widths, no toolbar actions are clipped.
 - Desktop behavior and keyboard shortcuts remain unchanged.
 
-### 7. [ ] Add first-run and active-tool guidance
+### 7. [x] Add first-run and active-tool guidance
 
 **Priority:** P1  
 **Dependencies:** Task 6

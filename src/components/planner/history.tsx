@@ -15,6 +15,13 @@ import { recentActions } from '#/lib/planner/history.ts'
  */
 export function HistoryPanel() {
   const history = useSelector(plannerStore, (s) => s.history)
+  const planIsEmpty = useSelector(
+    plannerStore,
+    (s) =>
+      s.rooms.length === 0 &&
+      s.furniture.length === 0 &&
+      s.openings.length === 0,
+  )
   const actions = recentActions(history)
   // The change the plan currently stands on, which is the one undo would take.
   const current = actions.findIndex((action) => !action.undone)
@@ -26,7 +33,9 @@ export function HistoryPanel() {
       </h2>
       {actions.length === 0 ? (
         <p className="text-muted-foreground text-[11px]">
-          Nothing yet — draw a room to start
+          {planIsEmpty
+            ? 'Nothing yet — draw a room to start'
+            : 'No edits this session'}
         </p>
       ) : (
         <ol className="grid content-start gap-1 overflow-y-auto text-[11px]">

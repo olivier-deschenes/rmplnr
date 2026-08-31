@@ -32,5 +32,6 @@ it('keeps every editor control reachable in responsive groups', async () => {
   expect(html).toContain('aria-label="Import or export"')
   expect(html).toContain('aria-label="Open inspector"')
   expect(html).toContain('aria-label="Inspector"')
+  expect(html).toContain('aria-label="Keyboard shortcuts"')
   expect(html).toContain('hidden lg:flex')
 })

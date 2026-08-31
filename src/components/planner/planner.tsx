@@ -4,6 +4,7 @@ import { useSelector } from '@tanstack/react-store'
 import { IconAdjustmentsHorizontal } from '@tabler/icons-react'
 
 import { Canvas } from './canvas.tsx'
+import { CanvasGuidance } from './guidance.tsx'
 import { Inspector } from './inspector.tsx'
 import { Toolbar } from './toolbar.tsx'
 
@@ -101,8 +102,13 @@ export function Planner({ projectId }: { projectId: string }) {
       <div className="flex h-dvh flex-col overflow-hidden">
         <Toolbar inspector={<MobileInspector />} />
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1">
             <Canvas />
+            <CanvasGuidance
+              onProjectImported={(id) =>
+                navigate({ to: '/p/$projectId', params: { projectId: id } })
+              }
+            />
           </div>
           <Inspector className="hidden lg:flex" />
         </div>
