@@ -116,6 +116,21 @@ export const LibrarySchema = z.object({
   projects: z.array(ProjectSchema),
 })
 
+/**
+ * The library as this browser's storage holds it: every project, under a stamp
+ * saying which tab wrote it and how many writes had gone before.
+ *
+ * The stamp is how a second tab tells a change it has not seen from an echo of
+ * its own last write, and how it tells a newer copy from the one it already
+ * has. Libraries written before tabs watched each other carry no stamp, and
+ * read as revision zero, written by nobody — which is older than anything any
+ * tab writes from here on, and so is never mistaken for news.
+ */
+export const StoredLibrarySchema = LibrarySchema.extend({
+  writer: z.string().optional(),
+  revision: z.number().int().nonnegative().optional(),
+})
+
 export const PROJECT_SCHEMA_VERSION = 1 as const
 
 /** A plan name as it may leave the browser. */
@@ -162,6 +177,7 @@ export type Plan = z.infer<typeof PlanSchema>
 export type Project = z.infer<typeof ProjectSchema>
 export type ProjectRecord = z.infer<typeof ProjectRecordSchema>
 export type Library = z.infer<typeof LibrarySchema>
+export type StoredLibrary = z.infer<typeof StoredLibrarySchema>
 export type Units = z.infer<typeof UnitsSchema>
 export type Prefs = z.infer<typeof PrefsSchema>
 

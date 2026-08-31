@@ -104,7 +104,7 @@ bun run cf-types:check
 - The UI shows whether the current library is safely saved locally.
 - A storage exception produces a visible, recoverable error state.
 
-### 4. [ ] Prevent multiple tabs from overwriting each other
+### 4. [x] Prevent multiple tabs from overwriting each other
 
 **Priority:** P0  
 **Dependencies:** Task 3

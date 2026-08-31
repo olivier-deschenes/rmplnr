@@ -6,6 +6,7 @@ import { Canvas } from './canvas.tsx'
 import { Inspector } from './inspector.tsx'
 import { Toolbar } from './toolbar.tsx'
 
+import { TabConflictDialog } from '#/components/tab-conflict.tsx'
 import { TooltipProvider } from '#/components/ui/tooltip.tsx'
 
 import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
@@ -56,6 +57,7 @@ export function Planner({ projectId }: { projectId: string }) {
           </div>
           <Inspector />
         </div>
+        <TabConflictDialog />
       </div>
     </TooltipProvider>
   )

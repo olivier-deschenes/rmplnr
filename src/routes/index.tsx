@@ -3,6 +3,7 @@ import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { IconPlus } from '@tabler/icons-react'
 
+import { TabConflictDialog } from '#/components/tab-conflict.tsx'
 import { Button } from '#/components/ui/button.tsx'
 
 import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
@@ -101,6 +102,8 @@ function Home() {
         <IconPlus data-icon="inline-start" />
         New plan
       </Button>
+
+      <TabConflictDialog />
     </main>
   )
 }

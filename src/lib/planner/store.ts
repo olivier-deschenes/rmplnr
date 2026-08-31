@@ -28,6 +28,7 @@ import {
   wallAt,
 } from './openings.ts'
 import { blockersFor, fits, settleFurniture } from './collision.ts'
+import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
   describeFurniture,
@@ -44,8 +45,10 @@ import {
   PlanSchema,
   PrefsSchema,
   ProjectNameSchema,
+  StoredLibrarySchema,
 } from './types.ts'
 
+import type { ConflictedPlan } from './libraryMerge.ts'
 import type { History, Snapshot } from './history.ts'
 import type {
   Clipboard,
@@ -81,6 +84,13 @@ export type Persistence = {
   /** What went wrong last, kept while a retry is in flight. */
   failure: SaveFailure | null
 }
+
+/**
+ * Plans this tab and another tab have both drawn on since they last agreed,
+ * which is the one thing two tabs cannot be left to settle between themselves.
+ * Everything else merges; this waits on the reader.
+ */
+export type TabConflict = { plans: Array<ConflictedPlan> }
 
 export type PlannerState = {
   /**
@@ -134,6 +144,12 @@ export type PlannerState = {
    * saved, so this starts where it will spend most of its life.
    */
   persistence: Persistence
+  /**
+   * The plans another tab has changed under this one, if it has. Nothing is
+   * written down while this is set: the other tab's copy stays where it is
+   * until the reader has said which of the two versions to keep.
+   */
+  conflict: TabConflict | null
 }
 
 const initialState: PlannerState = {
@@ -157,6 +173,7 @@ const initialState: PlannerState = {
   size: { width: 0, height: 0 },
   history: EMPTY_HISTORY,
   persistence: { status: 'saved', failure: null },
+  conflict: null,
 }
 
 const newId = () => crypto.randomUUID()
@@ -1431,6 +1448,54 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   /**
+   * Say which plans another tab has changed under this one, or that none has.
+   * Only the autosave calls this: it is a report of what is actually in this
+   * browser's storage, and one set from anywhere else would stop the editor
+   * saving over a change nobody had made.
+   */
+  setConflict(conflict: TabConflict | null) {
+    setState((s) =>
+      s.conflict === null && conflict === null ? s : { ...s, conflict },
+    )
+  },
+
+  /**
+   * Take on the library as another tab left it — merged with this tab's own
+   * work, or chosen over it — in place of the one held here.
+   *
+   * The plan being drawn on is only taken back off the canvas if the drawing
+   * itself has changed: another tab editing a different plan must not cost
+   * this one its history, its selection, or the polygon half-traced on screen.
+   * When it has changed, the history goes with it, the steps in it being steps
+   * back into a plan that is no longer the one open.
+   *
+   * A plan the other tab deleted simply goes; the page showing it sends the
+   * reader back to the list, the same as for any plan that is not there.
+   */
+  adoptLibrary(library: Library) {
+    setState((s) => {
+      const projects = library.projects
+      const open =
+        s.projectId === null
+          ? undefined
+          : projects.find((p) => p.id === s.projectId)
+      if (!open || samePlan(open, s)) return { ...s, projects }
+      return {
+        ...s,
+        projects,
+        rooms: open.rooms,
+        furniture: open.furniture,
+        openings: open.openings,
+        selection: null,
+        renaming: null,
+        draft: null,
+        rect: null,
+        history: EMPTY_HISTORY,
+      }
+    })
+  },
+
+  /**
    * Show the plan a URL names, putting whatever was being drawn on back in the
    * library on the way past. Standing still is not a change: asked for the
    * plan already open, it leaves the view and the history where they are.
@@ -1607,6 +1672,18 @@ function browserStorage(): PlannerStorage | null {
   }
 }
 
+/**
+ * What this tab calls itself when it writes the library down, made the first
+ * time it is asked for rather than when this module loads: the server has no
+ * tabs, and nothing on it should be spending randomness on one.
+ */
+let tab: string | null = null
+
+function thisTab(): string {
+  tab ??= newId()
+  return tab
+}
+
 /** Where a write went wrong, in the terms the reader can do something about. */
 function failureOf(error: unknown): SaveFailure {
   const name = error instanceof Error ? error.name : ''
@@ -1684,6 +1761,36 @@ function readLibrary(storage: PlannerStorage | null): Library | null {
 }
 
 /**
+ * The library as storage holds it this instant, stamp and all, or null where
+ * there is nothing readable there. This is the one that reads the stamp: what
+ * a tab is looking for in another tab's write is not a plan to open but a
+ * revision to measure its own against.
+ */
+function readStored(storage: PlannerStorage | null): Stored | null {
+  if (!storage) return null
+  try {
+    const raw = storage.getItem(LIBRARY_KEY)
+    if (!raw) return null
+    const parsed = StoredLibrarySchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) return null
+    return {
+      projects: parsed.data.projects,
+      writer: parsed.data.writer ?? null,
+      revision: parsed.data.revision ?? 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** The library in storage, under the stamp saying whose write left it there. */
+type Stored = {
+  projects: Array<Project>
+  writer: string | null
+  revision: number
+}
+
+/**
  * Read the saved editor preferences, on the same be-forgiving terms as the
  * plan: anything unreadable falls back to the defaults. Client-only.
  */
@@ -1734,10 +1841,14 @@ export interface AutosaveOptions {
 
 /**
  * The running autosave, so that a control in the editor can ask for the write
- * it is waiting on to happen now. There is only ever one — the library belongs
- * to the app rather than to any one page.
+ * it is waiting on to happen now, or say how a clash with another tab is to be
+ * settled. There is only ever one — the library belongs to the app rather than
+ * to any one page.
  */
-let autosave: { flush: () => void } | null = null
+let autosave: {
+  flush: () => void
+  resolve: (take: 'mine' | 'theirs') => void
+} | null = null
 
 /**
  * Write the library out now rather than when the debounce is up. Retrying a
@@ -1749,15 +1860,33 @@ export function saveNow(): void {
 }
 
 /**
+ * Settle a clash with another tab by taking its version of the plans in
+ * question, dropping what was drawn on them here since they last agreed.
+ */
+export function takeOtherTab(): void {
+  autosave?.resolve('theirs')
+}
+
+/**
+ * Settle a clash with another tab by keeping this tab's version, which is
+ * written over the one the other tab left.
+ */
+export function keepThisTab(): void {
+  autosave?.resolve('mine')
+}
+
+/**
  * Persist the library and the preferences on change, and say so as it goes:
  * `saving` from the moment an edit lands until it is safely down, `error` when
  * the browser refused it. Returns an unsubscribe.
  *
- * Two things keep the promise the status makes. A write is only marked done
+ * Three things keep the promise the status makes. A write is only marked done
  * once storage has actually taken it, so a refusal leaves the change pending
- * and the next edit — or a retry — tries it again. And the pending write is
+ * and the next edit — or a retry — tries it again. The pending write is
  * flushed when the page goes away, so the debounce cannot swallow the last
- * edit before a close.
+ * edit before a close. And nothing is ever written over a newer copy left by
+ * another tab: every write looks first, and what it finds is either merged
+ * into this tab or put to the reader.
  */
 export function startAutosave({
   storage = browserStorage(),
@@ -1775,7 +1904,71 @@ export function startAutosave({
    */
   let saved: Persisted = persistedOf(plannerStore.state)
 
-  const write = (): void => {
+  const stored = readStored(storage)
+  /**
+   * The library this tab and every other last agreed on: what storage held
+   * when this tab last read it or wrote it. It is what tells an edit made here
+   * from one made next door, and so what a merge is measured against.
+   */
+  let base: Array<Project> = stored?.projects ?? []
+  /** The highest revision this tab knows this browser's library to have had. */
+  let revision = stored?.revision ?? 0
+  /**
+   * The other tab's library, held while the reader decides which version to
+   * keep. Nothing is written while it is set.
+   */
+  let incoming: Stored | null = null
+
+  /**
+   * Take on what another tab has left in storage, as far as it can be taken on
+   * without losing anything: `base` is what the two tabs last agreed on, so a
+   * plan only one of them has touched can be taken from whichever touched it.
+   * A plan both have drawn on goes to the reader instead, and until it comes
+   * back nothing here is written.
+   */
+  const accept = (theirs: Stored, projects: Array<Project>): void => {
+    incoming = null
+    // Storage holds their copy, so from here that is what this tab's own work
+    // is a change to, and what its next write is measured against.
+    base = theirs.projects
+    revision = theirs.revision
+    plannerStore.actions.setConflict(null)
+    plannerStore.actions.adoptLibrary({ version: 1, projects })
+    // Adopting is a change like any other and has already come back round to
+    // the subscriber below, which has marked it pending. Whether there is
+    // really anything to write is the write's own question: a merge that came
+    // to exactly what storage already holds writes nothing.
+    persist()
+  }
+
+  /**
+   * Catch up with storage before writing over it. Returns whether writing may
+   * go ahead — false when another tab's copy is now waiting on the reader.
+   */
+  const catchUp = (): boolean => {
+    if (!storage) return true
+    const theirs = readStored(storage)
+    // Nothing there, this tab's own write come back round, or a copy older
+    // than the one it has already taken on: either way, no news.
+    if (!theirs) return true
+    if (theirs.writer === thisTab() || theirs.revision <= revision) return true
+
+    const merge = mergeLibraries(
+      base,
+      libraryOf(plannerStore.state).projects,
+      theirs.projects,
+    )
+    if (merge.kind === 'conflict') {
+      incoming = theirs
+      plannerStore.actions.setConflict({ plans: merge.plans })
+      return false
+    }
+    accept(theirs, merge.projects)
+    return true
+  }
+
+  /** Put the library down, having already looked at what is there. */
+  const persist = (): void => {
     clearTimeout(timer)
     timer = undefined
     if (pending === null) return
@@ -1789,8 +1982,25 @@ export function startAutosave({
       })
       return
     }
+    const { projects } = libraryOf(state)
+    const next = revision + 1
     try {
-      storage.setItem(LIBRARY_KEY, JSON.stringify(libraryOf(state)))
+      // A library that says exactly what storage already says is not written
+      // again. Two tabs each taking on the other's merge would otherwise stamp
+      // the same plans back and forth between them for ever.
+      if (!sameLibrary(projects, base)) {
+        storage.setItem(
+          LIBRARY_KEY,
+          JSON.stringify({
+            version: 1,
+            projects,
+            writer: thisTab(),
+            revision: next,
+          }),
+        )
+        base = projects
+        revision = next
+      }
       storage.setItem(
         PREFS_KEY,
         JSON.stringify({
@@ -1811,6 +2021,49 @@ export function startAutosave({
     saved = written
     pending = null
     plannerStore.actions.setPersistence({ status: 'saved', failure: null })
+  }
+
+  const write = (): void => {
+    clearTimeout(timer)
+    timer = undefined
+    if (pending === null) return
+    // Another tab may have written since this change was made, and its work is
+    // not something to go over on the way past.
+    if (!catchUp()) return
+    persist()
+  }
+
+  /**
+   * Settle a clash the reader has now looked at. Either way their copy is what
+   * storage holds and so what this tab is now working from; the difference is
+   * only whether what is on the canvas is written over it or thrown away.
+   */
+  const resolve = (take: 'mine' | 'theirs'): void => {
+    const theirs = incoming
+    if (!theirs) return
+    incoming = null
+    base = theirs.projects
+    revision = theirs.revision
+    plannerStore.actions.setConflict(null)
+
+    if (take === 'theirs') {
+      plannerStore.actions.adoptLibrary({
+        version: 1,
+        projects: theirs.projects,
+      })
+      // Nothing of this tab's is left over: what is on the canvas is now what
+      // storage holds, down to the plans it never had.
+      clearTimeout(timer)
+      timer = undefined
+      saved = persistedOf(plannerStore.state)
+      pending = null
+      plannerStore.actions.setPersistence({ status: 'saved', failure: null })
+      return
+    }
+    // Keeping this tab's: what is on the canvas is a change to their copy now,
+    // and goes down over it.
+    pending ??= persistedOf(plannerStore.state)
+    persist()
   }
 
   const subscription = plannerStore.subscribe(() => {
@@ -1842,16 +2095,29 @@ export function startAutosave({
     const doc = (globalThis as Partial<typeof globalThis>).document
     if (doc?.visibilityState === 'hidden') flush()
   }
+  /**
+   * Another tab has written to this browser's storage. Which key it wrote is
+   * in the event, but not dependably enough to lean on — a store cleared
+   * wholesale names none — so anything that might be the library is reason
+   * enough to go and look.
+   */
+  const onStorage = (event: Event) => {
+    const key = (event as { key?: string | null }).key
+    if (key !== undefined && key !== null && key !== LIBRARY_KEY) return
+    catchUp()
+  }
   lifecycle?.addEventListener('pagehide', flush)
   lifecycle?.addEventListener('visibilitychange', onHidden)
+  lifecycle?.addEventListener('storage', onStorage)
 
-  autosave = { flush }
+  autosave = { flush, resolve }
 
   return () => {
     clearTimeout(timer)
     subscription.unsubscribe()
     lifecycle?.removeEventListener('pagehide', flush)
     lifecycle?.removeEventListener('visibilitychange', onHidden)
+    lifecycle?.removeEventListener('storage', onStorage)
     if (autosave?.flush === flush) autosave = null
   }
 }
