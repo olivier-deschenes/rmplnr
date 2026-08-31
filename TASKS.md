@@ -32,7 +32,7 @@ bun run cf-types:check
 
 ## Tasks
 
-### 1. [ ] Restore a clean project baseline
+### 1. [x] Restore a clean project baseline
 
 **Priority:** P0  
 **Dependencies:** None

@@ -65,8 +65,8 @@ function ReviewList({
   if (projectIds.length === 0) return null
   return (
     <li>
-      <span className="font-medium">{ label }:</span>{ ' ' }
-      { projectIds.map((projectId) => nameFor(projectId, controller)).join(', ') }
+      <span className="font-medium">{label}:</span>{' '}
+      {projectIds.map((projectId) => nameFor(projectId, controller)).join(', ')}
     </li>
   )
 }
@@ -91,41 +91,41 @@ function IncomingReview({
     <section className="space-y-3 border p-3">
       <h3 className="font-medium">Incoming from GitHub</h3>
 
-      { hasManagedChanges ? (
+      {hasManagedChanges ? (
         <ul className="text-muted-foreground list-disc space-y-1 pl-4">
           <ReviewList
             label="Add to this browser"
-            projectIds={ changes.additions }
-            controller={ controller }
+            projectIds={changes.additions}
+            controller={controller}
           />
           <ReviewList
             label="Update in this browser"
-            projectIds={ changes.updates }
-            controller={ controller }
+            projectIds={changes.updates}
+            controller={controller}
           />
           <ReviewList
             label="Link matching copies"
-            projectIds={ changes.links }
-            controller={ controller }
+            projectIds={changes.links}
+            controller={controller}
           />
           <ReviewList
             label="Keep local and stop syncing"
-            projectIds={ changes.remoteDeletions }
-            controller={ controller }
+            projectIds={changes.remoteDeletions}
+            controller={controller}
           />
           <ReviewList
             label="Already match"
-            projectIds={ changes.converged }
-            controller={ controller }
+            projectIds={changes.converged}
+            controller={controller}
           />
         </ul>
       ) : (
         <p className="text-muted-foreground">
           The repository changed, but no managed plan content changed.
         </p>
-      ) }
+      )}
 
-      { conflicts.length > 0 ? (
+      {conflicts.length > 0 ? (
         <Alert variant="destructive">
           <IconAlertTriangle />
           <AlertTitle>Resolve on GitHub before syncing</AlertTitle>
@@ -135,30 +135,30 @@ function IncomingReview({
               commits are blocked until the GitHub JSON is resolved.
             </p>
             <div className="space-y-3">
-              { conflicts.map((conflict) => {
+              {conflicts.map((conflict) => {
                 const local = conflict.projectId
                   ? projects.find(
-                    (project) => project.id === conflict.projectId,
-                  )
+                      (project) => project.id === conflict.projectId,
+                    )
                   : undefined
                 return (
                   <div
-                    key={ `${conflict.path}:${conflict.kind}` }
+                    key={`${conflict.path}:${conflict.kind}`}
                     className="border-t pt-3"
                   >
                     <p className="text-foreground font-medium">
-                      { local?.name ?? conflict.path }
+                      {local?.name ?? conflict.path}
                     </p>
                     <p className="mt-1 font-mono text-[11px] break-all">
-                      { conflict.path }
+                      {conflict.path}
                     </p>
-                    { conflict.error ? (
-                      <p className="mt-1">{ conflict.error }</p>
-                    ) : null }
+                    {conflict.error ? (
+                      <p className="mt-1">{conflict.error}</p>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button asChild type="button" size="sm" variant="outline">
                         <a
-                          href={ githubFileUrl(repository, conflict.path) }
+                          href={githubFileUrl(repository, conflict.path)}
                           target="_blank"
                           rel="noreferrer"
                         >
@@ -166,20 +166,20 @@ function IncomingReview({
                           Open on GitHub
                         </a>
                       </Button>
-                      { local ? (
+                      {local ? (
                         <>
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={ () => {
+                            onClick={() => {
                               void navigator.clipboard
                                 .writeText(serializeProject(local))
                                 .then(() => toast.success('Local JSON copied'))
                                 .catch(() =>
                                   toast.error('Local JSON could not be copied'),
                                 )
-                            } }
+                            }}
                           >
                             <IconCopy />
                             Copy local JSON
@@ -188,30 +188,30 @@ function IncomingReview({
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={ () => downloadProjectFile(local) }
+                            onClick={() => downloadProjectFile(local)}
                           >
                             <IconDownload />
                             Export local JSON
                           </Button>
                         </>
-                      ) : null }
+                      ) : null}
                     </div>
                   </div>
                 )
-              }) }
+              })}
             </div>
           </AlertDescription>
         </Alert>
       ) : (
         <Button
           type="button"
-          disabled={ controller.busy }
-          onClick={ () => void controller.confirmReview() }
+          disabled={controller.busy}
+          onClick={() => void controller.confirmReview()}
         >
           <IconCheck />
           Confirm reviewed changes
         </Button>
-      ) }
+      )}
     </section>
   )
 }
@@ -228,29 +228,25 @@ function PendingChanges({
   const { changes } = controller
 
   if (!changes.hasChanges) {
-    return (
-      <p className="text-muted-foreground border p-3">
-        Nothing to commit
-      </p>
-    )
+    return <p className="text-muted-foreground border p-3">Nothing to commit</p>
   }
 
   return (
     <div className="divide-y border">
-      { changeKinds.flatMap(({ key, label, icon: Icon }) =>
+      {changeKinds.flatMap(({ key, label, icon: Icon }) =>
         changes[key].map((projectId) => (
           <div
-            key={ `${key}:${projectId}` }
+            key={`${key}:${projectId}`}
             className="flex items-center gap-3 px-3 py-2"
           >
             <Icon className="text-muted-foreground size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate font-medium">
-              { nameFor(projectId, controller) }
+              {nameFor(projectId, controller)}
             </span>
-            <span className="text-muted-foreground shrink-0">{ label }</span>
+            <span className="text-muted-foreground shrink-0">{label}</span>
           </div>
         )),
-      ) }
+      )}
     </div>
   )
 }
@@ -276,13 +272,13 @@ function CommitForm({
   return (
     <form
       className="space-y-2"
-      onSubmit={ (event) => {
+      onSubmit={(event) => {
         event.preventDefault()
         void form.handleSubmit()
-      } }
+      }}
     >
       <form.Field name="message">
-        { (field) => {
+        {(field) => {
           const invalid =
             field.state.meta.isTouched && !field.state.meta.isValid
           return (
@@ -293,25 +289,25 @@ function CommitForm({
                 </Label>
                 <Input
                   id="github-commit-message"
-                  value={ field.state.value }
+                  value={field.state.value}
                   placeholder="Commit message"
-                  maxLength={ 200 }
-                  disabled={ disabled }
-                  aria-invalid={ invalid }
-                  onBlur={ field.handleBlur }
-                  onChange={ (event) => field.handleChange(event.target.value) }
+                  maxLength={200}
+                  disabled={disabled}
+                  aria-invalid={invalid}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
                 />
-                { invalid ? (
+                {invalid ? (
                   <p className="text-destructive">Enter a commit message.</p>
-                ) : null }
+                ) : null}
               </div>
-              <Button type="submit" disabled={ disabled }>
-                { controller.busy ? <Spinner /> : <IconGitCommit /> }
+              <Button type="submit" disabled={disabled}>
+                {controller.busy ? <Spinner /> : <IconGitCommit />}
                 Commit
               </Button>
             </div>
           )
-        } }
+        }}
       </form.Field>
     </form>
   )
@@ -331,68 +327,68 @@ export function GitHubCommitDialog({
   const ready = controller.repository !== null && controller.workspace !== null
 
   return (
-    <Dialog open={ open } onOpenChange={ onOpenChange }>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="right-4 left-4 mx-auto w-fit max-w-none translate-x-0 text-xs sm:min-w-md sm:max-w-none">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-8">
-            <ToneDot tone={ status.tone } />
-            <DialogTitle>{ status.title }</DialogTitle>
+            <ToneDot tone={status.tone} />
+            <DialogTitle>{status.title}</DialogTitle>
           </div>
-          { controller.repository ? (
+          {controller.repository ? (
             <DialogDescription>
-              <TextLink href={ controller.repository.htmlUrl }>
-                { controller.repository.fullName }
+              <TextLink href={controller.repository.htmlUrl}>
+                {controller.repository.fullName}
               </TextLink>
             </DialogDescription>
           ) : (
             <DialogDescription className="sr-only">
-              { status.detail }
+              {status.detail}
             </DialogDescription>
-          ) }
+          )}
         </DialogHeader>
 
-        { !ready ? (
-          <Button type="button" onClick={ onManageRepository }>
+        {!ready ? (
+          <Button type="button" onClick={onManageRepository}>
             <IconSettings />
             Set up GitHub sync
           </Button>
         ) : (
           <div className="space-y-4">
-            <IncomingReview controller={ controller } />
+            <IncomingReview controller={controller} />
 
-            { controller.review === null ? (
+            {controller.review === null ? (
               <section className="space-y-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                   <h3 className="font-medium">Waiting to commit</h3>
-                  { controller.lastCommitUrl ? (
+                  {controller.lastCommitUrl ? (
                     <p className="text-muted-foreground">
-                      <TextLink href={ controller.lastCommitUrl }>
+                      <TextLink href={controller.lastCommitUrl}>
                         Last commit
                       </TextLink>
                     </p>
-                  ) : null }
+                  ) : null}
                 </div>
-                <PendingChanges controller={ controller } />
-                <CommitForm controller={ controller } />
+                <PendingChanges controller={controller} />
+                <CommitForm controller={controller} />
               </section>
-            ) : null }
+            ) : null}
 
-            { controller.actionError ? (
+            {controller.actionError ? (
               <Alert variant="destructive">
                 <IconAlertTriangle />
                 <AlertTitle>The commit needs attention</AlertTitle>
                 <AlertDescription>
-                  { controller.actionError.message }
+                  {controller.actionError.message}
                 </AlertDescription>
               </Alert>
-            ) : null }
+            ) : null}
 
             <DialogFooter className="justify-between sm:justify-between">
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={ onManageRepository }
+                onClick={onManageRepository}
               >
                 <IconSettings />
                 Repository settings
@@ -400,13 +396,13 @@ export function GitHubCommitDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={ () => onOpenChange(false) }
+                onClick={() => onOpenChange(false)}
               >
                 Close
               </Button>
             </DialogFooter>
           </div>
-        ) }
+        )}
       </DialogContent>
     </Dialog>
   )

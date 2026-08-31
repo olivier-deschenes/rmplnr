@@ -1,283 +1,122 @@
-Welcome to your new TanStack Start app!
+# rmplnr
 
-# Getting Started
+rmplnr is a fast, private 2D room planner for drawing rooms, placing openings
+and furniture, and checking dimensions and clearances. Plans are local-first:
+the editor works without an account, and only plans explicitly selected for
+GitHub sync leave the browser.
 
-To run this application:
+## Local setup
+
+Install dependencies and start the app at `http://localhost:3000`:
 
 ```bash
 bun install
-bun --bun run dev
+bun run dev
 ```
 
-# Building For Production
-
-To build this application for production:
+GitHub sync is optional. To exercise it locally, copy `.dev.vars.example` to
+`.dev.vars`, add the GitHub App credentials, then initialize the local D1
+database:
 
 ```bash
-bun --bun run build
+cp .dev.vars.example .dev.vars
+bunx wrangler d1 migrations apply AUTH_DB --local
 ```
 
-## Styling
+The GitHub App callback URL is
+`http://localhost:3000/api/github/oauth/callback`; its webhook URL is
+`http://localhost:3000/api/github/webhook`.
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+## Checks
 
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Remove `@tailwindcss/vite` and `tailwindcss` from `package.json`
-
-## Linting & Formatting
-
-This project uses [eslint](https://eslint.org/) and [prettier](https://prettier.io/) for linting and formatting. Eslint is configured using [tanstack/eslint-config](https://tanstack.com/config/latest/docs/eslint). The following scripts are available:
+Run the complete project verification before opening a pull request:
 
 ```bash
-bun --bun run lint
-bun --bun run format
-bun --bun run check
+bun test
+bun run typecheck
+bun run lint
+bun run check
+bun run build
+bun run cf-types:check
 ```
 
-## GitHub sync
+`bun run format` applies Prettier and ESLint fixes. After changing
+`wrangler.jsonc`, run `bun run cf-types` and commit the regenerated
+`worker-configuration.d.ts`.
 
-Plans live in the browser. Nothing leaves it unless you connect a GitHub account,
-pick a repository, and tick the plans you want in it — and then only those plans,
-only to that repository.
+## Data and privacy
 
-Plan files live at `.rmplnr/plans/<plan-uuid>.json`, beside `.rmplnr/workspace.json`.
-D1 holds users, sessions, encrypted GitHub tokens, short-lived OAuth state, and the
-selected repository; it never holds plan contents. Changes arriving from GitHub are
-shown as a review and applied only once you confirm them.
+- Plans and editor preferences are saved in browser `localStorage`. Geometry is
+  stored in centimetres; metric and imperial units only change how it is shown.
+- JSON and PNG exports are downloaded directly by the browser.
+- GitHub sync writes only selected plans to
+  `.rmplnr/plans/<plan-uuid>.json`. Repository sync state lives at
+  `.rmplnr/workspace.json`.
+- Cloudflare D1 stores users, sessions, encrypted GitHub credentials, OAuth
+  state, and the selected repository. It never stores plan contents.
+- Repository change notifications pass through the Worker and its Durable
+  Object. Cloudflare storage keeps event state, not plan contents.
 
-### GitHub App setup
+Clearing site data removes local plans that have not been exported or synced.
 
-Create a GitHub App for each environment with:
+## Keyboard shortcuts
 
-- Homepage URL: the environment origin.
-- Callback URL: `<origin>/api/github/oauth/callback`.
-- Webhook URL: `<origin>/api/github/webhook`.
-- Expiring user authorization tokens enabled.
-- User authorization requested during installation.
-- Repository permissions: **Metadata — read** and **Contents — read/write**.
-- Events: subscribe to **Push**. GitHub delivers `installation` and
-  `installation_repositories` to every App automatically, so they do not appear
-  in the event list and need no subscription — the webhook handler receives
-  them regardless.
+`Mod` means Command on macOS and Control on Windows or Linux.
 
-Create the production D1 database and copy the returned `database_id` into the
-`AUTH_DB` entry in `wrangler.jsonc` — the id committed there is a local placeholder:
+| Action                               | Shortcut                           |
+| ------------------------------------ | ---------------------------------- |
+| Select                               | `V`                                |
+| Draw polygon room                    | `R`                                |
+| Draw rectangular room                | `E`                                |
+| Add door / window / opening          | `D` / `W` / `O`                    |
+| Undo / redo                          | `Mod+Z` / `Mod+Shift+Z` or `Mod+Y` |
+| Copy / paste / duplicate             | `Mod+C` / `Mod+V` / `Mod+D`        |
+| Delete selection or last draft point | `Delete` or `Backspace`            |
+| Finish a room outline                | `Enter`                            |
+| Cancel the current action            | `Escape`                           |
+| Nudge the selection                  | Arrow keys                         |
+| Nudge ten snap steps                 | `Shift` + arrow key                |
+| Pan while dragging                   | Hold `Space`                       |
+
+## Cloudflare deployment
+
+The production app runs as a Cloudflare Worker through the Cloudflare Vite
+plugin and `wrangler.jsonc`.
+
+For a new Cloudflare environment, create a D1 database and place its ID in the
+`AUTH_DB` binding in `wrangler.jsonc`:
 
 ```bash
 bunx wrangler d1 create rmplnr-auth
 ```
 
-```bash
-bunx wrangler d1 migrations apply AUTH_DB --remote
-```
+Create a GitHub App for the deployment origin with:
 
-Configure these Worker secrets. `GITHUB_TOKEN_ENCRYPTION_KEY` must be a
-base64url-encoded 32-byte random key and must stay stable, or stored tokens can no
-longer be decrypted.
+- callback URL `<origin>/api/github/oauth/callback`;
+- webhook URL `<origin>/api/github/webhook`;
+- expiring user authorization tokens and user authorization during install;
+- repository permissions **Metadata: read** and **Contents: read/write**;
+- the **Push** event subscription.
+
+Set the required Worker secrets. `GITHUB_TOKEN_ENCRYPTION_KEY` must be a stable,
+base64url-encoded 32-byte key.
 
 ```bash
 bunx wrangler secret put GITHUB_CLIENT_ID
-```
-
-```bash
 bunx wrangler secret put GITHUB_CLIENT_SECRET
-```
-
-```bash
 bunx wrangler secret put GITHUB_APP_SLUG
-```
-
-```bash
 bunx wrangler secret put GITHUB_WEBHOOK_SECRET
-```
-
-```bash
 bunx wrangler secret put GITHUB_TOKEN_ENCRYPTION_KEY
 ```
 
-`GITHUB_CALLBACK_URL` is an optional variable for deployments whose public callback
-origin cannot be inferred from the request.
-
-### Local development
-
-Copy `.dev.vars.example` to `.dev.vars` and fill in your GitHub App values —
-`.dev.vars` must never be committed. Then apply the migrations to the local
-database:
+Authenticate once with `bunx wrangler login`. Run the complete checks above,
+then apply the production migration and deploy deliberately:
 
 ```bash
-bunx wrangler d1 migrations apply AUTH_DB --local
+bunx wrangler d1 migrations apply AUTH_DB --remote
+bun run deploy
 ```
 
-## Deploy to Cloudflare Workers
-
-This project uses the Cloudflare Vite plugin (configured in `vite.config.ts`) and `wrangler.jsonc`:
-
-1. Install Wrangler: `npm install -g wrangler`
-2. Authenticate: `wrangler login`
-3. Deploy: `npx wrangler deploy`
-
-For production env vars, run `wrangler secret put MY_VAR` for each secret listed in `.env.example`. Public (non-secret) vars go in `wrangler.jsonc` under `vars`.
-
-KV, D1, R2, and Durable Object bindings are configured in `wrangler.jsonc` — see https://developers.cloudflare.com/workers/wrangler/configuration/.
-
-## Shadcn
-
-Add components using the latest version of [Shadcn](https://ui.shadcn.com/).
-
-```bash
-pnpm dlx shadcn@latest add button
-```
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from '@tanstack/react-router'
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+`bun run deploy` builds the app and publishes it with Wrangler. Set the optional
+`GITHUB_CALLBACK_URL` variable only when the public callback origin cannot be
+derived from incoming requests.
