@@ -10,7 +10,10 @@ This file is the implementation queue for coding agents. Work on one numbered ta
 - Do not deploy unless the user explicitly asks.
 - Preserve existing user data and unrelated working-tree changes.
 - Add or update tests for every behavior change.
+- When the user asks for the next task without naming a number, work on the
+  first unchecked numbered task whose dependencies are complete.
 - A task is complete only when its acceptance criteria are met and the relevant checks pass.
+- Once a task is complete, change its checkbox from `[ ]` to `[x]`.
 
 ## Standard verification
 
