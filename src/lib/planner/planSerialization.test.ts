@@ -7,6 +7,7 @@ import {
   serializeProjectRecord,
   toProjectRecord,
 } from './planSerialization.ts'
+import { hashProject } from '#/features/github/hash.ts'
 
 import type { Project } from './types.ts'
 
@@ -121,6 +122,45 @@ describe('serializeProject', () => {
     })
 
     expect(parseProjectFile(serializeProject(project))).toEqual(project)
+  })
+
+  it('preserves locked and explicitly unlocked rooms', () => {
+    const project = plan({
+      rooms: [
+        { ...plan().rooms[0], locked: true },
+        {
+          ...plan().rooms[0],
+          id: 'room-2',
+          name: 'Kitchen',
+          locked: false,
+        },
+      ],
+    })
+
+    expect(parseProjectFile(serializeProject(project))).toEqual(project)
+  })
+
+  it('changes the serialized content and hash for a lock-only change', async () => {
+    const unlocked = plan()
+    const locked = plan({
+      rooms: [{ ...plan().rooms[0], locked: true }],
+    })
+
+    expect(serializeProject(locked)).not.toBe(serializeProject(unlocked))
+    expect(await hashProject(locked)).not.toBe(await hashProject(unlocked))
+  })
+
+  it('trims a plan name into a file its own parser accepts', () => {
+    const project = plan({ name: '  Flat  ' })
+    const contents = serializeProject(project)
+
+    expect(parseProjectFile(contents).name).toBe('Flat')
+  })
+
+  it('refuses to create an external file with a blank plan name', () => {
+    expect(() => serializeProject(plan({ name: ' \n ' }))).toThrow(
+      'Enter a plan name.',
+    )
   })
 })
 

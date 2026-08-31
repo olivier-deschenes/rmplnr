@@ -55,7 +55,7 @@ bun run cf-types:check
 - The README describes rmplnr rather than a generic TanStack starter.
 - An unknown URL shows a branded recovery page with a link to all plans.
 
-### 2. [ ] Preserve valid plan data through JSON and GitHub round trips
+### 2. [x] Preserve valid plan data through JSON and GitHub round trips
 
 **Priority:** P0  
 **Dependencies:** Task 1

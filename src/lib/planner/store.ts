@@ -43,6 +43,7 @@ import {
   MIN_SIZE,
   PlanSchema,
   PrefsSchema,
+  ProjectNameSchema,
 } from './types.ts'
 
 import type { History, Snapshot } from './history.ts'
@@ -1445,12 +1446,18 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 
   /** Rename the open project. Its name is not part of what an undo takes back. */
   renameProject(name: string) {
-    setState((s) => ({
-      ...s,
-      projects: s.projects.map((p) =>
-        p.id === s.projectId ? { ...p, name } : p,
-      ),
-    }))
+    const parsed = ProjectNameSchema.safeParse(name)
+    if (!parsed.success) return
+    setState((s) => {
+      const project = s.projects.find((p) => p.id === s.projectId)
+      if (!project || project.name === parsed.data) return s
+      return {
+        ...s,
+        projects: s.projects.map((p) =>
+          p.id === s.projectId ? { ...p, name: parsed.data } : p,
+        ),
+      }
+    })
   },
 
   /**

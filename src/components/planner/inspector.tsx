@@ -39,7 +39,7 @@ import {
   lengthUnit,
   toLength,
 } from '#/lib/planner/units.ts'
-import { MIN_SIZE } from '#/lib/planner/types.ts'
+import { MIN_SIZE, ProjectNameSchema } from '#/lib/planner/types.ts'
 
 import type {
   Furniture,
@@ -142,18 +142,80 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function NameField({
   value,
   onChange,
+  required = false,
 }: {
   value: string
   onChange: (next: string) => void
+  required?: boolean
 }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => {
+    if (!required) return null
+    const parsed = ProjectNameSchema.safeParse(value)
+    return parsed.success
+      ? null
+      : (parsed.error.issues[0]?.message ?? 'Enter a plan name.')
+  })
+  const displayed = required ? (draft ?? value) : value
+
+  const update = (next: string) => {
+    if (!required) {
+      onChange(next)
+      return
+    }
+
+    setDraft(next)
+    const parsed = ProjectNameSchema.safeParse(next)
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Enter a plan name.')
+      return
+    }
+    setError(null)
+    onChange(parsed.data)
+  }
+
+  const commit = () => {
+    if (required) {
+      const parsed = ProjectNameSchema.safeParse(displayed)
+      if (parsed.success) {
+        onChange(parsed.data)
+        setError(null)
+      } else {
+        setError(parsed.error.issues[0]?.message ?? 'Enter a plan name.')
+      }
+      // A blank attempt gives the field back its last valid stored value.
+      setDraft(null)
+    }
+    plannerStore.actions.sealHistory()
+  }
+
   return (
-    <Label className="grid gap-1">
+    <Label className="grid gap-1" htmlFor={required ? 'plan-name' : undefined}>
       <span className="text-muted-foreground text-[10px]">Name</span>
       <Input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={() => plannerStore.actions.sealHistory()}
+        id={required ? 'plan-name' : undefined}
+        value={displayed}
+        aria-invalid={required && error !== null}
+        aria-describedby={error ? 'plan-name-error' : undefined}
+        onChange={(event) => update(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit()
+          if (required && event.key === 'Escape') {
+            setDraft(null)
+            setError(null)
+          }
+        }}
       />
+      {error ? (
+        <span
+          id="plan-name-error"
+          role="alert"
+          className="text-destructive text-[10px]"
+        >
+          {error}
+        </span>
+      ) : null}
     </Label>
   )
 }
@@ -520,6 +582,7 @@ function EmptyPanel({ units }: { units: Units }) {
       */}
       <NameField
         value={name}
+        required
         onChange={(next) => plannerStore.actions.renameProject(next)}
       />
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">

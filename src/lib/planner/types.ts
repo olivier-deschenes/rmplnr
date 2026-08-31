@@ -118,6 +118,9 @@ export const LibrarySchema = z.object({
 
 export const PROJECT_SCHEMA_VERSION = 1 as const
 
+/** A plan name as it may leave the browser. */
+export const ProjectNameSchema = z.string().trim().min(1, 'Enter a plan name.')
+
 /**
  * A plan as it is written down outside this browser — one file per plan in a
  * GitHub repository.
@@ -132,7 +135,7 @@ export const PROJECT_SCHEMA_VERSION = 1 as const
 export const ProjectRecordSchema = z.object({
   schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
   id: z.uuid(),
-  name: z.string().trim().min(1),
+  name: ProjectNameSchema,
   rooms: z.array(RoomSchema),
   furniture: z.array(FurnitureSchema),
   openings: z.array(OpeningSchema),

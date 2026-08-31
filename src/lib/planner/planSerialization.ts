@@ -35,6 +35,7 @@ function toCanonicalRoom(room: Room): Room {
           },
         }
       : {}),
+    ...(room.locked === undefined ? {} : { locked: room.locked }),
   }
 }
 
@@ -66,14 +67,14 @@ function toCanonicalOpening(opening: Opening): Opening {
 
 /** A plan in the shape it leaves the browser in. */
 export function toProjectRecord(project: Project): ProjectRecord {
-  return {
+  return ProjectRecordSchema.parse({
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: project.id,
     name: project.name,
     rooms: project.rooms.map(toCanonicalRoom),
     furniture: project.furniture.map(toCanonicalFurniture),
     openings: project.openings.map(toCanonicalOpening),
-  }
+  })
 }
 
 /** A plan read back in, as the library holds them. */

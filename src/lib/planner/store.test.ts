@@ -56,6 +56,17 @@ describe('currentProjects', () => {
   })
 })
 
+describe('project names', () => {
+  beforeEach(() => plannerStore.actions.openProject(PLAN_A))
+
+  it('trims a valid name and keeps it when a blank rename is attempted', () => {
+    plannerStore.actions.renameProject('  Main floor  ')
+    plannerStore.actions.renameProject('   ')
+
+    expect(currentProjects(plannerStore.state)[0].name).toBe('Main floor')
+  })
+})
+
 describe('upsertProjects', () => {
   it('replaces a plan that is not the one open', () => {
     plannerStore.actions.openProject(PLAN_A)

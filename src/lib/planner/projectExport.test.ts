@@ -35,4 +35,16 @@ describe('projectJsonFile', () => {
     expect(file.type).toContain('application/json')
     expect(await file.text()).toBe(serializeProject(project))
   })
+
+  it('trims the plan name in exported JSON', async () => {
+    const file = projectJsonFile({ ...project, name: '  Main Floor  ' })
+
+    expect(JSON.parse(await file.text()).name).toBe('Main Floor')
+  })
+
+  it('does not create a file whose blank name would fail to parse', () => {
+    expect(() => projectJsonFile({ ...project, name: '   ' })).toThrow(
+      'Enter a plan name.',
+    )
+  })
 })
