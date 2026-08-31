@@ -97,6 +97,13 @@ const CLOSE_PX = 12
 const WALL_REACH_PX = 44
 /** How far above a room's own label the field to rename it sits, in pixels. */
 const NAME_LIFT = 6
+/**
+ * How far, in screen pixels, the pointer must travel before a press on
+ * something becomes a drag of it. Under that it is only a click: selecting a
+ * thing should never nudge it, and a mouse rarely stays perfectly still
+ * between the button going down and coming back up.
+ */
+const DRAG_SLOP_PX = 4
 
 /**
  * What a click at `world` has landed on, of the things that carry a name of
@@ -203,6 +210,12 @@ const MEASURED: Array<Drag['mode']> = [
 export function Canvas() {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<Drag | null>(null)
+  /**
+   * Where the pointer went down, and whether it has since travelled far enough
+   * for the drag to take. Until it has, a press that was really a click leaves
+   * what it landed on exactly where it was.
+   */
+  const slopRef = useRef<{ start: Point; armed: boolean } | null>(null)
   // Space held turns any drag into a pan. The tracker keeps the key's state
   // itself and clears it when the window loses focus, so a space held on the
   // way out never comes back stuck down.
@@ -311,11 +324,15 @@ export function Canvas() {
    * Take hold of the pointer for a drag. What it is doing is put up in state as
    * well as in the ref the move handler works from: the ref is what a drag runs
    * on, and the state is what the drawing is rendered from.
+   *
+   * Where the press landed is kept alongside, so the move handler can hold the
+   * drag back until the pointer has actually gone somewhere.
    */
-  const begin = (drag: Drag, pointerId: number) => {
+  const begin = (drag: Drag, event: React.PointerEvent) => {
     dragRef.current = drag
+    slopRef.current = { start: toScreen(event), armed: false }
     setDragMode(drag.mode)
-    capture(pointerId)
+    capture(event.pointerId)
   }
 
   // The room tool leaves its guides up between clicks, which is what makes them
@@ -478,7 +495,7 @@ export function Canvas() {
         startTy: vp.ty,
         moved: false,
       },
-      event.pointerId,
+      event,
     )
   }
 
@@ -516,7 +533,7 @@ export function Canvas() {
     // Rectangle tool: drag out the two opposite corners in one gesture.
     if (state.tool === 'rect') {
       actions.beginRect(settle(toWorld(event)))
-      begin({ mode: 'rect' }, event.pointerId)
+      begin({ mode: 'rect' }, event)
       return
     }
 
@@ -568,6 +585,17 @@ export function Canvas() {
 
     const drag = dragRef.current
     if (!drag) return
+
+    // A press only becomes a drag once the pointer has left the few pixels it
+    // went down in. Panning and the rectangle tool keep their own reckoning:
+    // neither can disturb something by starting early.
+    const slop = slopRef.current
+    if (slop && !slop.armed && drag.mode !== 'pan' && drag.mode !== 'rect') {
+      const at = toScreen(event)
+      if (distance(at, slop.start) <= DRAG_SLOP_PX) return
+      slop.armed = true
+    }
+
     const world = toWorld(event)
 
     switch (drag.mode) {
@@ -736,6 +764,7 @@ export function Canvas() {
     if (drag?.mode === 'rect') actions.commitRect()
     if (drag) actions.sealHistory()
     dragRef.current = null
+    slopRef.current = null
     setDragMode(null)
     setPanning(false)
     setGuides([])
@@ -839,7 +868,7 @@ export function Canvas() {
           id: room.id,
           grabT: projectT(wall, toWorld(event)) - attachment.t,
         },
-        event.pointerId,
+        event,
       )
       return
     }
@@ -850,7 +879,7 @@ export function Canvas() {
         grab: toWorld(event),
         origin: room.points,
       },
-      event.pointerId,
+      event,
     )
   }
 
@@ -866,7 +895,7 @@ export function Canvas() {
         grab: toWorld(event),
         origin: item,
       },
-      event.pointerId,
+      event,
     )
   }
 
@@ -874,14 +903,14 @@ export function Canvas() {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
-    begin({ mode: 'resize', id: current.id, handle }, event.pointerId)
+    begin({ mode: 'resize', id: current.id, handle }, event)
   }
 
   function onRotateHandleDown(event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
-    begin({ mode: 'rotate', id: current.id }, event.pointerId)
+    begin({ mode: 'rotate', id: current.id }, event)
   }
 
   function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
@@ -889,21 +918,21 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'opening', id: opening.id })
-    begin({ mode: 'opening', id: opening.id }, event.pointerId)
+    begin({ mode: 'opening', id: opening.id }, event)
   }
 
   function onOpeningEndDown(end: 'start' | 'end', event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'opening') return
-    begin({ mode: 'opening-end', id: current.id, end }, event.pointerId)
+    begin({ mode: 'opening-end', id: current.id, end }, event)
   }
 
   function onVertexDown(index: number, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'room') return
-    begin({ mode: 'vertex', roomId: current.id, index }, event.pointerId)
+    begin({ mode: 'vertex', roomId: current.id, index }, event)
   }
 
   /** Take hold of a whole side of the selected room, to push it across. */
@@ -923,7 +952,7 @@ export function Canvas() {
         grab: toWorld(event),
         origin: room.points,
       },
-      event.pointerId,
+      event,
     )
   }
 
