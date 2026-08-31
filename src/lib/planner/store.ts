@@ -696,6 +696,55 @@ function blankProject(taken: Array<string>): Project {
   }
 }
 
+/** Take on a complete library, redrawing the open plan only when it changed. */
+function adopted(state: PlannerState, library: Library): PlannerState {
+  const projects = library.projects
+  const open =
+    state.projectId === null
+      ? undefined
+      : projects.find((project) => project.id === state.projectId)
+  if (!open || samePlan(open, state)) return { ...state, projects }
+  return {
+    ...state,
+    projects,
+    rooms: open.rooms,
+    furniture: open.furniture,
+    openings: open.openings,
+    selection: null,
+    renaming: null,
+    draft: null,
+    rect: null,
+    history: EMPTY_HISTORY,
+  }
+}
+
+/** Add or replace plans without disturbing an unrelated open plan. */
+function upserted(state: PlannerState, incoming: Array<Project>): PlannerState {
+  const byId = new Map(incoming.map((project) => [project.id, project]))
+  const library = libraryOf(state)
+  const known = new Set(library.projects.map((project) => project.id))
+  const projects = [
+    ...library.projects.map((project) => byId.get(project.id) ?? project),
+    ...incoming.filter((project) => !known.has(project.id)),
+  ]
+
+  const open = state.projectId === null ? undefined : byId.get(state.projectId)
+  if (!open) return { ...state, projects }
+
+  return {
+    ...state,
+    projects,
+    rooms: open.rooms,
+    furniture: open.furniture,
+    openings: open.openings,
+    selection: null,
+    renaming: null,
+    draft: null,
+    rect: null,
+    history: EMPTY_HISTORY,
+  }
+}
+
 export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   setTool(tool: Tool) {
     setState((s) => ({
@@ -1473,26 +1522,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * reader back to the list, the same as for any plan that is not there.
    */
   adoptLibrary(library: Library) {
-    setState((s) => {
-      const projects = library.projects
-      const open =
-        s.projectId === null
-          ? undefined
-          : projects.find((p) => p.id === s.projectId)
-      if (!open || samePlan(open, s)) return { ...s, projects }
-      return {
-        ...s,
-        projects,
-        rooms: open.rooms,
-        furniture: open.furniture,
-        openings: open.openings,
-        selection: null,
-        renaming: null,
-        draft: null,
-        rect: null,
-        history: EMPTY_HISTORY,
-      }
-    })
+    setState((s) => adopted(s, library))
   },
 
   /**
@@ -1582,6 +1612,34 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   /**
+   * Apply one already-validated external plan. A duplicate can either take
+   * the existing plan's place or arrive under a fresh id and copy name.
+   * Returns the id to open after the import.
+   */
+  importProject(project: Project, duplicate: 'replace' | 'copy'): string {
+    const state = get()
+    const projects = libraryOf(state).projects
+    const imported: Project =
+      duplicate === 'copy'
+        ? {
+            ...project,
+            id: newId(),
+            name: copyName(
+              project.name,
+              projects.map((candidate) => candidate.name),
+            ),
+          }
+        : project
+    setState((s) => upserted(s, [imported]))
+    return imported.id
+  },
+
+  /** Replace the local plan library with one fully validated backup. */
+  restoreBackup(library: Library) {
+    setState((s) => adopted(s, library))
+  },
+
+  /**
    * Put plans that came from somewhere else — GitHub — into the library, over
    * any already there under the same id.
    *
@@ -1600,31 +1658,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    */
   upsertProjects(incoming: Array<Project>) {
     if (incoming.length === 0) return
-    setState((s) => {
-      const byId = new Map(incoming.map((p) => [p.id, p]))
-      const library = libraryOf(s)
-      const known = new Set(library.projects.map((p) => p.id))
-      const projects = [
-        ...library.projects.map((p) => byId.get(p.id) ?? p),
-        ...incoming.filter((p) => !known.has(p.id)),
-      ]
-
-      const open = s.projectId === null ? undefined : byId.get(s.projectId)
-      if (!open) return { ...s, projects }
-
-      return {
-        ...s,
-        projects,
-        rooms: open.rooms,
-        furniture: open.furniture,
-        openings: open.openings,
-        selection: null,
-        renaming: null,
-        draft: null,
-        rect: null,
-        history: EMPTY_HISTORY,
-      }
-    })
+    setState((s) => upserted(s, incoming))
   },
 }))
 

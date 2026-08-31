@@ -156,6 +156,36 @@ export const ProjectRecordSchema = z.object({
   openings: z.array(OpeningSchema),
 })
 
+export const LIBRARY_BACKUP_SCHEMA_VERSION = 1 as const
+
+/**
+ * Every local plan in one portable file.
+ *
+ * This is deliberately not `StoredLibrarySchema`: a backup belongs to the
+ * reader, not to the tab that happened to write localStorage last, so writer
+ * and revision stamps never leave the browser. Each project stays in the same
+ * strict external shape as a single-plan file, including its original UUID.
+ */
+export const LibraryBackupRecordSchema = z
+  .object({
+    schemaVersion: z.literal(LIBRARY_BACKUP_SCHEMA_VERSION),
+    kind: z.literal('rmplnr-library'),
+    projects: z.array(ProjectRecordSchema),
+  })
+  .superRefine((backup, context) => {
+    const ids = new Set<string>()
+    backup.projects.forEach((project, index) => {
+      if (ids.has(project.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['projects', index, 'id'],
+          message: 'Every plan in a library backup must have a unique ID.',
+        })
+      }
+      ids.add(project.id)
+    })
+  })
+
 export const UnitsSchema = z.enum(['metric', 'imperial'])
 
 /** Editor preferences, stored apart from the plan they are viewed through. */
@@ -176,6 +206,7 @@ export type Opening = z.infer<typeof OpeningSchema>
 export type Plan = z.infer<typeof PlanSchema>
 export type Project = z.infer<typeof ProjectSchema>
 export type ProjectRecord = z.infer<typeof ProjectRecordSchema>
+export type LibraryBackupRecord = z.infer<typeof LibraryBackupRecordSchema>
 export type Library = z.infer<typeof LibrarySchema>
 export type StoredLibrary = z.infer<typeof StoredLibrarySchema>
 export type Units = z.infer<typeof UnitsSchema>

@@ -48,7 +48,9 @@ bun run cf-types:check
 
 - Plans and editor preferences are saved in browser `localStorage`. Geometry is
   stored in centimetres; metric and imperial units only change how it is shown.
-- JSON and PNG exports are downloaded directly by the browser.
+- Single-plan JSON and PNG exports are downloaded directly by the browser.
+  JSON plans can be previewed and imported again. A full-library backup keeps
+  every plan ID and can replace the browser's whole local library after review.
 - GitHub sync writes only selected plans to
   `.rmplnr/plans/<plan-uuid>.json`. Repository sync state lives at
   `.rmplnr/workspace.json`.

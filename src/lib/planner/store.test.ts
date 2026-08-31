@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize } from './closets.ts'
 import { translatePolygon } from './geometry.ts'
+import {
+  parseRmplnrFile,
+  serializeLibraryBackup,
+  serializeProject,
+} from './planSerialization.ts'
 import { snapTargets } from './snapping.ts'
 import { wallGaps } from './walls.ts'
 
@@ -113,6 +118,95 @@ describe('upsertProjects', () => {
     plannerStore.actions.upsertProjects([])
 
     expect(plannerStore.state).toBe(before)
+  })
+})
+
+describe('JSON import and restore', () => {
+  it('imports one exported plan into an empty library', () => {
+    plannerStore.actions.loadLibrary({ version: 1, projects: [] })
+    const parsed = parseRmplnrFile(
+      serializeProject(plan(PLAN_C, 'Imported plan')),
+    )
+    if (parsed.kind !== 'project') throw new Error('Expected one plan')
+
+    const id = plannerStore.actions.importProject(parsed.project, 'replace')
+
+    expect(id).toBe(PLAN_C)
+    expect(currentProjects(plannerStore.state)).toEqual([parsed.project])
+  })
+
+  it('replaces a duplicate plan under the same id', () => {
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.addFurniture('table')
+    const incoming = plan(PLAN_A, 'Flat from file', 'Bedroom')
+
+    const id = plannerStore.actions.importProject(incoming, 'replace')
+
+    expect(id).toBe(PLAN_A)
+    expect(currentProjects(plannerStore.state)).toHaveLength(2)
+    expect(plannerStore.state.rooms[0].name).toBe('Bedroom')
+    expect(plannerStore.state.furniture).toEqual([])
+    expect(plannerStore.state.history.past).toEqual([])
+  })
+
+  it('keeps a duplicate as a copy with a fresh id', () => {
+    const imported = plannerStore.actions.importProject(
+      plan(PLAN_A, 'Flat'),
+      'copy',
+    )
+    const projects = currentProjects(plannerStore.state)
+
+    expect(imported).not.toBe(PLAN_A)
+    expect(projects).toHaveLength(3)
+    expect(projects.find((project) => project.id === imported)?.name).toBe(
+      'Flat copy',
+    )
+    expect(projects.filter((project) => project.id === PLAN_A)).toHaveLength(1)
+  })
+
+  it('restores the complete backup in its original order and with its ids', () => {
+    const backup = parseRmplnrFile(
+      serializeLibraryBackup([
+        plan(PLAN_C, 'Cabin'),
+        plan(PLAN_A, 'Flat restored', 'Bedroom'),
+      ]),
+    )
+    if (backup.kind !== 'library') throw new Error('Expected a library')
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.addFurniture('sofa')
+
+    plannerStore.actions.restoreBackup(backup.library)
+
+    expect(currentProjects(plannerStore.state)).toEqual(backup.library.projects)
+    expect(
+      currentProjects(plannerStore.state).map((project) => project.id),
+    ).toEqual([PLAN_C, PLAN_A])
+    expect(plannerStore.state.rooms[0].name).toBe('Bedroom')
+    expect(plannerStore.state.furniture).toEqual([])
+    expect(plannerStore.state.history.past).toEqual([])
+  })
+
+  it('leaves every existing plan alone when validation fails', () => {
+    const before = currentProjects(plannerStore.state)
+    const invalid = JSON.stringify({
+      schemaVersion: 1,
+      kind: 'rmplnr-library',
+      projects: [
+        {
+          schemaVersion: 1,
+          id: PLAN_C,
+          name: 'Broken',
+          rooms: [{ id: 'bad', name: 'Bad', points: [] }],
+          furniture: [],
+          openings: [],
+        },
+      ],
+    })
+
+    expect(() => parseRmplnrFile(invalid)).toThrow(
+      'not a valid rmplnr library backup',
+    )
+    expect(currentProjects(plannerStore.state)).toEqual(before)
   })
 })
 

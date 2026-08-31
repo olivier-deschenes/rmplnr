@@ -30,9 +30,12 @@ import {
   IconSquareDashed,
   IconTable,
   IconTrash,
+  IconUpload,
   IconVectorTriangle,
   IconWindow,
 } from '@tabler/icons-react'
+
+import { ImportDialog } from './import-dialog.tsx'
 
 import {
   AlertDialog,
@@ -70,7 +73,10 @@ import { GitHubRepositoryDialog } from '#/features/github/GitHubRepositoryDialog
 import { GitHubSyncControls } from '#/features/github/GitHubSyncControls.tsx'
 import { useGithubSync } from '#/features/github/useGithubSync.ts'
 
-import { downloadProjectJson } from '#/lib/planner/projectExport.ts'
+import {
+  downloadLibraryBackup,
+  downloadProjectJson,
+} from '#/lib/planner/projectExport.ts'
 import {
   FURNITURE_KINDS,
   FURNITURE_PRESETS,
@@ -444,6 +450,10 @@ function ExportMenu() {
     }
   }
 
+  const downloadBackup = () => {
+    downloadLibraryBackup(currentProjects(plannerStore.state))
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -456,7 +466,8 @@ function ExportMenu() {
           />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuLabel>Current plan</DropdownMenuLabel>
         <DropdownMenuItem onSelect={() => void downloadPng()}>
           <IconPhoto />
           PNG image
@@ -464,6 +475,12 @@ function ExportMenu() {
         <DropdownMenuItem onSelect={downloadJson}>
           <IconJson />
           JSON
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>All plans</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={downloadBackup}>
+          <IconDownload />
+          Library backup
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -549,6 +566,7 @@ export function Toolbar() {
   const canUndo = useSelector(plannerStore, (s) => s.history.past.length > 0)
   const canRedo = useSelector(plannerStore, (s) => s.history.future.length > 0)
   const actions = plannerStore.actions
+  const navigate = useNavigate()
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
@@ -719,6 +737,17 @@ export function Toolbar() {
 
         <Separator orientation="vertical" className="mx-1.5 h-5" />
 
+        <ImportDialog
+          trigger={
+            <Button variant="outline" size="sm">
+              <IconUpload data-icon="inline-start" />
+              Import
+            </Button>
+          }
+          onProjectImported={(id) =>
+            navigate({ to: '/p/$projectId', params: { projectId: id } })
+          }
+        />
         <ExportMenu />
         <GitHubSync />
         <OptionsMenu />

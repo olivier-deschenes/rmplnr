@@ -121,7 +121,7 @@ bun run cf-types:check
 - Two tabs editing different plans do not lose either plan.
 - Two tabs editing the same plan produce an explicit conflict instead of last-write-wins data loss.
 
-### 5. [ ] Add JSON import and full-library backup/restore
+### 5. [x] Add JSON import and full-library backup/restore
 
 **Priority:** P0  
 **Dependencies:** Tasks 2 and 3

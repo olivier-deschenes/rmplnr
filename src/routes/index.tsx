@@ -1,13 +1,15 @@
 import { useEffect } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
-import { IconPlus } from '@tabler/icons-react'
+import { IconDownload, IconPlus, IconUpload } from '@tabler/icons-react'
 
+import { ImportDialog } from '#/components/planner/import-dialog.tsx'
 import { TabConflictDialog } from '#/components/tab-conflict.tsx'
 import { Button } from '#/components/ui/button.tsx'
 
-import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
 import { polygonArea } from '#/lib/planner/geometry.ts'
+import { downloadLibraryBackup } from '#/lib/planner/projectExport.ts'
+import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
 import { formatArea } from '#/lib/planner/units.ts'
 
 import type { Project, Units } from '#/lib/planner/types.ts'
@@ -93,15 +95,33 @@ function Home() {
         )}
       </section>
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="self-start"
-        onClick={start}
-      >
-        <IconPlus data-icon="inline-start" />
-        New plan
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={start}>
+          <IconPlus data-icon="inline-start" />
+          New plan
+        </Button>
+        <ImportDialog
+          trigger={
+            <Button variant="outline" size="sm">
+              <IconUpload data-icon="inline-start" />
+              Import JSON
+            </Button>
+          }
+          onProjectImported={(id) =>
+            navigate({ to: '/p/$projectId', params: { projectId: id } })
+          }
+        />
+        {projects.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => downloadLibraryBackup(projects)}
+          >
+            <IconDownload data-icon="inline-start" />
+            Back up all
+          </Button>
+        )}
+      </div>
 
       <TabConflictDialog />
     </main>

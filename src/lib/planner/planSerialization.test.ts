@@ -2,9 +2,13 @@ import { describe, expect, it } from 'bun:test'
 
 import {
   fromProjectRecord,
+  parseLibraryBackupFile,
   parseProjectFile,
+  parseRmplnrFile,
+  serializeLibraryBackup,
   serializeProject,
   serializeProjectRecord,
+  toLibraryBackupRecord,
   toProjectRecord,
 } from './planSerialization.ts'
 import { hashProject } from '#/features/github/hash.ts'
@@ -196,5 +200,68 @@ describe('parseProjectFile', () => {
 
   it('rejects text that is not JSON', () => {
     expect(() => parseProjectFile('{')).toThrow()
+  })
+})
+
+describe('library backups', () => {
+  const other = plan({
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'House',
+    rooms: [{ ...plan().rooms[0], id: 'room-2', locked: true }],
+  })
+
+  it('round-trips every plan without changing its id', () => {
+    const projects = [plan(), other]
+    const contents = serializeLibraryBackup(projects)
+
+    expect(parseLibraryBackupFile(contents)).toEqual({
+      version: 1,
+      projects,
+    })
+    expect(JSON.parse(contents)).toMatchObject({
+      schemaVersion: 1,
+      kind: 'rmplnr-library',
+    })
+  })
+
+  it('trims names into a backup its own parser accepts', () => {
+    const library = parseLibraryBackupFile(
+      serializeLibraryBackup([plan({ name: '  Flat  ' })]),
+    )
+
+    expect(library.projects[0].name).toBe('Flat')
+  })
+
+  it('recognizes both kinds of rmplnr JSON', () => {
+    expect(parseRmplnrFile(serializeProject(plan())).kind).toBe('project')
+    expect(parseRmplnrFile(serializeLibraryBackup([plan()])).kind).toBe(
+      'library',
+    )
+  })
+
+  it('rejects the whole backup when any plan is invalid', () => {
+    const backup = toLibraryBackupRecord([plan(), other])
+    const invalid = JSON.parse(JSON.stringify(backup))
+    invalid.projects[1].rooms[0].points = [{ x: 0, y: 0 }]
+
+    expect(() => parseLibraryBackupFile(JSON.stringify(invalid))).toThrow(
+      'projects.1.rooms.0.points',
+    )
+  })
+
+  it('rejects duplicate plan ids in a backup', () => {
+    const duplicate = {
+      schemaVersion: 1,
+      kind: 'rmplnr-library',
+      projects: [toProjectRecord(plan()), toProjectRecord(plan())],
+    }
+
+    expect(() => parseLibraryBackupFile(JSON.stringify(duplicate))).toThrow(
+      'unique ID',
+    )
+  })
+
+  it('explains malformed JSON without exposing a parser exception', () => {
+    expect(() => parseRmplnrFile('{')).toThrow('not valid JSON')
   })
 })
