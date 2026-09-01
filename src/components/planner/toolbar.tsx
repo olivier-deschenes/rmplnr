@@ -11,13 +11,11 @@ import {
   IconBarrierBlock,
   IconBrackets,
   IconChevronDown,
-  IconCooker,
   IconCopy,
   IconDeviceFloppy,
   IconDownload,
   IconDoor,
   IconFocusCentered,
-  IconHanger,
   IconJson,
   IconKeyboard,
   IconMagnet,
@@ -28,9 +26,6 @@ import {
   IconPhotoScan,
   IconRectangle,
   IconSettings,
-  IconSofa,
-  IconSquareDashed,
-  IconTable,
   IconTrash,
   IconUpload,
   IconVectorTriangle,
@@ -38,6 +33,7 @@ import {
 } from '@tabler/icons-react'
 
 import { ImportDialog } from './import-dialog.tsx'
+import { FurnitureCatalogue } from './furniture-catalogue.tsx'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 import { UnderlayDialog } from './underlay-dialog.tsx'
 
@@ -82,12 +78,7 @@ import {
   downloadLibraryBackup,
   downloadProjectJson,
 } from '#/lib/planner/projectExport.ts'
-import {
-  FURNITURE_KINDS,
-  FURNITURE_PRESETS,
-  OPENING_PRESETS,
-  OPENING_TOOLS,
-} from '#/lib/planner/presets.ts'
+import { OPENING_PRESETS, OPENING_TOOLS } from '#/lib/planner/presets.ts'
 import { currentProjects, plannerStore, saveNow } from '#/lib/planner/store.ts'
 import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
@@ -103,12 +94,7 @@ import type { TablerIcon } from '@tabler/icons-react'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type { SaveFailure } from '#/lib/planner/store.ts'
-import type {
-  FurnitureKind,
-  OpeningKind,
-  Tool,
-  Units,
-} from '#/lib/planner/types.ts'
+import type { OpeningKind, Tool, Units } from '#/lib/planner/types.ts'
 
 /**
  * Fill the active tool solid black; the default muted grey reads as disabled.
@@ -230,67 +216,6 @@ function OpeningMenu() {
             )
           })}
         </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-/** One per kind, so nothing can reach the Add menu faceless. */
-const FURNITURE_ICONS: Record<FurnitureKind, TablerIcon> = {
-  table: IconTable,
-  sofa: IconSofa,
-  kitchen: IconCooker,
-  box: IconSquareDashed,
-}
-
-/**
- * Furniture is dropped in rather than drawn, so it sits behind one Add menu
- * instead of a button per kind — the bar stays the same width as the catalogue
- * grows.
- */
-function AddMenu() {
-  const tool = useSelector(plannerStore, (s) => s.tool)
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant={tool === 'closet' ? 'default' : 'outline'}
-          size="sm"
-          className="max-sm:size-11 max-sm:px-0"
-          aria-label="Add furniture or a closet"
-        >
-          <IconPlus data-icon="inline-start" />
-          <span className="max-sm:sr-only">Add</span>
-          <IconChevronDown
-            data-icon="inline-end"
-            className="text-muted-foreground max-sm:hidden"
-          />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-36 max-sm:[&_[data-slot=dropdown-menu-item]]:min-h-11"
-      >
-        <DropdownMenuItem
-          onSelect={() => plannerStore.actions.setTool('closet')}
-        >
-          <IconHanger />
-          Closet
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {FURNITURE_KINDS.map((kind) => {
-          const Icon = FURNITURE_ICONS[kind]
-          return (
-            <DropdownMenuItem
-              key={kind}
-              onSelect={() => plannerStore.actions.addFurniture(kind)}
-            >
-              <Icon />
-              {FURNITURE_PRESETS[kind].label}
-            </DropdownMenuItem>
-          )
-        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -904,7 +829,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           })}
         </ToggleGroup>
 
-        <AddMenu />
+        <FurnitureCatalogue />
 
         <Separator orientation="vertical" className="mx-1 h-5 max-sm:hidden" />
 

@@ -134,7 +134,14 @@ export function FurnitureShape({
       vectorEffect="non-scaling-stroke"
       onPointerDown={onPointerDown}
     >
-      <rect x={left} y={top} width={item.w} height={item.h} />
+      <rect
+        x={left}
+        y={top}
+        width={item.w}
+        height={item.h}
+        className={item.collides === false ? 'fill-muted/40' : undefined}
+        strokeDasharray={item.collides === false ? '6 4' : undefined}
+      />
       <Glyph left={left} top={top} w={item.w} h={item.h} />
     </g>
   )
@@ -171,6 +178,136 @@ function SofaGlyph({ left, top, w, h }: GlyphProps) {
         x2={left + w / 2}
         y2={top + h}
         fill="none"
+      />
+    </>
+  )
+}
+
+/** Bed frame with pillows at the head and the duvet edge below them. */
+function BedGlyph({ left, top, w, h }: GlyphProps) {
+  const inset = Math.min(w, h) * 0.06
+  const pillowGap = inset
+  const pillowW = (w - inset * 2 - pillowGap) / 2
+  const pillowH = Math.min(h * 0.2, pillowW * 0.6)
+  return (
+    <>
+      <rect
+        x={left + inset}
+        y={top + inset}
+        width={pillowW}
+        height={pillowH}
+        rx={inset}
+        fill="none"
+      />
+      <rect
+        x={left + inset + pillowW + pillowGap}
+        y={top + inset}
+        width={pillowW}
+        height={pillowH}
+        rx={inset}
+        fill="none"
+      />
+      <line
+        x1={left + inset}
+        y1={top + inset + pillowH + inset}
+        x2={left + w - inset}
+        y2={top + inset + pillowH + inset}
+      />
+    </>
+  )
+}
+
+/** A desk is read from its working edge and shallow cable tray. */
+function DeskGlyph({ left, top, w, h }: GlyphProps) {
+  const inset = Math.min(w, h) * 0.1
+  return (
+    <>
+      <rect
+        x={left + inset}
+        y={top + inset}
+        width={w - inset * 2}
+        height={h - inset * 2}
+        fill="none"
+      />
+      <line
+        x1={left + w * 0.3}
+        y1={top + inset}
+        x2={left + w * 0.7}
+        y2={top + inset}
+      />
+    </>
+  )
+}
+
+/** Chair seat with its back along the top edge. */
+function ChairGlyph({ left, top, w, h }: GlyphProps) {
+  const inset = Math.min(w, h) * 0.14
+  return (
+    <>
+      <rect
+        x={left + inset}
+        y={top + inset * 1.7}
+        width={w - inset * 2}
+        height={h - inset * 2.7}
+        fill="none"
+      />
+      <line
+        x1={left + inset}
+        y1={top + inset}
+        x2={left + w - inset}
+        y2={top + inset}
+      />
+    </>
+  )
+}
+
+/** Dresser drawers, kept abstract enough to resize cleanly. */
+function DresserGlyph({ left, top, w, h }: GlyphProps) {
+  return (
+    <>
+      {[1, 2].map((row) => (
+        <line
+          key={row}
+          x1={left}
+          y1={top + (h * row) / 3}
+          x2={left + w}
+          y2={top + (h * row) / 3}
+        />
+      ))}
+      {[1, 3, 5].map((row) => (
+        <line
+          key={row}
+          x1={left + w * 0.46}
+          y1={top + (h * row) / 6}
+          x2={left + w * 0.54}
+          y2={top + (h * row) / 6}
+        />
+      ))}
+    </>
+  )
+}
+
+/** A screen seen from above, with its central stand. */
+function TvGlyph({ left, top, w, h }: GlyphProps) {
+  return (
+    <>
+      <line
+        x1={left + w * 0.08}
+        y1={top + h * 0.25}
+        x2={left + w * 0.92}
+        y2={top + h * 0.25}
+      />
+      <line
+        x1={left + w / 2}
+        y1={top + h * 0.25}
+        x2={left + w / 2}
+        y2={top + h * 0.75}
+      />
+      <line
+        x1={left + w * 0.4}
+        y1={top + h * 0.75}
+        x2={left + w * 0.6}
+        y2={top + h * 0.75}
       />
     </>
   )
@@ -213,6 +350,66 @@ function KitchenGlyph({ left, top, w, h }: GlyphProps) {
   )
 }
 
+/** Generic appliance with a front door, suited to a fridge, washer or dryer. */
+function ApplianceGlyph({ left, top, w, h }: GlyphProps) {
+  const radius = Math.min(w, h) * 0.28
+  return (
+    <>
+      <circle cx={left + w / 2} cy={top + h / 2} r={radius} fill="none" />
+      <line
+        x1={left + w * 0.2}
+        y1={top + h * 0.14}
+        x2={left + w * 0.8}
+        y2={top + h * 0.14}
+      />
+    </>
+  )
+}
+
+/** Parallel fins make the shallow footprint read as a radiator. */
+function RadiatorGlyph({ left, top, w, h }: GlyphProps) {
+  return (
+    <>
+      {[1, 2, 3, 4, 5].map((fin) => (
+        <line
+          key={fin}
+          x1={left + (w * fin) / 6}
+          y1={top + h * 0.2}
+          x2={left + (w * fin) / 6}
+          y2={top + h * 0.8}
+        />
+      ))}
+    </>
+  )
+}
+
+/** Structural column shown as its circular core inside the exact footprint. */
+function ColumnGlyph({ left, top, w, h }: GlyphProps) {
+  return (
+    <circle
+      cx={left + w / 2}
+      cy={top + h / 2}
+      r={Math.min(w, h) * 0.38}
+      fill="none"
+    />
+  )
+}
+
+/** An inset bound edge distinguishes a rug without giving it solid depth. */
+function RugGlyph({ left, top, w, h }: GlyphProps) {
+  const inset = Math.min(w, h) * 0.06
+  return (
+    <rect
+      x={left + inset}
+      y={top + inset}
+      width={w - inset * 2}
+      height={h - inset * 2}
+      rx={inset}
+      fill="none"
+    />
+  )
+}
+
 /** The four corners of the hob, as unit offsets from its centre. */
 const BURNERS = [
   [-1, -1],
@@ -241,7 +438,16 @@ const FURNITURE_GLYPHS: Record<
 > = {
   table: TableGlyph,
   sofa: SofaGlyph,
+  bed: BedGlyph,
+  desk: DeskGlyph,
+  chair: ChairGlyph,
+  dresser: DresserGlyph,
+  tv: TvGlyph,
   kitchen: KitchenGlyph,
+  appliance: ApplianceGlyph,
+  radiator: RadiatorGlyph,
+  column: ColumnGlyph,
+  rug: RugGlyph,
   box: BoxGlyph,
 }
 

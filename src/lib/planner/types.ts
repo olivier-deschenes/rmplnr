@@ -36,7 +36,21 @@ export const RoomSchema = z.object({
   locked: z.boolean().optional(),
 })
 
-export const FurnitureKindSchema = z.enum(['table', 'sofa', 'kitchen', 'box'])
+export const FurnitureKindSchema = z.enum([
+  'table',
+  'sofa',
+  'bed',
+  'desk',
+  'chair',
+  'dresser',
+  'tv',
+  'kitchen',
+  'appliance',
+  'radiator',
+  'column',
+  'rug',
+  'box',
+])
 
 export const FurnitureSchema = z.object({
   id: z.string(),
@@ -48,6 +62,21 @@ export const FurnitureSchema = z.object({
   w: z.number(),
   h: z.number(),
   rotation: z.number(),
+  /**
+   * False for footprints that may sit under other objects, such as rugs.
+   * Missing from older plans, where every item behaved as a solid object.
+   */
+  collides: z.boolean().optional(),
+})
+
+/** A reusable local footprint saved from one item in a plan. */
+export const CustomFurniturePresetSchema = z.object({
+  id: z.uuid(),
+  name: z.string().trim().min(1, 'Enter a preset name.').max(80),
+  kind: FurnitureKindSchema,
+  w: z.number().min(MIN_SIZE),
+  h: z.number().min(MIN_SIZE),
+  collides: z.boolean(),
 })
 
 export const OpeningKindSchema = z.enum([
@@ -194,6 +223,8 @@ export const PrefsSchema = z.object({
   units: UnitsSchema,
   /** Missing from preferences saved before furniture could get in the way. */
   collide: z.boolean().default(true),
+  /** Missing from preferences saved before reusable furniture was available. */
+  customFurniturePresets: z.array(CustomFurniturePresetSchema).default([]),
 })
 
 export type Point = z.infer<typeof PointSchema>
@@ -201,6 +232,7 @@ export type ClosetAttachment = z.infer<typeof ClosetAttachmentSchema>
 export type Room = z.infer<typeof RoomSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
+export type CustomFurniturePreset = z.infer<typeof CustomFurniturePresetSchema>
 export type OpeningKind = z.infer<typeof OpeningKindSchema>
 export type Opening = z.infer<typeof OpeningSchema>
 export type Plan = z.infer<typeof PlanSchema>

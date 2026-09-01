@@ -164,6 +164,26 @@ describe('serializeProject', () => {
     expect(await hashProject(locked)).not.toBe(await hashProject(unlocked))
   })
 
+  it('preserves furniture that is allowed to overlap', () => {
+    const project = plan({
+      furniture: [
+        {
+          ...plan().furniture[0],
+          kind: 'rug',
+          name: 'Rug',
+          w: 200,
+          h: 300,
+          collides: false,
+        },
+      ],
+    })
+
+    expect(parseProjectFile(serializeProject(project))).toEqual(project)
+    expect(JSON.parse(serializeProject(project)).furniture[0].collides).toBe(
+      false,
+    )
+  })
+
   it('trims a plan name into a file its own parser accepts', () => {
     const project = plan({ name: '  Flat  ' })
     const contents = serializeProject(project)

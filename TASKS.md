@@ -229,7 +229,7 @@ bun run cf-types:check
 - Underlays remain locked while normal plan objects are edited.
 - Reloading restores the underlay without exceeding localStorage limits.
 
-### 10. [ ] Expand and customize the furniture catalogue
+### 10. [x] Expand and customize the furniture catalogue
 
 **Priority:** P1  
 **Dependencies:** Task 2

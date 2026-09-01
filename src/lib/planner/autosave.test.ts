@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import { plannerStore, saveNow, startAutosave } from './store.ts'
+import { PrefsSchema } from './types.ts'
 
 import type { PlannerStorage } from './store.ts'
 import type { Project } from './types.ts'
@@ -62,6 +63,9 @@ function open(storage: PlannerStorage | null, debounceMs = NEVER) {
 
 beforeEach(() => {
   plannerStore.actions.closeProject()
+  plannerStore.actions.setUnits('metric')
+  plannerStore.actions.setCollide(true)
+  plannerStore.actions.setCustomFurniturePresets([])
   plannerStore.actions.setPersistence({ status: 'saved', failure: null })
 })
 
@@ -126,6 +130,33 @@ describe('autosave', () => {
       version: 1,
       units: 'imperial',
       collide: true,
+    })
+  })
+
+  it('persists custom furniture presets with editor preferences', () => {
+    const storage = memoryStorage()
+    const lifecycle = open(storage)
+
+    plannerStore.actions.addFurniture('desk')
+    const desk = plannerStore.state.furniture[0]
+    plannerStore.actions.updateFurniture(desk.id, {
+      name: 'Compact desk',
+      w: 105,
+      h: 55,
+    })
+    plannerStore.actions.saveFurniturePreset(desk.id)
+    lifecycle.dispatchEvent(new Event('pagehide'))
+
+    const prefs = PrefsSchema.parse(
+      JSON.parse(storage.getItem('rmplnr.prefs.v1')!),
+    )
+    expect(prefs.customFurniturePresets).toHaveLength(1)
+    expect(prefs.customFurniturePresets[0]).toMatchObject({
+      name: 'Compact desk',
+      kind: 'desk',
+      w: 105,
+      h: 55,
+      collides: true,
     })
   })
 

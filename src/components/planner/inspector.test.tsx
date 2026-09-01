@@ -58,3 +58,18 @@ it('shows exact length and angle controls for a selected wall', () => {
   expect(html).toContain('value="0"')
   expect(html).toContain('Start corner')
 })
+
+it('edits catalogue footprints in imperial units and can save a custom preset', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.setUnits('imperial')
+  plannerStore.actions.addFurniture('bed')
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Bed')
+  expect(html).toContain('Width in')
+  expect(html).toContain('value="59.06"')
+  expect(html).toContain('value="78.74"')
+  expect(html).toContain('Solid footprint')
+  expect(html).toContain('Save as custom preset')
+})

@@ -11,6 +11,7 @@ import {
 } from './planSerialization.ts'
 import { snapTargets } from './snapping.ts'
 import { sharedWalls, wallGaps } from './walls.ts'
+import { FURNITURE_KINDS, FURNITURE_PRESETS } from './presets.ts'
 
 import type { Project } from './types.ts'
 
@@ -116,9 +117,125 @@ function connectedRectangle(): Project {
 
 beforeEach(() => {
   plannerStore.actions.closeProject()
+  plannerStore.actions.setCollide(true)
+  plannerStore.actions.setUnits('metric')
+  plannerStore.actions.setCustomFurniturePresets([])
   plannerStore.actions.loadLibrary({
     version: 1,
     projects: [plan(PLAN_A, 'Flat'), plan(PLAN_B, 'House')],
+  })
+})
+
+describe('furniture catalogue', () => {
+  beforeEach(() => plannerStore.actions.openProject(PLAN_A))
+
+  it('adds every built-in preset at its exact metric footprint', () => {
+    for (const kind of FURNITURE_KINDS) {
+      plannerStore.actions.addFurniture(kind)
+      const item = plannerStore.state.furniture.at(-1)!
+      const preset = FURNITURE_PRESETS[kind]
+
+      expect(item).toMatchObject({
+        kind,
+        w: preset.w,
+        h: preset.h,
+        collides: preset.collides,
+      })
+    }
+
+    expect(FURNITURE_KINDS).toEqual(
+      expect.arrayContaining([
+        'bed',
+        'desk',
+        'chair',
+        'dresser',
+        'tv',
+        'appliance',
+        'radiator',
+        'column',
+        'rug',
+      ]),
+    )
+    expect(FURNITURE_PRESETS).toMatchObject({
+      bed: { w: 150, h: 200 },
+      desk: { w: 120, h: 60 },
+      chair: { w: 50, h: 50 },
+      dresser: { w: 120, h: 50 },
+      tv: { w: 120, h: 20 },
+      appliance: { w: 60, h: 60 },
+      radiator: { w: 100, h: 15 },
+      column: { w: 30, h: 30 },
+      rug: { w: 200, h: 300, collides: false },
+    })
+  })
+
+  it('saves, renames, reuses and deletes a custom preset', () => {
+    plannerStore.actions.addFurniture('desk')
+    const desk = plannerStore.state.furniture[0]
+    plannerStore.actions.updateFurniture(desk.id, {
+      name: 'Writing desk',
+      w: 135,
+      h: 72,
+      collides: false,
+    })
+
+    const presetId = plannerStore.actions.saveFurniturePreset(desk.id)
+    expect(presetId).not.toBeNull()
+    expect(plannerStore.state.customFurniturePresets[0]).toMatchObject({
+      id: presetId,
+      name: 'Writing desk',
+      kind: 'desk',
+      w: 135,
+      h: 72,
+      collides: false,
+    })
+
+    expect(
+      plannerStore.actions.renameFurniturePreset(presetId!, 'Studio desk'),
+    ).toBe(true)
+    plannerStore.actions.addCustomFurniture(presetId!)
+
+    const reused = plannerStore.state.furniture.at(-1)!
+    expect(reused.id).not.toBe(presetId)
+    expect(reused).toMatchObject({
+      name: 'Studio desk',
+      kind: 'desk',
+      w: 135,
+      h: 72,
+      collides: false,
+    })
+
+    plannerStore.actions.deleteFurniturePreset(presetId!)
+    expect(plannerStore.state.customFurniturePresets).toEqual([])
+    expect(plannerStore.state.furniture).toContainEqual(reused)
+  })
+
+  it('allows soft footprints to overlap while solid furniture stays apart', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [{ ...plan(PLAN_A, 'Flat'), rooms: [] }],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.setSize(800, 600)
+    plannerStore.actions.setViewport({ tx: 0, ty: 0, scale: 1 })
+
+    plannerStore.actions.addFurniture('rug')
+    plannerStore.actions.addFurniture('table')
+    const [rug, table] = plannerStore.state.furniture
+    expect({ x: table.x, y: table.y }).toEqual({ x: rug.x, y: rug.y })
+
+    plannerStore.actions.addFurniture('sofa')
+    const sofa = plannerStore.state.furniture[2]
+    expect({ x: sofa.x, y: sofa.y }).not.toEqual({ x: table.x, y: table.y })
+
+    plannerStore.actions.updateFurniture(table.id, { collides: false })
+    plannerStore.actions.updateFurniture(table.id, { x: sofa.x, y: sofa.y })
+    expect(plannerStore.state.furniture[1]).toMatchObject({
+      x: sofa.x,
+      y: sofa.y,
+      collides: false,
+    })
   })
 })
 

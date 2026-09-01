@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import { IconLock, IconLockOpen } from '@tabler/icons-react'
+import { toast } from 'sonner'
 
 import { HistoryPanel } from './history.tsx'
 
@@ -16,11 +17,13 @@ import {
   SelectValue,
 } from '#/components/ui/select.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
+import { Switch } from '#/components/ui/switch.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
 import { cn } from '#/lib/utils.ts'
 import {
   HINGED_KINDS,
+  FURNITURE_PRESETS,
   OPENING_KINDS,
   OPENING_PRESETS,
   SIDED_KINDS,
@@ -476,12 +479,17 @@ function WallPanel({
 
 function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
   const actions = plannerStore.actions
+  const collisionId = useId()
   const update = (patch: Partial<Furniture>) =>
     actions.updateFurniture(item.id, patch)
+  const savePreset = () => {
+    if (!actions.saveFurniturePreset(item.id)) return
+    toast.success(`${item.name.trim()} saved to custom presets.`)
+  }
 
   return (
     <>
-      <SectionTitle>{item.kind}</SectionTitle>
+      <SectionTitle>{FURNITURE_PRESETS[item.kind].label}</SectionTitle>
       <NameField value={item.name} onChange={(name) => update({ name })} />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
@@ -516,6 +524,33 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
         value={item.rotation}
         onCommit={(rotation) => update({ rotation: normalizeAngle(rotation) })}
       />
+      <div className="flex items-center justify-between gap-3 py-1">
+        <div className="grid gap-0.5">
+          <Label htmlFor={collisionId} className="text-xs">
+            Solid footprint
+          </Label>
+          <p
+            id={`${collisionId}-description`}
+            className="text-muted-foreground text-[10px] leading-relaxed"
+          >
+            Keep this item out of walls and other solid items.
+          </p>
+        </div>
+        <Switch
+          id={collisionId}
+          checked={item.collides !== false}
+          aria-describedby={`${collisionId}-description`}
+          onCheckedChange={(collides) => update({ collides })}
+        />
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={item.name.trim().length === 0 || item.name.trim().length > 80}
+        onClick={savePreset}
+      >
+        Save as custom preset
+      </Button>
       <SelectionActions />
     </>
   )

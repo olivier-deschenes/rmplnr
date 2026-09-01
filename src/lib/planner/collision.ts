@@ -184,8 +184,9 @@ function wallBlockers(
 
 /**
  * Everything one piece of furniture has to keep out of: the walls, and the
- * rest of the furniture. `exclude` is the item being moved, which cannot be in
- * its own way.
+ * rest of the solid furniture. `exclude` is the item being moved, which cannot
+ * be in its own way. Soft footprints such as rugs are deliberately absent, so
+ * a table can stand on one while both remain independently editable.
  */
 export function blockersFor(
   rooms: Array<Room>,
@@ -196,7 +197,7 @@ export function blockersFor(
   return [
     ...wallBlockers(rooms, openings),
     ...furniture
-      .filter((item) => item.id !== exclude)
+      .filter((item) => item.id !== exclude && item.collides !== false)
       .map((item) => blockerOf(furnitureCorners(item))),
   ]
 }

@@ -67,6 +67,7 @@ function toCanonicalFurniture(item: Furniture): Furniture {
     w: item.w,
     h: item.h,
     rotation: item.rotation,
+    ...(item.collides === undefined ? {} : { collides: item.collides }),
   }
 }
 

@@ -54,6 +54,7 @@ import type { History, Snapshot } from './history.ts'
 import type { WallGeometryChange } from './geometry.ts'
 import type {
   Clipboard,
+  CustomFurniturePreset,
   Furniture,
   FurnitureKind,
   Library,
@@ -117,6 +118,8 @@ export type PlannerState = {
   projectId: string | null
   rooms: Array<Room>
   furniture: Array<Furniture>
+  /** Reusable footprints saved locally from furniture in any plan. */
+  customFurniturePresets: Array<CustomFurniturePreset>
   /** Doors, windows and gaps, each attached to one wall of one room. */
   openings: Array<Opening>
   selection: Selection
@@ -160,6 +163,7 @@ const initialState: PlannerState = {
   projectId: null,
   rooms: [],
   furniture: [],
+  customFurniturePresets: [],
   openings: [],
   selection: null,
   renaming: null,
@@ -374,6 +378,8 @@ function freeSpot(
   centre: Point,
   reach = CASCADE_RINGS * CASCADE,
 ): Point {
+  // A rug is meant to arrive under a table rather than stepping away from it.
+  if (shape.collides === false) return centre
   const blockers = inTheWayOf(state)
   for (const offset of CASCADE_SPOTS) {
     // The spots come out ring by ring, so the first one beyond the reach is
@@ -381,7 +387,10 @@ function freeSpot(
     if (Math.max(Math.abs(offset.x), Math.abs(offset.y)) > reach) break
     const spot = { x: centre.x + offset.x, y: centre.y + offset.y }
     const taken = state.furniture.some(
-      (f) => Math.abs(f.x - spot.x) < 1 && Math.abs(f.y - spot.y) < 1,
+      (f) =>
+        f.collides !== false &&
+        Math.abs(f.x - spot.x) < 1 &&
+        Math.abs(f.y - spot.y) < 1,
     )
     if (!taken && fits({ ...shape, ...spot }, blockers)) return spot
   }
@@ -413,8 +422,43 @@ function placed(
   from: Furniture,
   to: Furniture,
 ): Furniture {
-  if (!state.collide || !displaced(from, to)) return to
+  if (
+    !state.collide ||
+    from.collides === false ||
+    to.collides === false ||
+    !displaced(from, to)
+  )
+    return to
   return settleFurniture(from, to, inTheWayOf(state, from.id))
+}
+
+type FurnitureFootprint = Pick<Furniture, 'kind' | 'w' | 'h' | 'collides'>
+
+/** Drop one built-in or custom footprint into the current view. */
+function withFurniture(
+  state: PlannerState,
+  footprint: FurnitureFootprint,
+  name: string,
+): PlannerState {
+  const raw = viewCentre(state)
+  const centre = snapPoint(raw, activeSnapStep(state))
+  const shape = {
+    id: newId(),
+    kind: footprint.kind,
+    w: footprint.w,
+    h: footprint.h,
+    collides: footprint.collides,
+    name,
+    rotation: 0,
+  }
+  const item: Furniture = { ...shape, ...freeSpot(state, shape, centre) }
+  return {
+    ...state,
+    history: commit(state, null, `Added ${item.name}`),
+    furniture: [...state.furniture, item],
+    selection: { type: 'furniture', id: item.id },
+    tool: 'select',
+  }
 }
 
 // --- copying ----------------------------------------------------------------
@@ -775,6 +819,10 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({ ...s, units }))
   },
 
+  setCustomFurniturePresets(presets: Array<CustomFurniturePreset>) {
+    setState((s) => ({ ...s, customFurniturePresets: presets }))
+  },
+
   setViewport(viewport: Viewport) {
     setState((s) => ({ ...s, viewport }))
   },
@@ -873,28 +921,81 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   addFurniture(kind: FurnitureKind) {
-    const state = get()
     const preset = FURNITURE_PRESETS[kind]
-    const raw = viewCentre(state)
-    const centre = snapPoint(raw, activeSnapStep(state))
-    const count = state.furniture.filter((f) => f.kind === kind).length + 1
-    const shape = {
+    setState((s) => {
+      const count = s.furniture.filter((item) => item.kind === kind).length + 1
+      return withFurniture(
+        s,
+        {
+          kind,
+          w: preset.w,
+          h: preset.h,
+          collides: preset.collides,
+        },
+        `${preset.label} ${count}`,
+      )
+    })
+  },
+
+  /** Add one locally saved footprint, using its name until that name is taken. */
+  addCustomFurniture(presetId: string) {
+    setState((s) => {
+      const preset = s.customFurniturePresets.find(
+        (candidate) => candidate.id === presetId,
+      )
+      if (!preset) return s
+      const taken = s.furniture.map((item) => item.name)
+      const name = taken.includes(preset.name)
+        ? copyName(preset.name, taken)
+        : preset.name
+      return withFurniture(s, preset, name)
+    })
+  },
+
+  /** Save the selected item's current name, size, glyph and solidity for reuse. */
+  saveFurniturePreset(itemId: string): string | null {
+    const item = get().furniture.find((candidate) => candidate.id === itemId)
+    const name = item?.name.trim() ?? ''
+    if (!item || name.length === 0 || name.length > 80) return null
+    const preset: CustomFurniturePreset = {
       id: newId(),
-      kind,
-      name: `${preset.label} ${count}`,
-      w: preset.w,
-      h: preset.h,
-      rotation: 0,
+      name,
+      kind: item.kind,
+      w: item.w,
+      h: item.h,
+      collides: item.collides !== false,
     }
-    // Somewhere the new item can actually stand, so that it is never dropped
-    // inside a wall or hidden underneath the last one.
-    const item: Furniture = { ...shape, ...freeSpot(state, shape, centre) }
     setState((s) => ({
       ...s,
-      history: commit(s, null, `Added ${item.name}`),
-      furniture: [...s.furniture, item],
-      selection: { type: 'furniture', id: item.id },
-      tool: 'select',
+      customFurniturePresets: [...s.customFurniturePresets, preset],
+    }))
+    return preset.id
+  },
+
+  /** Rename one local preset without changing furniture already in a plan. */
+  renameFurniturePreset(presetId: string, nextName: string): boolean {
+    const name = nextName.trim()
+    if (name.length === 0 || name.length > 80) return false
+    const current = get().customFurniturePresets.find(
+      (preset) => preset.id === presetId,
+    )
+    if (!current) return false
+    if (current.name === name) return true
+    setState((s) => ({
+      ...s,
+      customFurniturePresets: s.customFurniturePresets.map((preset) =>
+        preset.id === presetId ? { ...preset, name } : preset,
+      ),
+    }))
+    return true
+  },
+
+  deleteFurniturePreset(presetId: string) {
+    setState((s) => ({
+      ...s,
+      customFurniturePresets: s.customFurniturePresets.filter(
+        (preset) => preset.id !== presetId,
+      ),
     }))
   },
 
@@ -1912,6 +2013,7 @@ function persistedOf(state: PlannerState): Persisted {
     state.openings,
     state.units,
     state.collide,
+    state.customFurniturePresets,
   ]
 }
 
@@ -2095,6 +2197,9 @@ export function startAutosave({
           version: 1,
           units: state.units,
           collide: state.collide,
+          ...(state.customFurniturePresets.length === 0
+            ? {}
+            : { customFurniturePresets: state.customFurniturePresets }),
         }),
       )
     } catch (error) {
@@ -2243,5 +2348,6 @@ export function restoreLibrary(): void {
   if (prefs) {
     plannerStore.actions.setUnits(prefs.units)
     plannerStore.actions.setCollide(prefs.collide)
+    plannerStore.actions.setCustomFurniturePresets(prefs.customFurniturePresets)
   }
 }

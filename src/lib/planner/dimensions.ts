@@ -323,8 +323,8 @@ export function furnitureNames(
   for (const item of furniture) {
     const box = namePlacement(item, vp, taken)
     if (!box) continue
-    // Two items only overlap when the plan is being drawn with collisions off,
-    // but when they do their names should not be written over each other.
+    // Two items can overlap when collisions are off or one is a soft footprint
+    // such as a rug, but their names should never be written over each other.
     taken.push(box)
     labels.push({ id: item.id, text: item.name, box })
   }
