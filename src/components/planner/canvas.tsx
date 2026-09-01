@@ -411,7 +411,7 @@ export function Canvas() {
       {
         hotkey: EDIT_KEYS.copy,
         callback: () => actions.copySelection(),
-        options: { enabled: selection !== null },
+        options: { enabled: selection !== null && selection.type !== 'wall' },
       },
       { hotkey: EDIT_KEYS.paste, callback: () => actions.paste() },
       // Taken whether or not it does anything, so that the plan never answers a
@@ -455,12 +455,12 @@ export function Canvas() {
         {
           hotkey: key,
           callback: () => nudge(delta, 1),
-          options: { enabled: selection !== null },
+          options: { enabled: selection !== null && selection.type !== 'wall' },
         },
         {
           hotkey: shifted,
           callback: () => nudge(delta, NUDGE_COARSE),
-          options: { enabled: selection !== null },
+          options: { enabled: selection !== null && selection.type !== 'wall' },
         },
         // A run of arrow-key repeats reads as one nudge, which ends on release.
         // Shift may have been let go of by then or not, so both endings are
@@ -804,7 +804,7 @@ export function Canvas() {
     const world = toWorld(event)
 
     const room =
-      state.selection?.type === 'room'
+      state.selection?.type === 'room' || state.selection?.type === 'wall'
         ? state.rooms.find((r) => r.id === state.selection?.id)
         : undefined
     const spot =
@@ -931,7 +931,8 @@ export function Canvas() {
   function onVertexDown(index: number, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
-    if (current?.type !== 'room') return
+    if (current?.type !== 'room' && current?.type !== 'wall') return
+    actions.select({ type: 'room', id: current.id })
     begin({ mode: 'vertex', roomId: current.id, index }, event)
   }
 
@@ -941,9 +942,10 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     const current = plannerStore.state.selection
-    if (current?.type !== 'room') return
+    if (current?.type !== 'room' && current?.type !== 'wall') return
     const room = plannerStore.state.rooms.find((r) => r.id === current.id)
     if (!room) return
+    actions.select({ type: 'wall', id: current.id, index })
     begin(
       {
         mode: 'wall',
@@ -957,7 +959,7 @@ export function Canvas() {
   }
 
   const selectedRoom =
-    selection?.type === 'room'
+    selection?.type === 'room' || selection?.type === 'wall'
       ? rooms.find((r) => r.id === selection.id)
       : undefined
   const selectedFurniture =
@@ -1132,7 +1134,7 @@ export function Canvas() {
           <RoomFloor
             key={room.id}
             room={room}
-            selected={room.id === selection?.id}
+            selected={selection?.type === 'room' && room.id === selection.id}
             onPointerDown={(event) => onRoomPointerDown(room, event)}
           />
         ))}
@@ -1161,7 +1163,9 @@ export function Canvas() {
           <FurnitureShape
             key={item.id}
             item={item}
-            selected={item.id === selection?.id}
+            selected={
+              selection?.type === 'furniture' && item.id === selection.id
+            }
             onPointerDown={(event) => onFurniturePointerDown(item, event)}
           />
         ))}
@@ -1200,7 +1204,9 @@ export function Canvas() {
               key={opening.id}
               opening={opening}
               wall={wall}
-              selected={opening.id === selection?.id}
+              selected={
+                selection?.type === 'opening' && opening.id === selection.id
+              }
             />
           ))}
           {openingGhost && ghostWall && (
@@ -1226,7 +1232,28 @@ export function Canvas() {
         labels={names}
         renaming={renaming?.type === 'furniture' ? renaming.id : undefined}
       />
-      <WallDimensions labels={dimensions} />
+      <WallDimensions
+        labels={dimensions}
+        selected={
+          selection?.type === 'wall'
+            ? { roomId: selection.id, wall: selection.index }
+            : undefined
+        }
+        onSelect={
+          tool === 'select'
+            ? (roomId, wall) => {
+                const room = plannerStore.state.rooms.find(
+                  (candidate) => candidate.id === roomId,
+                )
+                actions.select(
+                  room?.kind === 'closet'
+                    ? { type: 'room', id: roomId }
+                    : { type: 'wall', id: roomId, index: wall },
+                )
+              }
+            : undefined
+        }
+      />
       <SnapGuides guides={guides} viewport={viewport} />
       <Clearances
         clearances={clearances}
@@ -1245,6 +1272,9 @@ export function Canvas() {
               wallGaps(rooms, openings, selectedRoom.id, i),
             )}
             viewport={viewport}
+            selectedWall={
+              selection?.type === 'wall' ? selection.index : undefined
+            }
             onVertexDown={onVertexDown}
             onWallDown={onWallDown}
           />

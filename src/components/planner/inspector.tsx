@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import { IconLock, IconLockOpen } from '@tabler/icons-react'
 
 import { HistoryPanel } from './history.tsx'
 
 import { Button } from '#/components/ui/button.tsx'
+import { Alert, AlertDescription } from '#/components/ui/alert.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import {
@@ -27,6 +28,7 @@ import {
 import { closetSize } from '#/lib/planner/closets.ts'
 import { wallAt } from '#/lib/planner/openings.ts'
 import {
+  angleBetween,
   normalizeAngle,
   polygonArea,
   polygonBounds,
@@ -71,39 +73,68 @@ function NumberField({
 }: {
   label: string
   value: number
-  onCommit: (next: number) => void
+  onCommit: (next: number) => string | null | void
   min?: number
   precision?: number
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const id = useId()
 
   const commit = () => {
     if (draft === null) return
     const parsed = Number.parseFloat(draft)
-    if (Number.isFinite(parsed)) {
-      onCommit(min === undefined ? parsed : Math.max(min, parsed))
-      // A value typed in is one step to undo, not one per keystroke that
-      // reached it, and the next thing typed here is a step of its own.
-      plannerStore.actions.sealHistory()
+    if (!Number.isFinite(parsed)) {
+      setError('Enter a number.')
+      return
     }
+
+    const result = onCommit(min === undefined ? parsed : Math.max(min, parsed))
+    if (typeof result === 'string') {
+      setError(result)
+      return
+    }
+
+    // A value typed in is one step to undo, not one per keystroke that reached
+    // it, and the next thing typed here is a step of its own.
+    plannerStore.actions.sealHistory()
     setDraft(null)
+    setError(null)
   }
 
   return (
-    <Label className="grid gap-1">
+    <Label className="grid gap-1" htmlFor={id}>
       <span className="text-muted-foreground text-[10px]">{label}</span>
       <Input
+        id={id}
         type="number"
         disabled={disabled}
         value={draft ?? String(Number(value.toFixed(precision)))}
-        onChange={(event) => setDraft(event.target.value)}
+        aria-invalid={error !== null}
+        aria-describedby={error ? `${id}-error` : undefined}
+        onChange={(event) => {
+          setDraft(event.target.value)
+          setError(null)
+        }}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === 'Enter') commit()
-          if (event.key === 'Escape') setDraft(null)
+          if (event.key === 'Escape') {
+            setDraft(null)
+            setError(null)
+          }
         }}
       />
+      {error ? (
+        <span
+          id={`${id}-error`}
+          role="alert"
+          className="text-destructive text-[10px]"
+        >
+          {error}
+        </span>
+      ) : null}
     </Label>
   )
 }
@@ -123,7 +154,7 @@ function LengthField({
   label: string
   cm: number
   units: Units
-  onCommit: (nextCm: number) => void
+  onCommit: (nextCm: number) => string | null | void
   min?: number
   disabled?: boolean
 }) {
@@ -306,6 +337,26 @@ function ClosetPanel({
   )
 }
 
+function RoomLockButton({ room }: { room: Room }) {
+  const locked = room.locked === true
+  return (
+    <Button
+      variant={locked ? 'secondary' : 'ghost'}
+      size="sm"
+      className="h-6 gap-1 px-2 text-[10px]"
+      aria-pressed={locked}
+      onClick={() => plannerStore.actions.setRoomLocked(room.id, !locked)}
+    >
+      {locked ? (
+        <IconLock className="size-3" />
+      ) : (
+        <IconLockOpen className="size-3" />
+      )}
+      {locked ? 'Locked' : 'Unlocked'}
+    </Button>
+  )
+}
+
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
@@ -318,20 +369,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
     <>
       <div className="flex items-center justify-between gap-2">
         <SectionTitle>Room</SectionTitle>
-        <Button
-          variant={locked ? 'secondary' : 'ghost'}
-          size="sm"
-          className="h-6 gap-1 px-2 text-[10px]"
-          aria-pressed={locked}
-          onClick={() => actions.setRoomLocked(room.id, !locked)}
-        >
-          {locked ? (
-            <IconLock className="size-3" />
-          ) : (
-            <IconLockOpen className="size-3" />
-          )}
-          {locked ? 'Locked' : 'Unlocked'}
-        </Button>
+        <RoomLockButton room={room} />
       </div>
       <NameField
         value={room.name}
@@ -370,6 +408,68 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
         </dd>
       </dl>
       <SelectionActions deletable={!locked} />
+    </>
+  )
+}
+
+function WallPanel({
+  room,
+  index,
+  units,
+}: {
+  room: Room
+  index: number
+  units: Units
+}) {
+  const wall = wallAt(room.points, index)
+  if (!wall) return null
+  const locked = room.locked === true
+  const change = (patch: { length?: number; angle?: number }) => {
+    const result = plannerStore.actions.setWallDimensions(room.id, index, patch)
+    return result.ok ? null : result.error
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>
+          Wall {index + 1} of {room.points.length}
+        </SectionTitle>
+        <RoomLockButton room={room} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <LengthField
+          label="Length"
+          cm={wall.length}
+          units={units}
+          disabled={locked}
+          onCommit={(length) => change({ length })}
+        />
+        <NumberField
+          label="Angle °"
+          value={angleBetween(wall.a, wall.b)}
+          precision={2}
+          disabled={locked}
+          onCommit={(angle) => change({ angle })}
+        />
+      </div>
+      {locked ? (
+        <Alert>
+          <AlertDescription>
+            Unlock {room.name} to edit this wall.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+        <dt>In</dt>
+        <dd className="text-foreground truncate text-right">{room.name}</dd>
+        <dt>Anchor</dt>
+        <dd className="text-foreground text-right">Start corner</dd>
+      </dl>
+      <p className="text-muted-foreground text-[10px] leading-relaxed">
+        The start corner stays fixed. 0° points right; angles increase
+        clockwise.
+      </p>
     </>
   )
 }
@@ -634,6 +734,10 @@ export function Inspector({
     selection?.type === 'opening'
       ? openings.find((o) => o.id === selection.id)
       : undefined
+  const wallRoom =
+    selection?.type === 'wall'
+      ? rooms.find((candidate) => candidate.id === selection.id)
+      : undefined
   const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
   const closetHost =
     room?.kind === 'closet' && room.attachment
@@ -654,7 +758,14 @@ export function Inspector({
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.
         */}
-        {room?.kind === 'closet' ? (
+        {wallRoom && selection?.type === 'wall' ? (
+          <WallPanel
+            key={`${wallRoom.id}-${selection.index}-${units}`}
+            room={wallRoom}
+            index={selection.index}
+            units={units}
+          />
+        ) : room?.kind === 'closet' ? (
           <ClosetPanel
             key={`${room.id}-${units}`}
             room={room}

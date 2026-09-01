@@ -80,12 +80,14 @@ function Bar({
   at,
   angle,
   length,
+  selected = false,
   className,
   onPointerDown,
 }: {
   at: Point
   angle: number
   length: number
+  selected?: boolean
   className?: string
   onPointerDown?: (event: React.PointerEvent) => void
 }) {
@@ -97,7 +99,7 @@ function Bar({
       height={BAR_THICKNESS}
       rx={BAR_THICKNESS / 2}
       transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
-      className={`fill-background stroke-foreground ${className ?? ''}`}
+      className={`${selected ? 'fill-foreground' : 'fill-background'} stroke-foreground ${className ?? ''}`}
       strokeWidth={1.5}
       onPointerDown={onPointerDown}
     />
@@ -409,11 +411,13 @@ function Plate({
   box,
   text,
   className = 'fill-muted-foreground text-[10px]',
+  plateClassName = 'fill-background',
 }: {
   box: Box
   text: string
   /** How the text is written; the default is the hand dimensions use. */
   className?: string
+  plateClassName?: string
 }) {
   return (
     <g
@@ -424,7 +428,8 @@ function Plate({
         y={-box.h / 2}
         width={box.w}
         height={box.h}
-        className="fill-background"
+        className={plateClassName}
+        strokeWidth={1}
       />
       <text
         textAnchor="middle"
@@ -442,24 +447,77 @@ function Plate({
  * in `dimensions.ts` has already found each label a spot clear of the plan and
  * of the other labels; a leader line appears where one could not stay put.
  */
-export function WallDimensions({ labels }: { labels: Array<WallLabel> }) {
+export function WallDimensions({
+  labels,
+  selected,
+  onSelect,
+}: {
+  labels: Array<WallLabel>
+  selected?: { roomId: string; wall: number }
+  onSelect?: (roomId: string, wall: number) => void
+}) {
   return (
-    <g className="pointer-events-none">
-      {labels.map(({ key, text, box, leader }) => (
-        <g key={key}>
-          {leader && (
-            <line
-              x1={leader.from.x}
-              y1={leader.from.y}
-              x2={leader.to.x}
-              y2={leader.to.y}
-              className="stroke-muted-foreground/60"
-              strokeWidth={1}
+    <g className={onSelect ? undefined : 'pointer-events-none'}>
+      {labels.map(({ key, roomId, roomName, wall, text, box, leader }) => {
+        const active = selected?.roomId === roomId && selected.wall === wall
+        return (
+          <g
+            key={key}
+            role={onSelect ? 'button' : undefined}
+            tabIndex={onSelect ? 0 : undefined}
+            aria-label={
+              onSelect
+                ? `Edit wall ${wall + 1} of ${roomName}, ${text}`
+                : undefined
+            }
+            aria-pressed={onSelect ? active : undefined}
+            className={
+              onSelect ? 'group cursor-pointer focus:outline-none' : ''
+            }
+            onPointerDown={(event) => {
+              if (!onSelect || event.button !== 0) return
+              event.stopPropagation()
+              onSelect(roomId, wall)
+            }}
+            onDoubleClick={(event) => {
+              if (onSelect) event.stopPropagation()
+            }}
+            onKeyDown={(event) => {
+              if (!onSelect || (event.key !== 'Enter' && event.key !== ' ')) {
+                return
+              }
+              event.preventDefault()
+              event.stopPropagation()
+              onSelect(roomId, wall)
+            }}
+          >
+            {leader && (
+              <line
+                x1={leader.from.x}
+                y1={leader.from.y}
+                x2={leader.to.x}
+                y2={leader.to.y}
+                className="stroke-muted-foreground/60"
+                strokeWidth={1}
+              />
+            )}
+            <Plate
+              box={box}
+              text={text}
+              className={
+                active
+                  ? 'fill-background text-[10px] font-medium'
+                  : 'fill-muted-foreground text-[10px]'
+              }
+              plateClassName={
+                active
+                  ? 'fill-foreground stroke-foreground'
+                  : 'fill-background group-focus-visible:stroke-foreground'
+              }
             />
-          )}
-          <Plate box={box} text={text} />
-        </g>
-      ))}
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -481,6 +539,7 @@ export function RoomEditor({
   room,
   gaps,
   viewport,
+  selectedWall,
   onVertexDown,
   onWallDown,
 }: {
@@ -488,6 +547,7 @@ export function RoomEditor({
   /** What is cut through each wall, wall by wall: the doorways and windows. */
   gaps: Array<Array<Span>>
   viewport: Viewport
+  selectedWall?: number
   onVertexDown: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
 }) {
@@ -572,6 +632,7 @@ export function RoomEditor({
             at={wall.mid}
             angle={wall.angle}
             length={wall.length}
+            selected={i === selectedWall}
             className={wall.cursor}
             onPointerDown={(event) => onWallDown(i, event)}
           />

@@ -214,10 +214,19 @@ export type Prefs = z.infer<typeof PrefsSchema>
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
-export type Selection = {
-  type: 'room' | 'furniture' | 'opening'
-  id: string
-} | null
+export type Selection =
+  | {
+      type: 'room' | 'furniture' | 'opening'
+      id: string
+    }
+  | {
+      /** A room edge, running from `points[index]` to the next corner. */
+      type: 'wall'
+      /** The room that owns the edge. */
+      id: string
+      index: number
+    }
+  | null
 
 /**
  * The name being typed over on the plan itself. Only the things that carry a

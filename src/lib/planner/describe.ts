@@ -28,6 +28,10 @@ export function selectionName(state: Snapshot): string {
   if (selection.type === 'furniture') {
     return state.furniture.find((f) => f.id === selection.id)?.name ?? 'item'
   }
+  if (selection.type === 'wall') {
+    const room = state.rooms.find((candidate) => candidate.id === selection.id)
+    return room ? `wall ${selection.index + 1} of ${room.name}` : 'wall'
+  }
   const opening = state.openings.find((o) => o.id === selection.id)
   return opening ? openingName(opening.kind) : 'opening'
 }

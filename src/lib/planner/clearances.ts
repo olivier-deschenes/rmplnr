@@ -307,6 +307,8 @@ export function clearancesFor(
     return opening ? openingClearances(rooms, openings, opening) : []
   }
 
+  if (selection.type === 'wall') return []
+
   const room = rooms.find((r) => r.id === selection.id)
   return room?.kind === 'closet' ? closetClearances(rooms, openings, room) : []
 }

@@ -191,7 +191,7 @@ bun run cf-types:check
 - Tool guidance updates and disappears at the appropriate times.
 - History empty-state copy reflects whether the plan itself is empty.
 
-### 8. [ ] Support exact wall-length and angle editing
+### 8. [x] Support exact wall-length and angle editing
 
 **Priority:** P1  
 **Dependencies:** Tasks 2 and 7

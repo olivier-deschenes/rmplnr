@@ -67,6 +67,11 @@ export function normalizeAngle(deg: number): number {
   return ((deg % 360) + 360) % 360
 }
 
+/** The clockwise screen-space angle from `a` to `b`, where 0° points right. */
+export function angleBetween(a: Point, b: Point): number {
+  return normalizeAngle((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI)
+}
+
 // --- polygons ---------------------------------------------------------------
 
 /** Shoelace area in cm², always positive. */
@@ -181,6 +186,160 @@ export function scalePolygon(
     x: bounds.x + (p.x - bounds.x) * kx,
     y: bounds.y + (p.y - bounds.y) * ky,
   }))
+}
+
+export type WallGeometryChange = {
+  length?: number
+  angle?: number
+}
+
+export type WallGeometryResult =
+  { ok: true; points: Array<Point> } | { ok: false; error: string }
+
+const GEOMETRY_EPSILON = 1e-6
+
+function turn(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+function onSegment(a: Point, b: Point, p: Point): boolean {
+  return (
+    Math.abs(turn(a, b, p)) <= GEOMETRY_EPSILON &&
+    p.x >= Math.min(a.x, b.x) - GEOMETRY_EPSILON &&
+    p.x <= Math.max(a.x, b.x) + GEOMETRY_EPSILON &&
+    p.y >= Math.min(a.y, b.y) - GEOMETRY_EPSILON &&
+    p.y <= Math.max(a.y, b.y) + GEOMETRY_EPSILON
+  )
+}
+
+/** Whether two closed line segments touch or cross. */
+function segmentsMeet(a: Point, b: Point, c: Point, d: Point): boolean {
+  const abC = turn(a, b, c)
+  const abD = turn(a, b, d)
+  const cdA = turn(c, d, a)
+  const cdB = turn(c, d, b)
+
+  if (
+    ((abC > GEOMETRY_EPSILON && abD < -GEOMETRY_EPSILON) ||
+      (abC < -GEOMETRY_EPSILON && abD > GEOMETRY_EPSILON)) &&
+    ((cdA > GEOMETRY_EPSILON && cdB < -GEOMETRY_EPSILON) ||
+      (cdA < -GEOMETRY_EPSILON && cdB > GEOMETRY_EPSILON))
+  ) {
+    return true
+  }
+
+  return (
+    onSegment(a, b, c) ||
+    onSegment(a, b, d) ||
+    onSegment(c, d, a) ||
+    onSegment(c, d, b)
+  )
+}
+
+function signedDoubleArea(points: Array<Point>): number {
+  let area = 0
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]
+    const b = points[(i + 1) % points.length]
+    area += a.x * b.y - b.x * a.y
+  }
+  return area
+}
+
+/**
+ * Explain why a changed outline cannot remain a room, or return null when it
+ * is still a connected, simple polygon with the same winding.
+ */
+export function outlineIssue(
+  before: Array<Point>,
+  after: Array<Point>,
+): string | null {
+  if (before.length !== after.length || after.length < 3) {
+    return 'That wall no longer belongs to a complete room.'
+  }
+
+  for (let i = 0; i < after.length; i++) {
+    const next = (i + 1) % after.length
+    if (distance(after[i], after[next]) < MIN_SIZE - GEOMETRY_EPSILON) {
+      return `That change would make an adjoining wall shorter than ${MIN_SIZE} cm.`
+    }
+  }
+
+  const beforeArea = signedDoubleArea(before)
+  const afterArea = signedDoubleArea(after)
+  if (
+    Math.abs(afterArea) <= GEOMETRY_EPSILON ||
+    Math.sign(afterArea) !== Math.sign(beforeArea)
+  ) {
+    return 'That change would flatten or turn the room inside out.'
+  }
+
+  for (let i = 0; i < after.length; i++) {
+    const a = after[i]
+    const b = after[(i + 1) % after.length]
+    for (let j = i + 1; j < after.length; j++) {
+      const adjacent = j === i + 1 || (i === 0 && j === after.length - 1)
+      if (adjacent) continue
+      const c = after[j]
+      const d = after[(j + 1) % after.length]
+      if (segmentsMeet(a, b, c, d)) {
+        return 'That change would make the room cross over itself.'
+      }
+    }
+  }
+
+  // Adjacent collinear walls may meet at their corner, but may not double back
+  // over one another from it.
+  for (let i = 0; i < after.length; i++) {
+    const previous = after[(i - 1 + after.length) % after.length]
+    const corner = after[i]
+    const next = after[(i + 1) % after.length]
+    if (Math.abs(turn(previous, corner, next)) > GEOMETRY_EPSILON) continue
+    const intoPrevious = { x: previous.x - corner.x, y: previous.y - corner.y }
+    const intoNext = { x: next.x - corner.x, y: next.y - corner.y }
+    if (intoPrevious.x * intoNext.x + intoPrevious.y * intoNext.y > 0) {
+      return 'That change would fold one wall back over another.'
+    }
+  }
+
+  return null
+}
+
+/**
+ * Set one wall's exact dimensions, keeping its first corner fixed and moving
+ * its second. The next wall follows that shared corner, so the outline always
+ * remains connected; changes that would stop it being a valid room are refused.
+ */
+export function editWallGeometry(
+  points: Array<Point>,
+  index: number,
+  change: WallGeometryChange,
+): WallGeometryResult {
+  if (index < 0 || index >= points.length) {
+    return { ok: false, error: 'This wall no longer exists.' }
+  }
+
+  const start = points[index]
+  const endIndex = (index + 1) % points.length
+  const end = points[endIndex]
+  const currentLength = distance(start, end)
+  const length = change.length ?? currentLength
+  const angle = change.angle ?? angleBetween(start, end)
+  if (!Number.isFinite(length) || !Number.isFinite(angle)) {
+    return { ok: false, error: 'Enter a finite wall length and angle.' }
+  }
+  if (length < MIN_SIZE) {
+    return { ok: false, error: `Walls must be at least ${MIN_SIZE} cm long.` }
+  }
+
+  const radians = (angle * Math.PI) / 180
+  const nextEnd = {
+    x: start.x + Math.cos(radians) * length,
+    y: start.y + Math.sin(radians) * length,
+  }
+  const next = points.map((point, i) => (i === endIndex ? nextEnd : point))
+  const issue = outlineIssue(points, next)
+  return issue ? { ok: false, error: issue } : { ok: true, points: next }
 }
 
 /** Where the infinite lines through `a→b` and `c→d` cross, or null if parallel. */

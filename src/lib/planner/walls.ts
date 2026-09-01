@@ -1,13 +1,18 @@
 import {
+  clampT,
   openingEnds,
   openingSpan,
   outlinePath,
   projectAlong,
   wallAt,
 } from './openings.ts'
+import { closetSize, reflowClosets } from './closets.ts'
+import { editWallGeometry, outlineIssue } from './geometry.ts'
+import { OPENING_PRESETS } from './presets.ts'
 
 import type { Opening, Point, Room } from './types.ts'
 import type { Span, Wall } from './openings.ts'
+import type { WallGeometryChange } from './geometry.ts'
 
 /**
  * Walls have body, and two rooms that meet share the wall between them.
@@ -102,6 +107,201 @@ export function neighbours(rooms: Array<Room>, roomId: string): Array<Room> {
     for (const share of sharedWalls(rooms, roomId, i)) ids.add(share.roomId)
   }
   return rooms.filter((r) => ids.has(r.id))
+}
+
+export type ConnectedWallEditResult =
+  | { ok: true; rooms: Array<Room>; openings: Array<Opening> }
+  | { ok: false; error: string }
+
+/** Put a point through the length-and-angle change made to `from`. */
+function mapWithWall(point: Point, from: Wall, to: Wall): Point {
+  const dx = point.x - from.a.x
+  const dy = point.y - from.a.y
+  const along = dx * from.tangent.x + dy * from.tangent.y
+  const across = dx * from.normal.x + dy * from.normal.y
+  const stretched = along * (to.length / from.length)
+  return {
+    x: to.a.x + to.tangent.x * stretched + to.normal.x * across,
+    y: to.a.y + to.tangent.y * stretched + to.normal.y * across,
+  }
+}
+
+/** Stable identities for every ordinary pair of walls currently shared. */
+function sharedPairs(rooms: Array<Room>): Set<string> {
+  const pairs = new Set<string>()
+  for (const room of rooms) {
+    if (room.kind === 'closet') continue
+    for (let wall = 0; wall < room.points.length; wall++) {
+      for (const share of sharedWalls(rooms, room.id, wall)) {
+        const other = rooms.find((candidate) => candidate.id === share.roomId)
+        if (other?.kind === 'closet') continue
+        const sides = [
+          `${room.id}\u0000${wall}`,
+          `${share.roomId}\u0000${share.wall}`,
+        ].sort()
+        pairs.add(JSON.stringify(sides))
+      }
+    }
+  }
+  return pairs
+}
+
+/** Whether two point lists describe the same outline to drawing precision. */
+function samePoints(a: Array<Point>, b: Array<Point>): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (point, index) =>
+        Math.abs(point.x - b[index].x) < 1e-6 &&
+        Math.abs(point.y - b[index].y) < 1e-6,
+    )
+  )
+}
+
+/**
+ * Change one wall and carry every room sharing that wall through the same
+ * transform. Openings keep their wall index and closets are laid back onto
+ * their host wall; anything that cannot be preserved makes the edit fail as a
+ * whole, leaving the plan untouched.
+ */
+export function editConnectedWall(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+  roomId: string,
+  index: number,
+  change: WallGeometryChange,
+): ConnectedWallEditResult {
+  const room = rooms.find((candidate) => candidate.id === roomId)
+  if (!room) return { ok: false, error: 'This room no longer exists.' }
+  if (room.kind === 'closet') {
+    return {
+      ok: false,
+      error: 'Edit this closet with its width and depth controls.',
+    }
+  }
+  if (room.locked) {
+    return { ok: false, error: `Unlock ${room.name} to edit its walls.` }
+  }
+
+  const from = wallAt(room.points, index)
+  if (!from) return { ok: false, error: 'This wall no longer exists.' }
+  const geometry = editWallGeometry(room.points, index, change)
+  if (!geometry.ok) return geometry
+  const to = wallAt(geometry.points, index)
+  if (!to) return { ok: false, error: 'That change would remove the wall.' }
+
+  const directShares = sharedWalls(rooms, roomId, index).filter(
+    (share) =>
+      rooms.find((candidate) => candidate.id === share.roomId)?.kind !==
+      'closet',
+  )
+  for (const share of directShares) {
+    const other = rooms.find((candidate) => candidate.id === share.roomId)
+    if (other?.locked) {
+      return {
+        ok: false,
+        error: `Unlock ${other.name} to keep the shared wall connected.`,
+      }
+    }
+  }
+
+  const changed = new Map<string, Array<Point>>([[roomId, geometry.points]])
+  for (const share of directShares) {
+    const other = rooms.find((candidate) => candidate.id === share.roomId)
+    if (!other) continue
+    const points = [...(changed.get(other.id) ?? other.points)]
+    const end = (share.wall + 1) % points.length
+    points[share.wall] = mapWithWall(other.points[share.wall], from, to)
+    points[end] = mapWithWall(other.points[end], from, to)
+    changed.set(other.id, points)
+  }
+
+  const movedRooms = rooms.map((candidate) => {
+    const points = changed.get(candidate.id)
+    return points ? { ...candidate, points } : candidate
+  })
+  for (const [id, points] of changed) {
+    const before = rooms.find((candidate) => candidate.id === id)
+    if (!before) continue
+    const issue = outlineIssue(before.points, points)
+    if (issue) return { ok: false, error: issue }
+  }
+
+  const beforeShares = sharedPairs(rooms)
+  const afterShares = sharedPairs(movedRooms)
+  if ([...beforeShares].some((pair) => !afterShares.has(pair))) {
+    return {
+      ok: false,
+      error: 'That change would pull apart another shared wall.',
+    }
+  }
+
+  const affectedRooms = new Set(changed.keys())
+  for (const closet of rooms) {
+    const attachment = closet.kind === 'closet' ? closet.attachment : undefined
+    if (!attachment || !changed.has(attachment.roomId)) continue
+    const host = movedRooms.find(
+      (candidate) => candidate.id === attachment.roomId,
+    )
+    const hostWall = host && wallAt(host.points, attachment.wall)
+    if (!host || !hostWall) {
+      return {
+        ok: false,
+        error: `That change would detach ${closet.name} from its room.`,
+      }
+    }
+    if (closetSize(closet).width > hostWall.length + 1e-6) {
+      return {
+        ok: false,
+        error: `${closet.name} is wider than the edited wall.`,
+      }
+    }
+    affectedRooms.add(closet.id)
+  }
+
+  const flowedRooms = reflowClosets(movedRooms)
+  const fittedOpenings: Array<Opening> = []
+  for (const opening of openings) {
+    if (!affectedRooms.has(opening.roomId)) {
+      fittedOpenings.push(opening)
+      continue
+    }
+    const owner = flowedRooms.find(
+      (candidate) => candidate.id === opening.roomId,
+    )
+    const wall = owner && wallAt(owner.points, opening.wall)
+    if (!owner || !wall) {
+      return {
+        ok: false,
+        error: `That change would detach an opening from ${owner?.name ?? 'its room'}.`,
+      }
+    }
+    if (opening.width > wall.length + 1e-6) {
+      return {
+        ok: false,
+        error: `${OPENING_PRESETS[opening.kind].label} in ${owner.name} is wider than the edited wall.`,
+      }
+    }
+    fittedOpenings.push({
+      ...opening,
+      t: clampT(opening.t, opening.width, wall.length),
+    })
+  }
+
+  // Avoid manufacturing a change when the entered value is already exact.
+  if (
+    rooms.every((candidate, i) =>
+      samePoints(candidate.points, flowedRooms[i].points),
+    ) &&
+    openings.every(
+      (opening, i) =>
+        opening === fittedOpenings[i] || opening.t === fittedOpenings[i].t,
+    )
+  ) {
+    return { ok: true, rooms, openings }
+  }
+
+  return { ok: true, rooms: flowedRooms, openings: fittedOpenings }
 }
 
 /** What is left of `span` once `gaps` are taken out of it. */

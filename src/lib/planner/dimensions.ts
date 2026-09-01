@@ -40,6 +40,9 @@ export type Box = { centre: Point; w: number; h: number; angle: number }
 
 export type WallLabel = {
   key: string
+  roomId: string
+  roomName: string
+  wall: number
   text: string
   box: Box
   /** Set only when the label had to leave its wall to find room. */
@@ -380,6 +383,9 @@ export function uprightAngle(dir: Point): number {
 
 type Candidate = {
   key: string
+  roomId: string
+  roomName: string
+  wall: number
   text: string
   /** Midpoint of the wall on screen, where the label would rather sit. */
   mid: Point
@@ -502,6 +508,9 @@ export function wallLabels(
       const tangent = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
       candidates.push({
         key: `${room.id}:${i}`,
+        roomId: room.id,
+        roomName: room.name,
+        wall: i,
         text: formatLength(world, units),
         mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
         normal: { x: tangent.y * sign, y: -tangent.x * sign },
@@ -532,6 +541,9 @@ export function wallLabels(
     const slot = slots[spot.index]
     labels.push({
       key: candidate.key,
+      roomId: candidate.roomId,
+      roomName: candidate.roomName,
+      wall: candidate.wall,
       text: candidate.text,
       box: spot.box,
       // Only a label that had to leave its wall need say where it came from.

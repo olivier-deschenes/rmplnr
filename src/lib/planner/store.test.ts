@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
-import { closetSize } from './closets.ts'
+import { closetSize, placeCloset } from './closets.ts'
 import { translatePolygon } from './geometry.ts'
+import { wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
   serializeLibraryBackup,
   serializeProject,
 } from './planSerialization.ts'
 import { snapTargets } from './snapping.ts'
-import { wallGaps } from './walls.ts'
+import { sharedWalls, wallGaps } from './walls.ts'
 
 import type { Project } from './types.ts'
 
@@ -34,6 +35,82 @@ function plan(id: string, name: string, roomName = 'Living'): Project {
     ],
     furniture: [],
     openings: [],
+  }
+}
+
+function connectedRectangle(): Project {
+  const room: Project['rooms'][number] = {
+    id: 'room-rect',
+    name: 'Living',
+    points: [
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 400, y: 300 },
+      { x: 0, y: 300 },
+    ],
+  }
+  const neighbour: Project['rooms'][number] = {
+    id: 'room-neighbour',
+    name: 'Study',
+    points: [
+      { x: 0, y: -200 },
+      { x: 400, y: -200 },
+      { x: 400, y: 0 },
+      { x: 0, y: 0 },
+    ],
+  }
+  const hostWall = wallAt(room.points, 0)!
+  const placed = placeCloset(
+    hostWall,
+    { roomId: room.id, wall: 0, t: 0.7 },
+    100,
+    60,
+  )
+  const closet: Project['rooms'][number] = {
+    id: 'closet-rect',
+    kind: 'closet',
+    name: 'Coats',
+    points: placed.points,
+    attachment: placed.attachment,
+  }
+
+  return {
+    id: PLAN_C,
+    name: 'Connected rooms',
+    rooms: [room, neighbour, closet],
+    furniture: [],
+    openings: [
+      {
+        id: 'door-host',
+        kind: 'door',
+        roomId: room.id,
+        wall: 0,
+        t: 0.25,
+        width: 90,
+        hinge: 'start',
+        swing: 'in',
+      },
+      {
+        id: 'window-neighbour',
+        kind: 'window',
+        roomId: neighbour.id,
+        wall: 2,
+        t: 0.5,
+        width: 80,
+        hinge: 'start',
+        swing: 'in',
+      },
+      {
+        id: 'door-closet',
+        kind: 'sliding-door',
+        roomId: closet.id,
+        wall: 0,
+        t: 0.5,
+        width: 100,
+        hinge: 'start',
+        swing: 'in',
+      },
+    ],
   }
 }
 
@@ -339,6 +416,143 @@ describe('closets', () => {
     plannerStore.actions.deleteSelected()
     expect(plannerStore.state.rooms).toEqual([])
     expect(plannerStore.state.openings).toEqual([])
+  })
+})
+
+describe('exact wall dimensions', () => {
+  it('keeps a rectangle wall, its neighbour, openings, and closet connected', () => {
+    const project = connectedRectangle()
+    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+    plannerStore.actions.openProject(project.id)
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 0 })
+    const before = plannerStore.state.rooms
+
+    const result = plannerStore.actions.setWallDimensions('room-rect', 0, {
+      length: 500,
+    })
+
+    expect(result).toEqual({ ok: true })
+    const room = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-rect',
+    )!
+    const neighbour = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-neighbour',
+    )!
+    const closet = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'closet-rect',
+    )!
+    expect(wallAt(room.points, 0)?.length).toBeCloseTo(500, 8)
+    expect(wallAt(neighbour.points, 2)?.length).toBeCloseTo(500, 8)
+    expect(
+      sharedWalls(plannerStore.state.rooms, room.id, 0).some(
+        (share) => share.roomId === neighbour.id && share.wall === 2,
+      ),
+    ).toBe(true)
+    expect(closetSize(closet)).toEqual({ width: 100, depth: 60 })
+    expect(closet.attachment).toMatchObject({
+      roomId: room.id,
+      wall: 0,
+      t: 0.7,
+    })
+    expect(
+      plannerStore.state.openings.map(({ id, roomId, wall, t, width }) => ({
+        id,
+        roomId,
+        wall,
+        t,
+        width,
+      })),
+    ).toEqual([
+      {
+        id: 'door-host',
+        roomId: room.id,
+        wall: 0,
+        t: 0.25,
+        width: 90,
+      },
+      {
+        id: 'window-neighbour',
+        roomId: neighbour.id,
+        wall: 2,
+        t: 0.5,
+        width: 80,
+      },
+      {
+        id: 'door-closet',
+        roomId: closet.id,
+        wall: 0,
+        t: 0.5,
+        width: 100,
+      },
+    ])
+    expect(plannerStore.state.history.past).toHaveLength(1)
+
+    plannerStore.actions.undo()
+    expect(plannerStore.state.rooms).toEqual(before)
+    expect(plannerStore.state.selection).toEqual({
+      type: 'wall',
+      id: 'room-rect',
+      index: 0,
+    })
+
+    plannerStore.actions.redo()
+    const redone = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-rect',
+    )!
+    expect(wallAt(redone.points, 0)?.length).toBeCloseTo(500, 8)
+    expect(plannerStore.state.history.past).toHaveLength(1)
+  })
+
+  it('rejects an irregular-room edit that cannot preserve its opening', () => {
+    const project: Project = {
+      id: PLAN_C,
+      name: 'Irregular room',
+      rooms: [
+        {
+          id: 'room-irregular',
+          name: 'Loft',
+          points: [
+            { x: 0, y: 0 },
+            { x: 280, y: 0 },
+            { x: 360, y: 120 },
+            { x: 230, y: 260 },
+            { x: 40, y: 190 },
+          ],
+        },
+      ],
+      furniture: [],
+      openings: [
+        {
+          id: 'wide-window',
+          kind: 'window',
+          roomId: 'room-irregular',
+          wall: 0,
+          t: 0.5,
+          width: 100,
+          hinge: 'start',
+          swing: 'in',
+        },
+      ],
+    }
+    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+    plannerStore.actions.openProject(project.id)
+    plannerStore.actions.select({
+      type: 'wall',
+      id: 'room-irregular',
+      index: 0,
+    })
+    const before = plannerStore.state
+
+    const result = plannerStore.actions.setWallDimensions('room-irregular', 0, {
+      length: 80,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Window in Loft is wider than the edited wall.',
+    })
+    expect(plannerStore.state).toBe(before)
+    expect(plannerStore.state.history.past).toEqual([])
   })
 })
 

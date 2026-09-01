@@ -39,3 +39,22 @@ it('shows a loaded plan name without faulting it', () => {
   expect(html).not.toContain('Enter a plan name.')
   expect(html).not.toContain('aria-invalid="true"')
 })
+
+it('shows exact length and angle controls for a selected wall', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+  const room = plannerStore.state.rooms[0]
+  plannerStore.actions.setRoomLocked(room.id, false)
+  plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Wall 1 of 4')
+  expect(html).toContain('Length cm')
+  expect(html).toContain('Angle °')
+  expect(html).toContain('value="400"')
+  expect(html).toContain('value="0"')
+  expect(html).toContain('Start corner')
+})

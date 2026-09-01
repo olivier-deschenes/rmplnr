@@ -59,7 +59,7 @@ function MobileInspector() {
         <SheetHeader className="shrink-0 border-b p-3 pr-14">
           <SheetTitle>Inspector</SheetTitle>
           <SheetDescription className="sr-only">
-            Edit the plan or the selected room, opening, or furniture.
+            Edit the plan or the selected room, wall, opening, or furniture.
           </SheetDescription>
         </SheetHeader>
         <Inspector

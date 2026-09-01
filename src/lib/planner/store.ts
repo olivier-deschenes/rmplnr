@@ -38,6 +38,7 @@ import {
   selectionName,
 } from './describe.ts'
 import { SNAP_STEP } from './units.ts'
+import { editConnectedWall } from './walls.ts'
 import {
   DEFAULT_SCALE,
   LibrarySchema,
@@ -50,6 +51,7 @@ import {
 
 import type { ConflictedPlan } from './libraryMerge.ts'
 import type { History, Snapshot } from './history.ts'
+import type { WallGeometryChange } from './geometry.ts'
 import type {
   Clipboard,
   Furniture,
@@ -488,6 +490,7 @@ function copyOf(state: PlannerState): Clipboard | null {
     const item = state.furniture.find((f) => f.id === selection.id)
     return item ? { type: 'furniture', item } : null
   }
+  if (selection.type !== 'opening') return null
   const opening = state.openings.find((o) => o.id === selection.id)
   return opening ? { type: 'opening', opening } : null
 }
@@ -1182,6 +1185,50 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /**
+   * Set a wall's measured length or angle in one atomic history step. Rooms
+   * sharing the wall move with it; an edit that cannot keep the plan connected
+   * returns its explanation and changes nothing.
+   */
+  setWallDimensions(
+    roomId: string,
+    index: number,
+    change: WallGeometryChange,
+  ): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = {
+      ok: false,
+      error: 'The wall could not be changed.',
+    }
+    setState((s) => {
+      const room = s.rooms.find((candidate) => candidate.id === roomId)
+      if (!room) {
+        outcome = { ok: false, error: 'This room no longer exists.' }
+        return s
+      }
+      const result = editConnectedWall(
+        s.rooms,
+        s.openings,
+        roomId,
+        index,
+        change,
+      )
+      if (!result.ok) {
+        outcome = result
+        return s
+      }
+      outcome = { ok: true }
+      if (result.rooms === s.rooms && result.openings === s.openings) return s
+      return {
+        ...s,
+        history: commit(s, null, `Changed wall ${index + 1} of ${room.name}`),
+        rooms: result.rooms,
+        openings: result.openings,
+        selection: { type: 'wall', id: roomId, index },
+      }
+    })
+    return outcome
+  },
+
   insertVertex(roomId: string, afterIndex: number, point: Point) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
@@ -1215,6 +1262,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
+      if (type === 'wall') return s
       const removedRooms = new Set<string>()
       if (type === 'room') {
         // A locked room is held against deletion too, and holds the closets
@@ -1252,6 +1300,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
+      if (type === 'wall') return s
       const history = commit(
         s,
         `nudge:${type}:${id}`,
