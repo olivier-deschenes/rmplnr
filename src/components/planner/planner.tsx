@@ -21,6 +21,7 @@ import {
 import { TooltipProvider } from '#/components/ui/tooltip.tsx'
 
 import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
+import { underlayStore } from '#/lib/planner/underlay.ts'
 
 function MobileInspector() {
   const [open, setOpen] = useState(false)
@@ -79,7 +80,11 @@ export function Planner({ projectId }: { projectId: string }) {
   useEffect(() => {
     restoreLibrary()
     plannerStore.actions.openProject(projectId)
-    return () => plannerStore.actions.closeProject()
+    void underlayStore.actions.open(projectId)
+    return () => {
+      underlayStore.actions.close(projectId)
+      plannerStore.actions.closeProject()
+    }
   }, [projectId])
 
   // A plan that is not in the library is not a plan to draw on: an old link,

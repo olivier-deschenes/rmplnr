@@ -25,6 +25,7 @@ import {
   IconPlus,
   IconPointer,
   IconPhoto,
+  IconPhotoScan,
   IconRectangle,
   IconSettings,
   IconSofa,
@@ -38,6 +39,7 @@ import {
 
 import { ImportDialog } from './import-dialog.tsx'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
+import { UnderlayDialog } from './underlay-dialog.tsx'
 
 import {
   AlertDialog,
@@ -88,6 +90,7 @@ import {
 } from '#/lib/planner/presets.ts'
 import { currentProjects, plannerStore, saveNow } from '#/lib/planner/store.ts'
 import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
+import { underlayStore } from '#/lib/planner/underlay.ts'
 import {
   UNITS,
   UNIT_HINT,
@@ -320,6 +323,26 @@ function ProjectMenu() {
   const show = (id: string | null) =>
     id && navigate({ to: '/p/$projectId', params: { projectId: id } })
 
+  const duplicate = async () => {
+    const source = projectId
+    const copy = actions.duplicateProject()
+    if (!copy) return
+    if (source) {
+      try {
+        await underlayStore.actions.copyProject(source, copy)
+      } catch {
+        toast.warning('The plan was copied without its underlay.')
+      }
+    }
+    show(copy)
+  }
+
+  const remove = () => {
+    if (!projectId) return
+    void underlayStore.actions.deleteProject(projectId)
+    actions.deleteProject(projectId)
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -350,7 +373,7 @@ function ProjectMenu() {
             <IconPlus />
             New plan
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => show(actions.duplicateProject())}>
+          <DropdownMenuItem onSelect={() => void duplicate()}>
             <IconCopy />
             Duplicate
           </DropdownMenuItem>
@@ -381,11 +404,7 @@ function ProjectMenu() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              size="sm"
-              variant="destructive"
-              onClick={() => projectId && actions.deleteProject(projectId)}
-            >
+            <AlertDialogAction size="sm" variant="destructive" onClick={remove}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -483,6 +502,54 @@ function SaveStatus() {
   )
 }
 
+function UnderlayControl() {
+  const [open, setOpen] = useState(false)
+  const { underlay, status, failure, positioning } = useSelector(underlayStore)
+  const failed = status === 'error'
+
+  useEffect(() => {
+    if (!failed) {
+      toast.dismiss('underlay-save')
+      return
+    }
+    const detail =
+      failure === 'quota'
+        ? 'This browser has no room left for the background image.'
+        : failure === 'blocked'
+          ? 'This browser is blocking the underlay image store.'
+          : 'The browser could not save the background image.'
+    toast.error('Underlay not saved', {
+      id: 'underlay-save',
+      description: `${detail} The plan itself is still safe.`,
+    })
+  }, [failed, failure])
+
+  const label = underlay ? 'Manage underlay' : 'Add image or PDF underlay'
+
+  return (
+    <>
+      <Hint label={positioning ? 'Finish positioning the underlay' : label}>
+        <Button
+          variant={positioning ? 'default' : 'outline'}
+          size="sm"
+          className="max-sm:size-11 max-sm:px-0"
+          aria-label={label}
+          disabled={status === 'loading'}
+          onClick={() =>
+            positioning
+              ? underlayStore.actions.setPositioning(false)
+              : setOpen(true)
+          }
+        >
+          {failed ? <IconAlertTriangle /> : <IconPhotoScan />}
+          <span className="max-xl:sr-only">Underlay</span>
+        </Button>
+      </Hint>
+      <UnderlayDialog open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
 // The library entry for the open plan trails the live canvas until it is
 // closed. Files must take the current rooms, furniture and openings instead.
 function currentProject() {
@@ -497,13 +564,17 @@ function downloadJson() {
   if (project) downloadProjectJson(project)
 }
 
-async function downloadPng() {
+async function downloadPng(includeUnderlay = false) {
   const project = currentProject()
   if (!project) return
 
   try {
     const { downloadProjectPng } = await import('./planImage.tsx')
-    await downloadProjectPng(project, plannerStore.state.units)
+    await downloadProjectPng(
+      project,
+      plannerStore.state.units,
+      includeUnderlay ? (underlayStore.state.underlay ?? undefined) : undefined,
+    )
   } catch {
     toast.error('Could not export the PNG image.')
   }
@@ -515,6 +586,8 @@ function downloadBackup() {
 
 /** Download the open plan without hiding the action in the plan switcher. */
 function ExportMenu() {
+  const underlay = useSelector(underlayStore, (state) => state.underlay)
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -533,6 +606,12 @@ function ExportMenu() {
           <IconPhoto />
           PNG image
         </DropdownMenuItem>
+        {underlay && (
+          <DropdownMenuItem onSelect={() => void downloadPng(true)}>
+            <IconPhotoScan />
+            PNG with underlay
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={downloadJson}>
           <IconJson />
           JSON
@@ -555,6 +634,7 @@ function FileMenu({
   onProjectImported: (id: string) => void
 }) {
   const [importing, setImporting] = useState(false)
+  const underlay = useSelector(underlayStore, (state) => state.underlay)
 
   return (
     <>
@@ -588,6 +668,12 @@ function FileMenu({
             <IconPhoto />
             Export PNG
           </DropdownMenuItem>
+          {underlay && (
+            <DropdownMenuItem onSelect={() => void downloadPng(true)}>
+              <IconPhotoScan />
+              Export PNG with underlay
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={downloadJson}>
             <IconJson />
             Export JSON
@@ -926,6 +1012,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
         data-toolbar-section="actions"
         className="flex h-12 shrink-0 items-center gap-0.5 pr-2 sm:h-11 xl:h-auto xl:p-0"
       >
+        <UnderlayControl />
         <div className="xl:hidden">
           <FileMenu
             onProjectImported={(id) =>

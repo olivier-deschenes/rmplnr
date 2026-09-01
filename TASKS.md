@@ -210,7 +210,7 @@ bun run cf-types:check
 - Editing one wall does not corrupt adjoining geometry or detach openings.
 - Undo and redo treat one committed dimension change as one history step.
 
-### 9. [ ] Add calibrated image/PDF underlay tracing
+### 9. [x] Add calibrated image/PDF underlay tracing
 
 **Priority:** P1  
 **Dependencies:** Tasks 5 and 6

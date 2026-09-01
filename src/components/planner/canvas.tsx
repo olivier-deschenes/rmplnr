@@ -3,6 +3,7 @@ import { useSelector } from '@tanstack/react-store'
 import { useHotkeys, useKeyHold } from '@tanstack/react-hotkeys'
 
 import { Grid } from './grid.tsx'
+import { UnderlayImage, useBlobUrl } from './underlay.tsx'
 import {
   FurnitureShape,
   OpeningShape,
@@ -27,6 +28,7 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
+import { underlayStore } from '#/lib/planner/underlay.ts'
 import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
 import {
@@ -189,6 +191,11 @@ type Drag =
     }
   | { mode: 'opening'; id: string }
   | { mode: 'opening-end'; id: string; end: 'start' | 'end' }
+  | {
+      mode: 'move-underlay'
+      grab: Point
+      origin: { x: number; y: number }
+    }
   | { mode: 'rect' }
 
 /**
@@ -235,6 +242,9 @@ export function Canvas() {
     rect: rectDraft,
     size,
   } = useSelector(plannerStore)
+  const { underlay, positioning: positioningUnderlay } =
+    useSelector(underlayStore)
+  const underlayUrl = useBlobUrl(underlay?.blob ?? null)
 
   const [cursor, setCursor] = useState<Point | null>(null)
   const [panning, setPanning] = useState(false)
@@ -385,6 +395,10 @@ export function Canvas() {
    * the rectangle, then the tool, and only then the selection.
    */
   const cancel = () => {
+    if (underlayStore.state.positioning) {
+      underlayStore.actions.setPositioning(false)
+      return
+    }
     const state = plannerStore.state
     if (state.draft) actions.cancelDraft()
     else if (state.rect) actions.cancelRect()
@@ -426,6 +440,14 @@ export function Canvas() {
         hotkey: EDIT_KEYS.commit,
         callback: () => actions.commitDraft(),
         options: { enabled: draft !== null },
+      },
+      {
+        hotkey: EDIT_KEYS.commit,
+        callback: () => underlayStore.actions.setPositioning(false),
+        options: {
+          enabled: positioningUnderlay,
+          conflictBehavior: 'allow',
+        },
       },
       // A draft gives up its last corner before the plan gives up anything.
       ...[EDIT_KEYS.remove, EDIT_KEYS.removeAlt].map((hotkey) => ({
@@ -501,6 +523,25 @@ export function Canvas() {
 
   function onCanvasPointerDown(event: React.PointerEvent) {
     const state = plannerStore.state
+    const background = underlayStore.state
+    if (background.positioning) {
+      if (event.button === 1 || spaceHeld) {
+        beginPan(event)
+      } else if (event.button === 0 && background.underlay) {
+        begin(
+          {
+            mode: 'move-underlay',
+            grab: toWorld(event),
+            origin: {
+              x: background.underlay.x,
+              y: background.underlay.y,
+            },
+          },
+          event,
+        )
+      }
+      return
+    }
     if (event.button === 1 || spaceHeld || state.tool === 'select') {
       beginPan(event)
       return
@@ -748,6 +789,13 @@ export function Canvas() {
         })
         break
       }
+      case 'move-underlay': {
+        underlayStore.actions.previewPosition(
+          drag.origin.x + world.x - drag.grab.x,
+          drag.origin.y + world.y - drag.grab.y,
+        )
+        break
+      }
       case 'rect': {
         actions.updateRect(settle(world))
         break
@@ -762,6 +810,9 @@ export function Canvas() {
       actions.select(null)
     }
     if (drag?.mode === 'rect') actions.commitRect()
+    if (drag?.mode === 'move-underlay') {
+      underlayStore.actions.commitPosition()
+    }
     if (drag) actions.sealHistory()
     dragRef.current = null
     slopRef.current = null
@@ -793,6 +844,7 @@ export function Canvas() {
    * than the break.
    */
   function onDoubleClick(event: React.MouseEvent) {
+    if (underlayStore.state.positioning) return
     const state = plannerStore.state
     if (state.tool === 'room' && state.draft) {
       // The second click already added a duplicate vertex; drop it and close.
@@ -1097,9 +1149,11 @@ export function Canvas() {
 
   const cursorClass = panning
     ? 'cursor-grabbing'
-    : tool === 'select'
-      ? 'cursor-default'
-      : 'cursor-crosshair'
+    : positioningUnderlay
+      ? 'cursor-move'
+      : tool === 'select'
+        ? 'cursor-default'
+        : 'cursor-crosshair'
 
   return (
     <svg
@@ -1121,8 +1175,20 @@ export function Canvas() {
 
       <g
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
-        className={tool === 'select' ? undefined : 'pointer-events-none'}
+        className={
+          positioningUnderlay || tool !== 'select'
+            ? 'pointer-events-none'
+            : undefined
+        }
       >
+        {underlay && underlayUrl && (
+          <UnderlayImage
+            underlay={underlay}
+            href={underlayUrl}
+            positioning={positioningUnderlay}
+            scale={viewport.scale}
+          />
+        )}
         {/*
           Floors first, all of them, and the walls afterwards in one pass over
           the lot. A wall belongs to the plan rather than to a room — the one
@@ -1240,7 +1306,7 @@ export function Canvas() {
             : undefined
         }
         onSelect={
-          tool === 'select'
+          tool === 'select' && !positioningUnderlay
             ? (roomId, wall) => {
                 const room = plannerStore.state.rooms.find(
                   (candidate) => candidate.id === roomId,

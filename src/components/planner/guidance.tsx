@@ -21,6 +21,7 @@ import {
 
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
+import { underlayStore } from '#/lib/planner/underlay.ts'
 
 import type { PlannerState } from '#/lib/planner/store.ts'
 
@@ -96,11 +97,52 @@ export function CanvasGuidance({
     draft: current.draft,
     openingKind: current.openingKind,
   }))
+  const background = useSelector(underlayStore, (current) => ({
+    loading: current.status === 'loading',
+    present: current.underlay !== null,
+    positioning: current.positioning,
+  }))
   const [importing, setImporting] = useState(false)
 
-  if (!state.restored || !state.projectId) return null
+  if (!state.restored || !state.projectId || background.loading) return null
+
+  if (background.positioning) {
+    return (
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+        <Alert
+          className="w-auto max-w-xl bg-background/95 shadow-sm backdrop-blur-sm"
+          data-canvas-tool-guidance
+        >
+          <IconInfoCircle />
+          <AlertTitle>Position the underlay</AlertTitle>
+          <AlertDescription>
+            Drag anywhere to align the background. Hold Space and drag to pan;
+            press Enter or Esc when done.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   const guide = instructionFor(state)
+
+  if (background.present && state.empty && state.tool === 'select') {
+    return (
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+        <Alert
+          className="w-auto max-w-xl bg-background/95 shadow-sm backdrop-blur-sm"
+          data-canvas-tool-guidance
+        >
+          <IconInfoCircle />
+          <AlertTitle>Trace the underlay</AlertTitle>
+          <AlertDescription>
+            Choose Rectangle room or Custom outline in the toolbar, then draw
+            over the calibrated background.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   if (state.empty && state.tool === 'select') {
     return (

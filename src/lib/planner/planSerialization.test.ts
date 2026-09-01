@@ -87,6 +87,16 @@ describe('serializeProject', () => {
     expect(serializeProject(strayField)).toBe(serializeProject(plan()))
   })
 
+  it('keeps underlay assets out of normal plan exports', () => {
+    const withUnderlay = {
+      ...plan(),
+      underlay: { id: 'underlay-1', blob: new Blob(['large asset']) },
+    } as Project
+
+    expect(serializeProject(withUnderlay)).toBe(serializeProject(plan()))
+    expect(serializeProject(withUnderlay)).not.toContain('underlay')
+  })
+
   it('agrees with the record form, so a hash means the same on both sides', () => {
     expect(serializeProjectRecord(toProjectRecord(plan()))).toBe(
       serializeProject(plan()),

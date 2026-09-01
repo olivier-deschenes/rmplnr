@@ -29,6 +29,7 @@ it('keeps every editor control reachable in responsive groups', async () => {
   expect(html).toContain('data-toolbar-section="plan"')
   expect(html).toContain('data-toolbar-section="tools"')
   expect(html).toContain('data-toolbar-section="actions"')
+  expect(html).toContain('aria-label="Add image or PDF underlay"')
   expect(html).toContain('aria-label="Import or export"')
   expect(html).toContain('aria-label="Open inspector"')
   expect(html).toContain('aria-label="Inspector"')

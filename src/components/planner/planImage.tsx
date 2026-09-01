@@ -7,6 +7,7 @@ import {
   RoomFloor,
   RoomWalls,
 } from './shapes.tsx'
+import { UnderlayImage } from './underlay.tsx'
 import { FurnitureLabels, RoomLabels, WallDimensions } from './overlay.tsx'
 
 import { downloadFile, projectFileName } from '#/lib/planner/projectExport.ts'
@@ -16,6 +17,7 @@ import { openingWall } from '#/lib/planner/openings.ts'
 import { wallPath } from '#/lib/planner/walls.ts'
 
 import type { Project, Rect, Units, Viewport } from '#/lib/planner/types.ts'
+import type { Underlay } from '#/lib/planner/underlay.ts'
 
 const LONG_EDGE = 1600
 const SHORT_EDGE = 600
@@ -47,9 +49,31 @@ const SVG_STYLE_PROPERTIES = [
 
 type ImageSize = { width: number; height: number }
 
+function joinedBounds(plan: Rect | null, underlay?: Underlay): Rect | null {
+  if (!underlay) return plan
+  const background = {
+    x: underlay.x,
+    y: underlay.y,
+    w: underlay.width,
+    h: underlay.height,
+  }
+  if (!plan) return background
+  const x = Math.min(plan.x, background.x)
+  const y = Math.min(plan.y, background.y)
+  const right = Math.max(plan.x + plan.w, background.x + background.w)
+  const bottom = Math.max(plan.y + plan.h, background.y + background.h)
+  return { x, y, w: right - x, h: bottom - y }
+}
+
 /** A large, useful image shape that follows the plan without becoming extreme. */
-export function planImageSize(project: Project): ImageSize {
-  const bounds = planBounds(project.rooms, project.furniture)
+export function planImageSize(
+  project: Project,
+  underlay?: Underlay,
+): ImageSize {
+  const bounds = joinedBounds(
+    planBounds(project.rooms, project.furniture),
+    underlay,
+  )
   if (!bounds) return { width: 1200, height: 900 }
 
   const aspect = Math.min(4, Math.max(0.25, bounds.w / Math.max(bounds.h, 1)))
@@ -80,12 +104,23 @@ function imageViewport(bounds: Rect | null, size: ImageSize): Viewport {
   }
 }
 
-function PlanImage({ project, units }: { project: Project; units: Units }) {
-  const size = planImageSize(project)
-  const viewport = imageViewport(
+function PlanImage({
+  project,
+  units,
+  underlay,
+  underlayHref,
+}: {
+  project: Project
+  units: Units
+  underlay?: Underlay
+  underlayHref?: string
+}) {
+  const bounds = joinedBounds(
     planBounds(project.rooms, project.furniture),
-    size,
+    underlay,
   )
+  const size = planImageSize(project, underlay)
+  const viewport = imageViewport(bounds, size)
   const placed = project.openings.flatMap((opening) => {
     const wall = openingWall(project.rooms, opening)
     return wall ? [{ opening, wall }] : []
@@ -115,6 +150,12 @@ function PlanImage({ project, units }: { project: Project; units: Units }) {
       <g
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
       >
+        {underlay && underlayHref && (
+          <UnderlayImage
+            underlay={{ ...underlay, visible: true }}
+            href={underlayHref}
+          />
+        )}
         {project.rooms.map((room) => (
           <RoomFloor
             key={room.id}
@@ -194,6 +235,19 @@ async function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
+function blobDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Could not read the underlay image.'))
+    reader.onerror = () =>
+      reject(reader.error ?? new Error('Could not read the underlay image.'))
+    reader.readAsDataURL(blob)
+  })
+}
+
 async function svgPng(svg: SVGSVGElement): Promise<Blob> {
   await document.fonts.ready
 
@@ -248,6 +302,7 @@ async function svgPng(svg: SVGSVGElement): Promise<Blob> {
 export async function downloadProjectPng(
   project: Project,
   units: Units,
+  underlay?: Underlay,
 ): Promise<void> {
   const host = document.createElement('div')
   host.style.position = 'fixed'
@@ -258,11 +313,29 @@ export async function downloadProjectPng(
 
   const root = createRoot(host)
   try {
-    flushSync(() => root.render(<PlanImage project={project} units={units} />))
+    const underlayHref = underlay ? await blobDataUrl(underlay.blob) : undefined
+    flushSync(() =>
+      root.render(
+        <PlanImage
+          project={project}
+          units={units}
+          underlay={underlay}
+          underlayHref={underlayHref}
+        />,
+      ),
+    )
     const svg = host.querySelector('svg')
     if (!svg) throw new Error('Could not prepare the plan image.')
     const png = await svgPng(svg)
-    downloadFile(png, projectFileName(project, 'png'))
+    downloadFile(
+      png,
+      projectFileName(
+        underlay
+          ? { ...project, name: `${project.name} with underlay` }
+          : project,
+        'png',
+      ),
+    )
   } finally {
     root.unmount()
     host.remove()
