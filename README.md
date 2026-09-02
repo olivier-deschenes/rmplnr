@@ -51,6 +51,10 @@ bun run cf-types:check
 - Single-plan JSON and PNG exports are downloaded directly by the browser.
   JSON plans can be previewed and imported again. A full-library backup keeps
   every plan ID and can replace the browser's whole local library after review.
+- The AI furniture helper opens a service you choose with generic research and
+  formatting instructions. It sends no plan data; the product details you give
+  that service follow its own privacy terms, and pasted results are checked and
+  added locally.
 - GitHub sync writes only selected plans to
   `.rmplnr/plans/<plan-uuid>.json`. Repository sync state lives at
   `.rmplnr/workspace.json`.

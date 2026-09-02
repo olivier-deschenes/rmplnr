@@ -953,6 +953,22 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /** Add one already-validated measured footprint, such as an AI import. */
+  addFurnitureFootprint(
+    footprint: Pick<
+      CustomFurniturePreset,
+      'name' | 'kind' | 'w' | 'h' | 'collides'
+    >,
+  ) {
+    setState((s) => {
+      const taken = s.furniture.map((item) => item.name)
+      const name = taken.includes(footprint.name)
+        ? copyName(footprint.name, taken)
+        : footprint.name
+      return withFurniture(s, footprint, name)
+    })
+  },
+
   /** Save the selected item's current name, size, glyph and solidity for reuse. */
   saveFurniturePreset(itemId: string): string | null {
     const item = get().furniture.find((candidate) => candidate.id === itemId)

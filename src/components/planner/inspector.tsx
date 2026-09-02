@@ -553,7 +553,7 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
           onCommit={(w) => update({ w })}
         />
         <LengthField
-          label="Height"
+          label="Depth"
           cm={item.h}
           units={units}
           min={MIN_SIZE}

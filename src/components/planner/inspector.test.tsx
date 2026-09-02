@@ -104,6 +104,7 @@ it('edits catalogue footprints in imperial units and can save a custom preset', 
 
   expect(html).toContain('Bed')
   expect(html).toContain('Width in')
+  expect(html).toContain('Depth in')
   expect(html).toContain('value="59.06"')
   expect(html).toContain('value="78.74"')
   expect(html).toContain('Solid footprint')

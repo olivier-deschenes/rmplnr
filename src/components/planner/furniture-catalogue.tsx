@@ -18,9 +18,12 @@ import {
   IconSearch,
   IconSettings,
   IconSofa,
+  IconSparkles,
   IconTable,
   IconTrash,
 } from '@tabler/icons-react'
+
+import { AIFurnitureImport } from './ai-furniture-import.tsx'
 
 import {
   AlertDialog,
@@ -200,6 +203,7 @@ export function FurnitureCatalogue() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [managing, setManaging] = useState(false)
+  const [usingAI, setUsingAI] = useState(false)
   const [deleting, setDeleting] = useState<CustomFurniturePreset | null>(null)
   const tool = useSelector(plannerStore, (state) => state.tool)
   const units = useSelector(plannerStore, (state) => state.units)
@@ -208,7 +212,15 @@ export function FurnitureCatalogue() {
     (state) => state.customFurniturePresets,
   )
 
-  const close = () => setOpen(false)
+  const reset = () => {
+    setQuery('')
+    setManaging(false)
+    setUsingAI(false)
+  }
+  const close = () => {
+    setOpen(false)
+    reset()
+  }
   const chooseBuiltIn = (kind: FurnitureKind) => {
     plannerStore.actions.addFurniture(kind)
     close()
@@ -245,10 +257,7 @@ export function FurnitureCatalogue() {
         open={open}
         onOpenChange={(next) => {
           setOpen(next)
-          if (!next) {
-            setQuery('')
-            setManaging(false)
-          }
+          if (!next) reset()
         }}
       >
         <DialogTrigger asChild>
@@ -265,16 +274,28 @@ export function FurnitureCatalogue() {
         <DialogContent className="grid max-h-[min(90vh,44rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {managing ? 'Custom presets' : 'Add to plan'}
+              {usingAI
+                ? 'Add furniture with AI'
+                : managing
+                  ? 'Custom presets'
+                  : 'Add to plan'}
             </DialogTitle>
             <DialogDescription>
-              {managing
-                ? 'Rename or delete footprints saved from the inspector.'
-                : 'Choose a measured footprint, then resize or rename it in the inspector.'}
+              {usingAI
+                ? 'Ask an AI service to research a top-down footprint, then paste its JSON response here. rmplnr sends no plan data.'
+                : managing
+                  ? 'Rename or delete footprints saved from the inspector.'
+                  : 'Choose a measured footprint, then resize or rename it in the inspector.'}
             </DialogDescription>
           </DialogHeader>
 
-          {managing ? (
+          {usingAI ? (
+            <AIFurnitureImport
+              units={units}
+              onBack={() => setUsingAI(false)}
+              onAdded={close}
+            />
+          ) : managing ? (
             <div className="min-h-0 overflow-y-auto pr-1">
               {custom.length === 0 ? (
                 <p className="text-muted-foreground py-8 text-center">
@@ -399,19 +420,28 @@ export function FurnitureCatalogue() {
             </div>
           )}
 
-          <DialogFooter className="border-t pt-3 sm:justify-between">
-            {managing ? (
-              <Button variant="outline" onClick={() => setManaging(false)}>
-                <IconArrowLeft data-icon="inline-start" />
-                Back to catalogue
-              </Button>
-            ) : (
-              <Button variant="outline" onClick={() => setManaging(true)}>
-                <IconSettings data-icon="inline-start" />
-                Custom presets{custom.length > 0 ? ` (${custom.length})` : ''}
-              </Button>
-            )}
-          </DialogFooter>
+          {!usingAI ? (
+            <DialogFooter className="border-t pt-3 sm:justify-between">
+              {managing ? (
+                <Button variant="outline" onClick={() => setManaging(false)}>
+                  <IconArrowLeft data-icon="inline-start" />
+                  Back to catalogue
+                </Button>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => setManaging(true)}>
+                    <IconSettings data-icon="inline-start" />
+                    Custom presets
+                    {custom.length > 0 ? ` (${custom.length})` : ''}
+                  </Button>
+                  <Button onClick={() => setUsingAI(true)}>
+                    <IconSparkles data-icon="inline-start" />
+                    Find dimensions with AI
+                  </Button>
+                </>
+              )}
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
 

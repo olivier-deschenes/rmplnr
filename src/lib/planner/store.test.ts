@@ -210,6 +210,40 @@ describe('furniture catalogue', () => {
     expect(plannerStore.state.furniture).toContainEqual(reused)
   })
 
+  it('adds a measured footprint as one undoable plan item', () => {
+    plannerStore.actions.setSize(800, 600)
+    plannerStore.actions.setViewport({ tx: 0, ty: 0, scale: 1 })
+
+    plannerStore.actions.addFurnitureFootprint({
+      name: 'KIVIK 3-seat sofa',
+      kind: 'sofa',
+      w: 228,
+      h: 95,
+      collides: true,
+    })
+
+    const item = plannerStore.state.furniture[0]
+    expect(item).toMatchObject({
+      name: 'KIVIK 3-seat sofa',
+      kind: 'sofa',
+      w: 228,
+      h: 95,
+      rotation: 0,
+      collides: true,
+    })
+    expect(typeof item.id).toBe('string')
+    expect(plannerStore.state.selection).toEqual({
+      type: 'furniture',
+      id: item.id,
+    })
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Added KIVIK 3-seat sofa',
+    )
+
+    plannerStore.actions.undo()
+    expect(plannerStore.state.furniture).toEqual([])
+  })
+
   it('allows soft footprints to overlap while solid furniture stays apart', () => {
     plannerStore.actions.closeProject()
     plannerStore.actions.loadLibrary({
