@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { IconAdjustmentsHorizontal } from '@tabler/icons-react'
@@ -9,6 +9,7 @@ import { Inspector } from './inspector.tsx'
 import { Toolbar } from './toolbar.tsx'
 
 import { TabConflictDialog } from '#/components/tab-conflict.tsx'
+import { PageLoading } from '#/components/page-loading.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import {
   Sheet,
@@ -73,11 +74,11 @@ function MobileInspector() {
 }
 
 export function Planner({ projectId }: { projectId: string }) {
-  // localStorage is client-only, so the library is read back after mount —
-  // before the plan is asked for, which is why both live in the one effect.
+  // localStorage is client-only, so the library is read back after mount.
+  // A layout effect keeps the empty editor from reaching the first paint.
   // Leaving hands the plan back to the library, so that the list on the way
   // out has the room just drawn on it rather than the plan as it was opened.
-  useEffect(() => {
+  useLayoutEffect(() => {
     restoreLibrary()
     plannerStore.actions.openProject(projectId)
     void underlayStore.actions.open(projectId)
@@ -91,6 +92,10 @@ export function Planner({ projectId }: { projectId: string }) {
   // or the one just deleted from the toolbar. Either way the list is where the
   // reader should be, and `replace` keeps it out of the way of the back button.
   const navigate = useNavigate()
+  const ready = useSelector(
+    plannerStore,
+    (s) => s.restored && s.projectId === projectId,
+  )
   const missing = useSelector(
     plannerStore,
     (s) => s.restored && !s.projects.some((p) => p.id === projectId),
@@ -99,6 +104,8 @@ export function Planner({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (missing) navigate({ to: '/', replace: true })
   }, [missing, navigate])
+
+  if (!ready) return <PageLoading label="Opening plan…" />
 
   return (
     // Long enough a delay that sweeping across the toolbar does not set off

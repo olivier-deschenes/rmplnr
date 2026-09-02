@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSelector } from '@tanstack/react-store'
 import { IconDownload, IconPlus, IconUpload } from '@tabler/icons-react'
 
 import { ImportDialog } from '#/components/planner/import-dialog.tsx'
+import { PageLoading } from '#/components/page-loading.tsx'
 import { TabConflictDialog } from '#/components/tab-conflict.tsx'
 import { Button } from '#/components/ui/button.tsx'
 
@@ -37,9 +38,9 @@ function summary(project: Project, units: Units): string {
  * name included, is a room away in the editor.
  */
 function Home() {
-  // localStorage is client-only: the server renders this list empty, and the
-  // browser fills it in on the far side of the first paint.
-  useEffect(() => {
+  // localStorage is client-only. Restore it before the browser paints so the
+  // page never flashes an empty list on its way to the saved one.
+  useLayoutEffect(() => {
     restoreLibrary()
   }, [])
 
@@ -47,6 +48,8 @@ function Home() {
   const restored = useSelector(plannerStore, (s) => s.restored)
   const units = useSelector(plannerStore, (s) => s.units)
   const navigate = useNavigate()
+
+  if (!restored) return <PageLoading label="Loading plans…" />
 
   const start = () =>
     navigate({
@@ -85,13 +88,9 @@ function Home() {
             ))}
           </ul>
         ) : (
-          // Empty until the library has been read, which is not the same as
-          // there being nothing in it; only one of the two is worth saying.
-          restored && (
-            <p className="text-muted-foreground text-[11px]">
-              Nothing yet — start one below
-            </p>
-          )
+          <p className="text-muted-foreground text-[11px]">
+            Nothing yet — start one below
+          </p>
         )}
       </section>
 
