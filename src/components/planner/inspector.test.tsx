@@ -59,6 +59,42 @@ it('shows exact length and angle controls for a selected wall', () => {
   expect(html).toContain('Start corner')
 })
 
+it('offers room rotation controls and holds them while the room is locked', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Rotate 90°')
+  expect(html).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Rotate Room 1 90 degrees counterclockwise"/,
+  )
+  expect(html).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Rotate Room 1 90 degrees clockwise"/,
+  )
+})
+
+it('places a disabled width and height swap control between locked room fields', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+
+  const html = renderToStaticMarkup(<Inspector />)
+  const width = html.indexOf('Width cm')
+  const swap = html.indexOf('aria-label="Swap width and height for Room 1"')
+  const height = html.indexOf('Height cm')
+
+  expect(width).toBeGreaterThan(-1)
+  expect(swap).toBeGreaterThan(width)
+  expect(height).toBeGreaterThan(swap)
+  expect(html).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Swap width and height for Room 1"/,
+  )
+})
+
 it('edits catalogue footprints in imperial units and can save a custom preset', () => {
   plannerStore.actions.openProject(PLAN)
   plannerStore.actions.setUnits('imperial')

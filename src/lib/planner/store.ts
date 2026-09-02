@@ -13,6 +13,7 @@ import {
   fitViewport,
   planBounds,
   rectPolygon,
+  rotatePolygon,
   screenToWorld,
   snapPoint,
   snapValue,
@@ -1206,6 +1207,34 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           describeRoom(current, patch),
         ),
         ...plan,
+      }
+    })
+  },
+
+  /** Turn an ordinary room around its centre, carrying its attachments with it. */
+  rotateRoom(id: string, degrees: number) {
+    setState((s) => {
+      const room = s.rooms.find((candidate) => candidate.id === id)
+      const turn = degrees % 360
+      if (
+        !room ||
+        room.kind === 'closet' ||
+        room.locked ||
+        !Number.isFinite(turn) ||
+        Math.abs(turn) < 1e-9
+      ) {
+        return s
+      }
+
+      const rooms = s.rooms.map((candidate) =>
+        candidate.id === id
+          ? { ...candidate, points: rotatePolygon(candidate.points, turn) }
+          : candidate,
+      )
+      return {
+        ...s,
+        history: commit(s, `rotate-room:${id}`, `Rotated ${room.name}`),
+        ...flowedClosets(rooms, s.openings),
       }
     })
   },

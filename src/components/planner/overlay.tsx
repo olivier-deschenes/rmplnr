@@ -523,8 +523,8 @@ export function WallDimensions({
 }
 
 /**
- * The handles on a selected room: a square at every corner, and every side of
- * it ready to be pushed.
+ * The handles on a selected room: a square at every corner, every side ready
+ * to be pushed, and a rotate handle above the outline.
  *
  * Dragging a corner reshapes the room around it. Dragging a side — anywhere
  * along the wall, or by the bar at its middle — pushes that whole wall out or
@@ -542,6 +542,7 @@ export function RoomEditor({
   selectedWall,
   onVertexDown,
   onWallDown,
+  onRotateDown,
 }: {
   room: Room
   /** What is cut through each wall, wall by wall: the doorways and windows. */
@@ -550,7 +551,25 @@ export function RoomEditor({
   selectedWall?: number
   onVertexDown: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
+  onRotateDown: (event: React.PointerEvent) => void
 }) {
+  const topY = Math.min(...room.points.map((point) => point.y))
+  const topWall = room.points.findIndex((point, index) => {
+    const next = room.points[(index + 1) % room.points.length]
+    return Math.abs(point.y - topY) < 1e-6 && Math.abs(next.y - topY) < 1e-6
+  })
+  const topPoint =
+    topWall >= 0
+      ? {
+          x:
+            (room.points[topWall].x +
+              room.points[(topWall + 1) % room.points.length].x) /
+            2,
+          y: topY,
+        }
+      : room.points.find((point) => Math.abs(point.y - topY) < 1e-6)!
+  const top = worldToScreen(topPoint, viewport)
+  const rotateHandle = { x: top.x, y: top.y - ROTATE_OFFSET }
   const walls = room.points.map((point, i) => {
     const next = room.points[(i + 1) % room.points.length]
     const frame = wallAt(room.points, i)
@@ -647,6 +666,22 @@ export function RoomEditor({
           onPointerDown={(event) => onVertexDown(i, event)}
         />
       ))}
+      <line
+        x1={top.x}
+        y1={top.y}
+        x2={rotateHandle.x}
+        y2={rotateHandle.y}
+        className="stroke-foreground pointer-events-none"
+        strokeWidth={1}
+      />
+      <circle
+        cx={rotateHandle.x}
+        cy={rotateHandle.y}
+        r={5}
+        className="fill-background stroke-foreground cursor-grab"
+        strokeWidth={1.5}
+        onPointerDown={onRotateDown}
+      />
     </g>
   )
 }

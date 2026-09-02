@@ -173,6 +173,15 @@ export function translatePolygon(
   return points.map((p) => ({ x: p.x + dx, y: p.y + dy }))
 }
 
+/** Turn a whole outline around its own centre without changing its shape. */
+export function rotatePolygon(
+  points: Array<Point>,
+  degrees: number,
+): Array<Point> {
+  const centre = polygonCentroid(points)
+  return points.map((point) => rotatePoint(point, centre, degrees))
+}
+
 /** Stretch a polygon so its bounding box becomes `newW` x `newH`. */
 export function scalePolygon(
   points: Array<Point>,

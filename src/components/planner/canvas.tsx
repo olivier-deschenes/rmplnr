@@ -63,6 +63,7 @@ import {
   wallAt,
 } from '#/lib/planner/openings.ts'
 import {
+  angleBetween,
   distance,
   furnitureCorners,
   pointInPolygon,
@@ -88,6 +89,7 @@ import type {
   Room,
   Viewport,
 } from '#/lib/planner/types.ts'
+import { SNAP_ANGLE } from '#/lib/planner/types.ts'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { Guide } from '#/lib/planner/snapping.ts'
@@ -181,6 +183,14 @@ type Drag =
   | { mode: 'move-closet'; id: string; grabT: number }
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string }
+  | {
+      mode: 'rotate-room'
+      id: string
+      centre: Point
+      pointerAngle: number
+      total: number
+      applied: number
+    }
   | { mode: 'vertex'; roomId: string; index: number }
   | {
       mode: 'wall'
@@ -735,6 +745,19 @@ export function Canvas() {
         }
         break
       }
+      case 'rotate-room': {
+        const nextAngle = angleBetween(drag.centre, world)
+        const delta = ((nextAngle - drag.pointerAngle + 540) % 360) - 180
+        drag.pointerAngle = nextAngle
+        drag.total += delta
+        const wanted =
+          state.snap || event.shiftKey
+            ? snapValue(drag.total, SNAP_ANGLE)
+            : drag.total
+        actions.rotateRoom(drag.id, wanted - drag.applied)
+        drag.applied = wanted
+        break
+      }
       case 'vertex': {
         actions.moveVertex(drag.roomId, drag.index, settle(world, drag.roomId))
         break
@@ -963,6 +986,29 @@ export function Canvas() {
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
     begin({ mode: 'rotate', id: current.id }, event)
+  }
+
+  function onRoomRotateHandleDown(event: React.PointerEvent) {
+    event.stopPropagation()
+    const current = plannerStore.state.selection
+    if (current?.type !== 'room' && current?.type !== 'wall') return
+    const room = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === current.id,
+    )
+    if (!room || room.kind === 'closet' || room.locked) return
+    actions.select({ type: 'room', id: room.id })
+    const centre = polygonCentroid(room.points)
+    begin(
+      {
+        mode: 'rotate-room',
+        id: room.id,
+        centre,
+        pointerAngle: angleBetween(centre, toWorld(event)),
+        total: 0,
+        applied: 0,
+      },
+      event,
+    )
   }
 
   function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
@@ -1343,6 +1389,7 @@ export function Canvas() {
             }
             onVertexDown={onVertexDown}
             onWallDown={onWallDown}
+            onRotateDown={onRoomRotateHandleDown}
           />
         )}
       {tool === 'select' && selectedFurniture && (

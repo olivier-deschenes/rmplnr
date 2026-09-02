@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize, placeCloset } from './closets.ts'
-import { translatePolygon } from './geometry.ts'
+import { polygonArea, polygonCentroid, translatePolygon } from './geometry.ts'
 import { wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
@@ -694,6 +694,7 @@ describe('locked rooms', () => {
     plannerStore.actions.updateRoom('room-1', {
       points: translatePolygon(before.points, 100, 50),
     })
+    plannerStore.actions.rotateRoom('room-1', 90)
     plannerStore.actions.moveVertex('room-1', 0, { x: 50, y: 50 })
     plannerStore.actions.nudgeSelection(10, 0)
     plannerStore.actions.select({ type: 'room', id: 'room-1' })
@@ -713,5 +714,53 @@ describe('locked rooms', () => {
     expect(plannerStore.state.rooms[0].points).toEqual(
       translatePolygon(before.points, 100, 50),
     )
+  })
+})
+
+describe('room rotation', () => {
+  it('turns the outline around its centre and carries openings and closets', () => {
+    const project = connectedRectangle()
+    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+    plannerStore.actions.openProject(project.id)
+    const before = plannerStore.state.rooms.find(
+      (room) => room.id === 'room-rect',
+    )!
+    const beforeCloset = plannerStore.state.rooms.find(
+      (room) => room.id === 'closet-rect',
+    )!
+    const beforeOpenings = plannerStore.state.openings
+
+    plannerStore.actions.rotateRoom(before.id, 90)
+
+    const rotated = plannerStore.state.rooms.find(
+      (room) => room.id === before.id,
+    )!
+    const rotatedCloset = plannerStore.state.rooms.find(
+      (room) => room.id === beforeCloset.id,
+    )!
+    expect(polygonCentroid(rotated.points)).toEqual(
+      polygonCentroid(before.points),
+    )
+    expect(polygonArea(rotated.points)).toBeCloseTo(
+      polygonArea(before.points),
+      8,
+    )
+    const expected = [
+      { x: 350, y: -50 },
+      { x: 350, y: 350 },
+      { x: 50, y: 350 },
+      { x: 50, y: -50 },
+    ]
+    rotated.points.forEach((point, index) => {
+      expect(point.x).toBeCloseTo(expected[index].x, 8)
+      expect(point.y).toBeCloseTo(expected[index].y, 8)
+    })
+    expect(rotatedCloset.points).not.toEqual(beforeCloset.points)
+    expect(rotatedCloset.attachment).toEqual(beforeCloset.attachment)
+    expect(plannerStore.state.openings).toEqual(beforeOpenings)
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe('Rotated Living')
+
+    plannerStore.actions.undo()
+    expect(plannerStore.state.rooms).toEqual(project.rooms)
   })
 })

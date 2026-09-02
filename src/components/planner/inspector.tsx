@@ -1,6 +1,12 @@
 import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
-import { IconLock, IconLockOpen } from '@tabler/icons-react'
+import {
+  IconArrowsExchange,
+  IconLock,
+  IconLockOpen,
+  IconRotate,
+  IconRotateClockwise,
+} from '@tabler/icons-react'
 import { toast } from 'sonner'
 
 import { HistoryPanel } from './history.tsx'
@@ -367,6 +373,16 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
   // to say about it: everything below it that changes the outline is held
   // until it is off.
   const locked = room.locked === true
+  const rotate = (degrees: number) => {
+    actions.rotateRoom(room.id, degrees)
+    actions.sealHistory()
+  }
+  const swapDimensions = () => {
+    actions.updateRoom(room.id, {
+      points: scalePolygon(room.points, bounds.h, bounds.w),
+    })
+    actions.sealHistory()
+  }
 
   return (
     <>
@@ -378,7 +394,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
         value={room.name}
         onChange={(name) => actions.updateRoom(room.id, { name })}
       />
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-1">
         <LengthField
           label="Width"
           cm={bounds.w}
@@ -391,6 +407,18 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
             })
           }
         />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="mb-1"
+          disabled={locked}
+          aria-label={`Swap width and height for ${room.name}`}
+          title="Swap width and height"
+          onClick={swapDimensions}
+        >
+          <IconArrowsExchange />
+        </Button>
         <LengthField
           label="Height"
           cm={bounds.h}
@@ -403,6 +431,31 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
             })
           }
         />
+      </div>
+      <div className="grid gap-1">
+        <span className="text-muted-foreground text-[10px]">Rotate 90°</span>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={locked}
+            aria-label={`Rotate ${room.name} 90 degrees counterclockwise`}
+            onClick={() => rotate(-90)}
+          >
+            <IconRotate />
+            Left
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={locked}
+            aria-label={`Rotate ${room.name} 90 degrees clockwise`}
+            onClick={() => rotate(90)}
+          >
+            <IconRotateClockwise />
+            Right
+          </Button>
+        </div>
       </div>
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
         <dt>Area</dt>
