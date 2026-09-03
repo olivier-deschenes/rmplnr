@@ -12,6 +12,7 @@ import {
   IconPencil,
   IconPlus,
   IconSettings,
+  IconTrash,
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -46,7 +47,7 @@ import {
 } from './dialogShared.tsx'
 
 import type { GitHubSyncController } from './useGithubSync.ts'
-import type { GitHubSyncConflict } from './types.ts'
+import type { GitHubConflictResolution, GitHubSyncConflict } from './types.ts'
 import type { Project } from '#/lib/planner/types.ts'
 
 interface GitHubCommitDialogProps {
@@ -107,11 +108,38 @@ function ConflictCard({
     : null
   const name = local?.name ?? (known === conflict.projectId ? null : known)
 
+  const choices: Array<{
+    resolution: GitHubConflictResolution
+    label: string
+    description: string
+    icon: typeof IconCloudDownload
+  }> =
+    resolvable &&
+    copy.remoteLabel &&
+    copy.remote &&
+    copy.localLabel &&
+    copy.local
+      ? [
+          {
+            resolution: 'remote',
+            label: copy.remoteLabel,
+            description: copy.remote,
+            icon: IconCloudDownload,
+          },
+          {
+            resolution: 'local',
+            label: copy.localLabel,
+            description: copy.local,
+            icon: copy.destructive === 'local' ? IconTrash : IconDeviceLaptop,
+          },
+        ]
+      : []
+
   return (
-    <div className="border-t pt-3">
+    <div className="border-t p-3">
       <p className="text-foreground font-medium">{name ?? conflict.path}</p>
       {name ? (
-        <p className="mt-0.5 font-mono text-[11px] break-all opacity-70">
+        <p className="text-muted-foreground mt-0.5 font-mono text-[11px] break-all">
           {conflict.path}
         </p>
       ) : null}
@@ -122,36 +150,47 @@ function ConflictCard({
       ) : null}
       {copy.manual ? <p className="mt-1.5">{copy.manual}</p> : null}
 
-      {resolvable && copy.remote && copy.local ? (
+      {choices.length > 0 ? (
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={controller.busy}
-            className="h-auto flex-col items-start gap-0.5 py-2 text-left whitespace-normal"
-            onClick={() => void controller.resolveConflict(conflict, 'remote')}
-          >
-            <span className="flex items-center gap-1.5 font-medium">
-              <IconCloudDownload className="size-3.5 shrink-0" />
-              Take GitHub's version
-            </span>
-            <span className="font-normal opacity-80">{copy.remote}</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={controller.busy}
-            className="h-auto flex-col items-start gap-0.5 py-2 text-left whitespace-normal"
-            onClick={() => void controller.resolveConflict(conflict, 'local')}
-          >
-            <span className="flex items-center gap-1.5 font-medium">
-              <IconDeviceLaptop className="size-3.5 shrink-0" />
-              Keep this browser's
-            </span>
-            <span className="font-normal opacity-80">{copy.local}</span>
-          </Button>
+          {choices.map((choice) => {
+            const Icon = choice.icon
+            const recommended = copy.recommended === choice.resolution
+            const destructive = copy.destructive === choice.resolution
+
+            return (
+              <Button
+                key={choice.resolution}
+                type="button"
+                variant={
+                  destructive
+                    ? 'destructive'
+                    : recommended
+                      ? 'default'
+                      : 'outline'
+                }
+                disabled={controller.busy}
+                className="h-auto min-w-0 justify-start gap-2 px-3 py-3 text-left whitespace-normal"
+                onClick={() =>
+                  void controller.resolveConflict(conflict, choice.resolution)
+                }
+              >
+                <Icon className="size-4 shrink-0 self-start" />
+                <span className="min-w-0">
+                  <span className="block font-medium">
+                    {choice.label}
+                    {recommended ? (
+                      <span className="ml-1.5 font-normal opacity-70">
+                        Recommended
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block font-normal opacity-80">
+                    {choice.description}
+                  </span>
+                </span>
+              </Button>
+            )
+          })}
         </div>
       ) : null}
 
@@ -163,7 +202,7 @@ function ConflictCard({
             rel="noreferrer"
           >
             <IconExternalLink />
-            Open on GitHub
+            Review on GitHub
           </a>
         </Button>
         {local ? (
@@ -228,85 +267,88 @@ function IncomingReview({
     changes.converged.length > 0
 
   return (
-    <section className="space-y-3 border p-3">
-      <h3 className="font-medium">Incoming from GitHub</h3>
-
+    <section className="space-y-3">
       {hasManagedChanges ? (
-        <ul className="text-muted-foreground list-disc space-y-1 pl-4">
-          <ReviewList
-            label="Add to this browser"
-            projectIds={changes.additions}
-            controller={controller}
-          />
-          <ReviewList
-            label="Update in this browser"
-            projectIds={changes.updates}
-            controller={controller}
-          />
-          <ReviewList
-            label="Link matching copies"
-            projectIds={changes.links}
-            controller={controller}
-          />
-          <ReviewList
-            label="Keep local and stop syncing"
-            projectIds={changes.remoteDeletions}
-            controller={controller}
-          />
-          <ReviewList
-            label="Already match"
-            projectIds={changes.converged}
-            controller={controller}
-          />
-        </ul>
+        <div className="space-y-2 border p-3">
+          <h3 className="font-medium">Incoming changes</h3>
+          <ul className="text-muted-foreground list-disc space-y-1 pl-4">
+            <ReviewList
+              label="Add to this browser"
+              projectIds={changes.additions}
+              controller={controller}
+            />
+            <ReviewList
+              label="Update in this browser"
+              projectIds={changes.updates}
+              controller={controller}
+            />
+            <ReviewList
+              label="Link matching copies"
+              projectIds={changes.links}
+              controller={controller}
+            />
+            <ReviewList
+              label="Keep local and stop syncing"
+              projectIds={changes.remoteDeletions}
+              controller={controller}
+            />
+            <ReviewList
+              label="Already match"
+              projectIds={changes.converged}
+              controller={controller}
+            />
+          </ul>
+        </div>
       ) : conflicts.length > 0 ? null : (
-        <p className="text-muted-foreground">
+        <p className="text-muted-foreground border p-3">
           The repository changed, but no managed plan content changed.
         </p>
       )}
 
       {conflicts.length > 0 ? (
-        <Alert variant="destructive">
-          <IconAlertTriangle />
-          <AlertTitle>{conflictTitle}</AlertTitle>
-          <AlertDescription>
-            <p>
-              {resolvableCount === 0
-                ? 'Commits stay blocked while the plans folder holds a file this app cannot read.'
-                : "Commits are blocked until each one below is settled. Nothing is sent to GitHub by choosing here — a choice that keeps this browser's copy is carried by your next commit."}
-            </p>
-            {resolvableCount > 1 ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mb-3"
-                disabled={controller.busy}
-                onClick={() => void controller.resolveAllConflicts('remote')}
-              >
-                <IconCloudDownload />
-                Take GitHub's version for all {resolvableCount}
-              </Button>
-            ) : null}
-            <div className="space-y-3">
-              {conflicts.map((conflict) => (
-                <ConflictCard
-                  key={`${conflict.path}:${conflict.kind}`}
-                  conflict={conflict}
-                  controller={controller}
-                  repository={repository}
-                  local={
-                    conflict.projectId
-                      ? projects.find(
-                          (project) => project.id === conflict.projectId,
-                        )
-                      : undefined
-                  }
-                />
-              ))}
+        <div className="border" role="alert">
+          <div className="flex gap-2 p-3">
+            <IconAlertTriangle className="text-destructive mt-0.5 size-4 shrink-0" />
+            <div className="min-w-0">
+              <p className="font-medium">{conflictTitle}</p>
+              <p className="text-muted-foreground mt-0.5">
+                {resolvableCount === 0
+                  ? 'Your next commit is paused while the plans folder holds a file this app cannot read.'
+                  : 'Your next commit is paused. Choosing here updates this browser; nothing changes on GitHub until you commit.'}
+              </p>
             </div>
-          </AlertDescription>
-        </Alert>
+          </div>
+          {resolvableCount > 1 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mx-3 mb-3"
+              disabled={controller.busy}
+              onClick={() => void controller.resolveAllConflicts('remote')}
+            >
+              <IconCloudDownload />
+              Use GitHub versions for all {resolvableCount}
+            </Button>
+          ) : null}
+          <div>
+            {conflicts.map((conflict) => (
+              <ConflictCard
+                key={`${conflict.path}:${conflict.kind}`}
+                conflict={conflict}
+                controller={controller}
+                repository={repository}
+                local={
+                  conflict.projectId
+                    ? projects.find(
+                        (project) => project.id === conflict.projectId,
+                      )
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+        </div>
       ) : (
         <Button
           type="button"
@@ -435,10 +477,12 @@ export function GitHubCommitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="right-4 left-4 mx-auto w-fit max-w-none translate-x-0 text-xs sm:min-w-md sm:max-w-none">
+      <DialogContent className="max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto text-xs sm:max-w-3xl">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-8">
-            <ToneDot tone={status.tone} />
+            {controller.displayState === 'conflict' ? null : (
+              <ToneDot tone={status.tone} />
+            )}
             <DialogTitle>{status.title}</DialogTitle>
           </div>
           {controller.repository ? (
@@ -493,16 +537,24 @@ export function GitHubCommitDialog({
               </Alert>
             ) : null}
 
-            <DialogFooter className="justify-between sm:justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onManageRepository}
-              >
-                <IconSettings />
-                Repository settings
-              </Button>
+            <DialogFooter
+              className={
+                controller.review === null
+                  ? 'justify-between sm:justify-between'
+                  : undefined
+              }
+            >
+              {controller.review === null ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onManageRepository}
+                >
+                  <IconSettings />
+                  Repository settings
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

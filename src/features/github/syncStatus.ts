@@ -1,4 +1,8 @@
-import type { GitHubSyncConflict, GitHubWorkspaceChanges } from './types.ts'
+import type {
+  GitHubConflictResolution,
+  GitHubSyncConflict,
+  GitHubWorkspaceChanges,
+} from './types.ts'
 import type { GitHubSyncDisplayState } from './useGithubSync.ts'
 
 /**
@@ -104,8 +108,9 @@ export function describeGitHubSync(
       return {
         tone: 'bad',
         label: 'Conflict',
-        title: 'Conflict blocks commits',
-        detail: 'Choose which copy to keep before committing again.',
+        title: 'GitHub changes need your decision',
+        detail:
+          'Choose what should happen to each plan before committing again.',
       }
   }
 }
@@ -113,9 +118,16 @@ export function describeGitHubSync(
 export interface GitHubConflictCopy {
   /** What is actually in conflict, said in the order it happened. */
   summary: string
+  /** Outcome-led labels for the available choices. */
+  remoteLabel: string | null
+  localLabel: string | null
   /** What each choice does here, or `null` when it is not on offer. */
   remote: string | null
   local: string | null
+  /** The safer choice when one clearly preserves work. */
+  recommended: GitHubConflictResolution | null
+  /** A choice that removes a plan from GitHub. */
+  destructive: GitHubConflictResolution | null
   /** Shown instead of the choices when neither side can settle it. */
   manual: string | null
 }
@@ -134,26 +146,38 @@ export function describeGitHubConflict(
       return {
         summary:
           'This plan was started here and on GitHub under the same ID, and the two are different.',
+        remoteLabel: 'Use GitHub version',
+        localLabel: 'Keep browser version',
         remote: "Replace this browser's copy with GitHub's.",
         local:
           "Keep this browser's copy and overwrite GitHub on the next commit.",
+        recommended: null,
+        destructive: null,
         manual: null,
       }
     case 'both-modified':
       return {
         summary:
           'This plan was edited here and on GitHub since the last sync, in different ways.',
+        remoteLabel: 'Use GitHub version',
+        localLabel: 'Keep browser version',
         remote: "Discard the edits made here and take GitHub's copy.",
         local:
           'Keep the edits made here and overwrite GitHub on the next commit.',
+        recommended: null,
+        destructive: null,
         manual: null,
       }
     case 'local-modified-remote-deleted':
       return {
         summary: 'This plan was edited here, and deleted on GitHub.',
+        remoteLabel: 'Keep only in this browser',
+        localLabel: 'Restore on GitHub',
         remote:
           'Accept the deletion. The plan stays in this browser and stops syncing.',
         local: 'Put the plan back on GitHub on the next commit.',
+        recommended: null,
+        destructive: null,
         manual: null,
       }
     case 'local-deleted-remote-modified':
@@ -161,18 +185,27 @@ export function describeGitHubConflict(
         summary: hasLocalPlan
           ? 'This plan was taken out of sync here, and edited on GitHub afterwards.'
           : 'This plan is no longer in this browser, and was edited on GitHub afterwards.',
+        remoteLabel: 'Restore from GitHub',
+        localLabel: 'Delete from GitHub',
         remote: hasLocalPlan
-          ? "Sync it again, starting from GitHub's copy."
-          : "Bring the plan back into this browser from GitHub's copy.",
-        local: 'Delete it from GitHub on the next commit.',
+          ? "Sync it again from GitHub's copy and preserve the newer edits."
+          : 'Bring the plan back into this browser and preserve the newer GitHub edits.',
+        local:
+          "Keep this browser's deletion and remove the plan from GitHub on the next commit.",
+        recommended: 'remote',
+        destructive: 'local',
         manual: null,
       }
     case 'invalid-remote':
       return {
         summary:
           'A file in the plans folder on GitHub is not a plan this app can read, so it cannot be compared with anything here.',
+        remoteLabel: null,
+        localLabel: null,
         remote: null,
         local: null,
+        recommended: null,
+        destructive: null,
         manual:
           'Fix the JSON or move the file out of the plans folder on GitHub. Commits stay blocked until it reads as a plan or is gone.',
       }

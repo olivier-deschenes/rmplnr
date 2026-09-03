@@ -21,7 +21,10 @@ import {
   resolveGitHubSyncConflict,
 } from './reconciliation.ts'
 import { toGitHubRemoteSnapshot } from './remoteSnapshot.ts'
-import { isGitHubConflictResolvable } from './syncStatus.ts'
+import {
+  describeGitHubConflict,
+  isGitHubConflictResolvable,
+} from './syncStatus.ts'
 import { isRepositoryEventMessage } from './repositoryEvents.ts'
 import {
   GITHUB_WORKSPACE_STORAGE_KEY,
@@ -597,10 +600,18 @@ export function useGithubSync(): GitHubSyncController {
     ) => {
       const settled = await applyResolutions([{ conflict, resolution }])
       if (settled) {
+        const copy = describeGitHubConflict(
+          conflict,
+          projectsRef.current.some(
+            (project) => project.id === conflict.projectId,
+          ),
+        )
+        const label =
+          resolution === 'remote' ? copy.remoteLabel : copy.localLabel
         toast.success(
-          resolution === 'remote'
-            ? "GitHub's copy kept"
-            : 'Your copy kept — commit to send it to GitHub',
+          resolution === 'local'
+            ? `${label ?? 'Browser version kept'} — commit to update GitHub`
+            : (label ?? 'GitHub version kept'),
         )
       }
       return settled
