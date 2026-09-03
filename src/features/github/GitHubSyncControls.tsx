@@ -13,10 +13,20 @@ import { describeGitHubSync, syncToneBackground } from './syncStatus.ts'
 
 import type { GitHubSyncController } from './useGithubSync.ts'
 
+/**
+ * Where the control is standing.
+ *
+ * `toolbar` is terse because room in the bar is scarce: an icon, and a word
+ * only when something needs doing. `page` spells itself out, because on the
+ * plan list every other control is a word and a lone logo would be a riddle.
+ */
+export type GitHubSyncPlacement = 'toolbar' | 'page'
+
 interface GitHubSyncControlsProps {
   controller: GitHubSyncController
   onOpenRepository: () => void
   onOpenCommit: () => void
+  placement?: GitHubSyncPlacement
   className?: string
 }
 
@@ -37,8 +47,10 @@ export function GitHubSyncControls({
   controller,
   onOpenRepository,
   onOpenCommit,
+  placement = 'toolbar',
   className,
 }: GitHubSyncControlsProps) {
+  const onPage = placement === 'page'
   const connected = controller.connection?.status === 'connected'
   const revoked = controller.connection?.status === 'access-revoked'
   const status = describeGitHubSync(controller.displayState, controller.changes)
@@ -53,9 +65,16 @@ export function GitHubSyncControls({
         }`
       : 'GitHub sync off'
 
-  // A resting sync has nothing to say, so it stays a bare icon; the label only
-  // appears when there is work waiting or something is wrong.
-  const showLabel = canCommit && status.tone !== 'ok' && status.tone !== 'idle'
+  // In the bar a resting sync has nothing to say, so it stays a bare icon; the
+  // label only appears when there is work waiting or something is wrong. On a
+  // page there is room to say so always.
+  const showLabel =
+    onPage || (canCommit && status.tone !== 'ok' && status.tone !== 'idle')
+
+  // Before setup the status word is a shrug — "Off", "No repo" — which tells a
+  // reader nothing about what the button would do. Until there is a repository
+  // to report on, the button says what pressing it is for.
+  const label = canCommit ? status.label : 'Sync with GitHub'
 
   return (
     <Tooltip>
@@ -63,19 +82,23 @@ export function GitHubSyncControls({
         <Button
           type="button"
           size="sm"
-          variant="ghost"
+          variant={onPage ? 'outline' : 'ghost'}
           aria-label={
             canCommit ? `Commit to GitHub — ${status.title}` : connectionLabel
           }
           className={cn(
-            'gap-1.5 px-2',
+            'gap-1.5',
+            !onPage && 'px-2',
             status.tone === 'bad' && 'text-sync-bad',
-            !connected && !revoked && 'text-muted-foreground',
+            !connected && !revoked && !onPage && 'text-muted-foreground',
             className,
           )}
           onClick={canCommit ? onOpenCommit : onOpenRepository}
         >
-          <span className="relative flex items-center">
+          <span
+            className="relative flex items-center"
+            {...(onPage ? { 'data-icon': 'inline-start' } : {})}
+          >
             <IconBrandGithub
               className={cn(!connected && !revoked && 'opacity-60')}
             />
@@ -92,7 +115,9 @@ export function GitHubSyncControls({
             ) : null}
           </span>
           {showLabel ? (
-            <span className="hidden lg:inline">{status.label}</span>
+            <span className={onPage ? undefined : 'hidden lg:inline'}>
+              {label}
+            </span>
           ) : null}
         </Button>
       </TooltipTrigger>

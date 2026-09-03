@@ -69,10 +69,7 @@ import {
   TooltipTrigger,
 } from '#/components/ui/tooltip.tsx'
 
-import { GitHubCommitDialog } from '#/features/github/GitHubCommitDialog.tsx'
-import { GitHubRepositoryDialog } from '#/features/github/GitHubRepositoryDialog.tsx'
-import { GitHubSyncControls } from '#/features/github/GitHubSyncControls.tsx'
-import { useGithubSync } from '#/features/github/useGithubSync.ts'
+import { GitHubSync } from '#/features/github/GitHubSync.tsx'
 
 import {
   downloadLibraryBackup,
@@ -614,43 +611,6 @@ function FileMenu({
         open={importing}
         onOpenChange={setImporting}
         onProjectImported={onProjectImported}
-      />
-    </>
-  )
-}
-
-/**
- * Committing plans to a GitHub repository, and everything it takes to set that
- * up.
- *
- * The whole feature is one button in the bar and two dialogs behind it, and
- * they are kept together here because the button is the only way to either
- * one. Nothing about the plans changes on GitHub's say-so without the reader
- * seeing it first: what arrives is shown as a review, and applied only when
- * they confirm it.
- */
-function GitHubSync({ className }: { className?: string }) {
-  const [dialog, setDialog] = useState<'repository' | 'commit' | null>(null)
-  const controller = useGithubSync()
-
-  return (
-    <>
-      <GitHubSyncControls
-        controller={controller}
-        className={className}
-        onOpenRepository={() => setDialog('repository')}
-        onOpenCommit={() => setDialog('commit')}
-      />
-      <GitHubRepositoryDialog
-        open={dialog === 'repository'}
-        onOpenChange={(open) => setDialog(open ? 'repository' : null)}
-        controller={controller}
-      />
-      <GitHubCommitDialog
-        open={dialog === 'commit'}
-        onOpenChange={(open) => setDialog(open ? 'commit' : null)}
-        controller={controller}
-        onManageRepository={() => setDialog('repository')}
       />
     </>
   )

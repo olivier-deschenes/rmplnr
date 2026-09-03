@@ -7,6 +7,9 @@ import { ImportDialog } from '#/components/planner/import-dialog.tsx'
 import { PageLoading } from '#/components/page-loading.tsx'
 import { TabConflictDialog } from '#/components/tab-conflict.tsx'
 import { Button } from '#/components/ui/button.tsx'
+import { TooltipProvider } from '#/components/ui/tooltip.tsx'
+
+import { GitHubSync } from '#/features/github/GitHubSync.tsx'
 
 import { polygonArea } from '#/lib/planner/geometry.ts'
 import { downloadLibraryBackup } from '#/lib/planner/projectExport.ts'
@@ -33,9 +36,16 @@ function summary(project: Project, units: Units): string {
 /**
  * The way in: every plan saved, and the way to start another.
  *
- * Nothing is edited here, so there is nothing here but names — what a plan is
- * called, and how much of it there is. Everything that changes a plan, its own
- * name included, is a room away in the editor.
+ * No plan is drawn on here, so there is nothing in the list but names — what a
+ * plan is called, and how much of it there is. Everything that changes what a
+ * plan contains, its own name included, is a room away in the editor.
+ *
+ * What does belong here is everything that acts on the library as a whole:
+ * starting a plan, importing one, backing them all up, and GitHub sync. Sync
+ * used to live only in the editor's toolbar, which meant a browser with no
+ * plans in it had to invent one before it could pull down the plans it already
+ * had in a repository. It is a library-wide thing, so it is offered where the
+ * library is.
  */
 function Home() {
   // localStorage is client-only. Restore it before the browser paints so the
@@ -110,6 +120,11 @@ function Home() {
             navigate({ to: '/p/$projectId', params: { projectId: id } })
           }
         />
+        {/* Long enough a delay that sweeping across the row does not set the
+            tooltip off on the way past, matching the editor's. */}
+        <TooltipProvider delayDuration={400}>
+          <GitHubSync placement="page" />
+        </TooltipProvider>
         {projects.length > 0 && (
           <Button
             variant="ghost"
