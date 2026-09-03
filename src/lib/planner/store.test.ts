@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize, placeCloset } from './closets.ts'
-import { polygonArea, polygonCentroid, translatePolygon } from './geometry.ts'
+import {
+  polygonArea,
+  polygonBounds,
+  polygonCentroid,
+  translatePolygon,
+} from './geometry.ts'
 import { wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
@@ -242,6 +247,80 @@ describe('furniture catalogue', () => {
 
     plannerStore.actions.undo()
     expect(plannerStore.state.furniture).toEqual([])
+  })
+
+  it('adds a whole AI import — rooms and furniture — as one undoable step', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [{ ...plan(PLAN_A, 'Flat'), rooms: [] }],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.setSize(800, 600)
+    plannerStore.actions.setViewport({ tx: 0, ty: 0, scale: 1 })
+
+    plannerStore.actions.addPlanImport({
+      rooms: [
+        { name: 'Living room', w: 450, h: 380, x: 0, y: 0 },
+        { name: 'Kitchen', w: 300, h: 380, x: 450, y: 0 },
+      ],
+      furniture: [
+        { name: 'KIVIK sofa', kind: 'sofa', w: 228, h: 95, collides: true },
+        { name: 'Dining table', kind: 'table', w: 140, h: 80, collides: true },
+      ],
+    })
+
+    const rooms = plannerStore.state.rooms
+    expect(rooms.map((room) => room.name)).toEqual(['Living room', 'Kitchen'])
+    // Every imported room lands locked, and the two the response placed side
+    // by side stay side by side.
+    expect(rooms.every((room) => room.locked)).toBe(true)
+    const [living, kitchen] = rooms.map((room) => polygonBounds(room.points))
+    expect(living.w).toBe(450)
+    expect(kitchen.x).toBe(living.x + living.w)
+    expect(kitchen.y).toBe(living.y)
+
+    const furniture = plannerStore.state.furniture
+    expect(furniture.map((item) => item.name)).toEqual([
+      'KIVIK sofa',
+      'Dining table',
+    ])
+    expect(plannerStore.state.selection).toEqual({
+      type: 'furniture',
+      id: furniture[1].id,
+    })
+    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Added 2 rooms and 2 pieces of furniture',
+    )
+
+    plannerStore.actions.undo()
+    expect(plannerStore.state.rooms).toEqual([])
+    expect(plannerStore.state.furniture).toEqual([])
+  })
+
+  it('renames an imported room that clashes and selects a room-only import', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [plan(PLAN_A, 'Flat', 'Living room')],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+    plannerStore.actions.setSize(800, 600)
+    plannerStore.actions.setViewport({ tx: 0, ty: 0, scale: 1 })
+
+    plannerStore.actions.addPlanImport({
+      rooms: [{ name: 'Living room', w: 400, h: 300 }],
+      furniture: [],
+    })
+
+    const added = plannerStore.state.rooms.at(-1)!
+    expect(added.name).toBe('Living room copy')
+    expect(plannerStore.state.selection).toEqual({
+      type: 'room',
+      id: added.id,
+    })
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe('Added 1 room')
   })
 
   it('allows soft footprints to overlap while solid furniture stays apart', () => {

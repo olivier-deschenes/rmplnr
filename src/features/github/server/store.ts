@@ -516,3 +516,29 @@ export async function setConnectionAccessState(
     .bind(state, now, userId)
     .run()
 }
+
+/**
+ * Lift a revocation once the user has authorized again.
+ *
+ * `revoked` is what the status endpoint reads to decide the connection is
+ * broken, and nothing else clears it, so a fresh set of credentials with the
+ * old flag still standing leaves the reconnect button reporting the very
+ * failure it just fixed. Back to `unknown` rather than `active`: the user is
+ * authorized again, but whether the app can still reach the repository is not
+ * known until something asks GitHub, and that answer promotes it to `active`
+ * or marks it revoked once more.
+ */
+export async function clearConnectionRevocation(
+  db: D1Database,
+  userId: string,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE github_repository_connections
+       SET access_state = 'unknown', updated_at = ?
+       WHERE user_id = ? AND access_state = 'revoked'`,
+    )
+    .bind(now, userId)
+    .run()
+}

@@ -32,6 +32,7 @@ import {
   IconWindow,
 } from '@tabler/icons-react'
 
+import { AIImportDialog } from './ai-import-dialog.tsx'
 import { ImportDialog } from './import-dialog.tsx'
 import { FurnitureCatalogue } from './furniture-catalogue.tsx'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
@@ -897,6 +898,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
         data-toolbar-section="actions"
         className="flex h-12 shrink-0 items-center gap-0.5 pr-2 sm:h-11 xl:h-auto xl:p-0"
       >
+        <AIImportDialog className="max-sm:size-11 max-sm:px-0" />
         <UnderlayControl />
         <div className="xl:hidden">
           <FileMenu

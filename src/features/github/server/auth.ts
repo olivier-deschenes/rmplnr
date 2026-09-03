@@ -25,6 +25,7 @@ import {
   sessionCookie,
 } from './security.ts'
 import {
+  clearConnectionRevocation,
   consumeOauthFlow,
   createSession,
   deleteExpiredAuthRows,
@@ -211,6 +212,9 @@ export async function handleGithubOauthCallback(
       now,
     )
     await storeGithubTokenSet(bindings, user.id, token, now)
+    // The credentials that were revoked are replaced; the mark they left on the
+    // connection is not, and it outranks them in `getGithubStatus`.
+    await clearConnectionRevocation(bindings.AUTH_DB, user.id, now)
 
     const oldSessionToken = parseCookie(request, SESSION_COOKIE_NAME)
     if (oldSessionToken) {

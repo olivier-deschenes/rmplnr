@@ -34,6 +34,7 @@ import {
   settleFurniture,
   settleFurnitureDrop,
 } from './collision.ts'
+import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
 import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
@@ -55,6 +56,7 @@ import {
   StoredLibrarySchema,
 } from './types.ts'
 
+import type { AIPlanImport } from './aiPlan.ts'
 import type { ConflictedPlan } from './libraryMerge.ts'
 import type { History, Snapshot } from './history.ts'
 import type { WallGeometryChange } from './geometry.ts'
@@ -970,6 +972,97 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         ? copyName(footprint.name, taken)
         : footprint.name
       return withFurniture(s, footprint, name)
+    })
+  },
+
+  /**
+   * Add a whole researched import — any number of rooms, any number of
+   * measured footprints — as one step.
+   *
+   * It is one step because it was one paste: undoing an import the reader did
+   * not want should not mean pressing undo once per room. The layout arrives
+   * in coordinates of its own, and is dropped over the middle of the view so
+   * that what was just added is what is on screen. Furniture lands inside the
+   * first imported room when there is one, which is where a plan drawn from a
+   * single description belongs.
+   */
+  addPlanImport(plan: AIPlanImport) {
+    setState((s) => {
+      if (plan.rooms.length === 0 && plan.furniture.length === 0) return s
+
+      const placements = placeRooms(plan.rooms)
+      const span = layoutBounds(placements)
+      const centre = snapPoint(viewCentre(s), activeSnapStep(s))
+      const origin = {
+        x: centre.x - span.x - span.w / 2,
+        y: centre.y - span.y - span.h / 2,
+      }
+
+      const roomNames = s.rooms.map((room) => room.name)
+      const rooms = placements.map(({ room, rect }) => {
+        const name = roomNames.includes(room.name)
+          ? copyName(room.name, roomNames)
+          : room.name
+        roomNames.push(name)
+        const corner = { x: origin.x + rect.x, y: origin.y + rect.y }
+        return {
+          id: newId(),
+          name,
+          points: rectPolygon(corner, {
+            x: corner.x + rect.w,
+            y: corner.y + rect.h,
+          }),
+          // Imported rooms land locked, the same as a room just traced.
+          locked: true,
+        } satisfies Room
+      })
+
+      // Furniture goes into the first room of the import when there is one,
+      // which is where a plan described in one breath means it to stand.
+      const target =
+        placements.length > 0
+          ? {
+              x: origin.x + placements[0].rect.x + placements[0].rect.w / 2,
+              y: origin.y + placements[0].rect.y + placements[0].rect.h / 2,
+            }
+          : centre
+
+      let next: PlannerState = { ...s, rooms: [...s.rooms, ...rooms] }
+      let lastItem: string | null = null
+      for (const item of plan.furniture) {
+        const taken = next.furniture.map((f) => f.name)
+        const shape = {
+          id: newId(),
+          kind: item.kind,
+          name: taken.includes(item.name)
+            ? copyName(item.name, taken)
+            : item.name,
+          w: item.w,
+          h: item.h,
+          collides: item.collides,
+          rotation: 0,
+        }
+        const dropped: Furniture = {
+          ...shape,
+          ...freeSpot(next, shape, target),
+        }
+        next = { ...next, furniture: [...next.furniture, dropped] }
+        lastItem = dropped.id
+      }
+
+      const lastRoom = rooms[rooms.length - 1]
+      const selection: Selection = lastItem
+        ? { type: 'furniture', id: lastItem }
+        : { type: 'room', id: lastRoom.id }
+
+      return {
+        ...next,
+        history: commit(s, null, `Added ${describeAIPlan(plan)}`),
+        draft: null,
+        rect: null,
+        tool: 'select',
+        selection,
+      }
     })
   },
 
