@@ -6,9 +6,11 @@ import {
   polygonArea,
   polygonBounds,
   polygonCentroid,
+  scalePolygon,
+  slideWall,
   translatePolygon,
 } from './geometry.ts'
-import { wallAt } from './openings.ts'
+import { openingEnds, openingWall, wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
   serializeLibraryBackup,
@@ -785,10 +787,12 @@ describe('exact wall dimensions', () => {
       ),
     ).toBe(true)
     expect(closetSize(closet)).toEqual({ width: 100, depth: 60 })
+    // The wall grew from 400 to 500 past everything standing on it: the
+    // closet's centre stays at 280 cm from the corner that did not move.
     expect(closet.attachment).toMatchObject({
       roomId: room.id,
       wall: 0,
-      t: 0.7,
+      t: 0.56,
     })
     expect(
       plannerStore.state.openings.map(({ id, roomId, wall, t, width }) => ({
@@ -803,14 +807,14 @@ describe('exact wall dimensions', () => {
         id: 'door-host',
         roomId: room.id,
         wall: 0,
-        t: 0.25,
+        t: 0.2,
         width: 90,
       },
       {
         id: 'window-neighbour',
         roomId: neighbour.id,
         wall: 2,
-        t: 0.5,
+        t: 0.6,
         width: 80,
       },
       {
@@ -1087,5 +1091,114 @@ describe('the style brush', () => {
     plannerStore.actions.openProject(PLAN_B)
 
     expect(plannerStore.state.brush).toBeNull()
+  })
+})
+
+describe('a room made bigger', () => {
+  const ROOM = [
+    { x: 0, y: 0 },
+    { x: 400, y: 0 },
+    { x: 400, y: 300 },
+    { x: 0, y: 300 },
+  ]
+
+  function opened(): Project {
+    return {
+      id: PLAN_C,
+      name: 'Openings',
+      rooms: [{ id: 'room-1', name: 'Living', points: ROOM }],
+      furniture: [],
+      openings: [
+        {
+          id: 'window-top',
+          kind: 'window',
+          roomId: 'room-1',
+          wall: 0,
+          t: 0.25,
+          width: 100,
+          hinge: 'start',
+          swing: 'in',
+        },
+        {
+          id: 'door-right',
+          kind: 'door',
+          roomId: 'room-1',
+          wall: 1,
+          t: 0.5,
+          width: 90,
+          hinge: 'start',
+          swing: 'in',
+        },
+      ],
+    }
+  }
+
+  /** Where an opening's centre actually stands in the plan. */
+  function centreOf(id: string) {
+    const opening = plannerStore.state.openings.find((o) => o.id === id)!
+    const wall = openingWall(plannerStore.state.rooms, opening)!
+    const { centre } = openingEnds(wall, opening)
+    return {
+      x: Math.round(centre.x * 1e6) / 1e6,
+      y: Math.round(centre.y * 1e6) / 1e6,
+    }
+  }
+
+  beforeEach(() => {
+    plannerStore.actions.loadLibrary({ version: 1, projects: [opened()] })
+    plannerStore.actions.openProject(PLAN_C)
+  })
+
+  it('leaves the openings on the walls that stretched where they were put', () => {
+    const room = plannerStore.state.rooms[0]
+    plannerStore.actions.updateRoom('room-1', {
+      points: scalePolygon(room.points, 600, 300),
+    })
+
+    // The top wall grew to the right past the window, which has not budged.
+    expect(centreOf('window-top')).toEqual({ x: 100, y: 0 })
+    // The right wall itself moved, and the door in it went with the wall.
+    expect(centreOf('door-right')).toEqual({ x: 600, y: 150 })
+  })
+
+  it('holds them when a wall is pushed out', () => {
+    const room = plannerStore.state.rooms[0]
+    plannerStore.actions.moveWall('room-1', 1, slideWall(room.points, 1, 200))
+
+    expect(centreOf('window-top')).toEqual({ x: 100, y: 0 })
+    expect(centreOf('door-right')).toEqual({ x: 600, y: 150 })
+  })
+
+  it('holds them when a corner is dragged out', () => {
+    plannerStore.actions.moveVertex('room-1', 1, { x: 700, y: 0 })
+
+    expect(centreOf('window-top')).toEqual({ x: 100, y: 0 })
+  })
+
+  it('still carries them along when the whole room is moved', () => {
+    const room = plannerStore.state.rooms[0]
+    plannerStore.actions.updateRoom('room-1', {
+      points: translatePolygon(room.points, 100, 50),
+    })
+
+    expect(centreOf('window-top')).toEqual({ x: 200, y: 50 })
+    expect(centreOf('door-right')).toEqual({ x: 500, y: 200 })
+  })
+
+  it('holds an attached closet on the wall that grew under it', () => {
+    plannerStore.actions.addCloset('room-1', 2, 0.5)
+    const closet = plannerStore.state.rooms.find((r) => r.kind === 'closet')!
+    const before = polygonBounds(closet.points)
+
+    const room = plannerStore.state.rooms.find((r) => r.id === 'room-1')!
+    plannerStore.actions.updateRoom('room-1', {
+      points: scalePolygon(room.points, 600, 300),
+    })
+
+    const after = polygonBounds(
+      plannerStore.state.rooms.find((r) => r.id === closet.id)!.points,
+    )
+    expect(after.x).toBeCloseTo(before.x, 6)
+    expect(after.w).toBeCloseTo(before.w, 6)
   })
 })

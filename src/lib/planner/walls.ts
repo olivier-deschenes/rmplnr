@@ -1,12 +1,13 @@
 import {
   clampT,
+  heldOpening,
   openingEnds,
   openingSpan,
   outlinePath,
   projectAlong,
   wallAt,
 } from './openings.ts'
-import { closetSize, reflowClosets } from './closets.ts'
+import { closetSize, heldClosets, reflowClosets } from './closets.ts'
 import { editWallGeometry, outlineIssue } from './geometry.ts'
 import { OPENING_PRESETS } from './presets.ts'
 
@@ -160,9 +161,9 @@ function samePoints(a: Array<Point>, b: Array<Point>): boolean {
 
 /**
  * Change one wall and carry every room sharing that wall through the same
- * transform. Openings keep their wall index and closets are laid back onto
- * their host wall; anything that cannot be preserved makes the edit fail as a
- * whole, leaving the plan untouched.
+ * transform. Openings keep their wall index and the place along it they were
+ * put, and closets are laid back onto their host wall; anything that cannot be
+ * preserved makes the edit fail as a whole, leaving the plan untouched.
  */
 export function editConnectedWall(
   rooms: Array<Room>,
@@ -259,7 +260,15 @@ export function editConnectedWall(
     affectedRooms.add(closet.id)
   }
 
-  const flowedRooms = reflowClosets(movedRooms)
+  // The rooms reshaped here have walls that grew or shrank, and what hangs on
+  // those walls stays where it was put rather than sliding along with them.
+  const stretched = new Map(
+    [...changed.keys()].flatMap((id) => {
+      const before = rooms.find((candidate) => candidate.id === id)
+      return before ? [[id, before.points] as const] : []
+    }),
+  )
+  const flowedRooms = reflowClosets(heldClosets(movedRooms, stretched))
   const fittedOpenings: Array<Opening> = []
   for (const opening of openings) {
     if (!affectedRooms.has(opening.roomId)) {
@@ -282,10 +291,12 @@ export function editConnectedWall(
         error: `${OPENING_PRESETS[opening.kind].label} in ${owner.name} is wider than the edited wall.`,
       }
     }
-    fittedOpenings.push({
-      ...opening,
-      t: clampT(opening.t, opening.width, wall.length),
-    })
+    const before = stretched.get(opening.roomId)
+    fittedOpenings.push(
+      before
+        ? heldOpening(opening, before, owner.points)
+        : { ...opening, t: clampT(opening.t, opening.width, wall.length) },
+    )
   }
 
   // Avoid manufacturing a change when the entered value is already exact.

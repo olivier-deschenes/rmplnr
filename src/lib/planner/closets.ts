@@ -2,6 +2,7 @@ import { MIN_SIZE } from './types.ts'
 import {
   clampT,
   fittedWidth,
+  heldT,
   pointOnWall,
   projectT,
   wallAt,
@@ -84,6 +85,37 @@ export function reflowClosets(rooms: Array<Room>): Array<Room> {
     const size = closetSize(room)
     const placed = placeCloset(wall, room.attachment, size.width, size.depth)
     return { ...room, points: placed.points, attachment: placed.attachment }
+  })
+}
+
+/**
+ * Hold every attached closet in place while its host wall is stretched, the
+ * same way the openings cut into that wall are held: a room made wider grows
+ * past its closet rather than dragging it along. `before` carries the corners
+ * each reshaped host was drawn with; closets on rooms left alone, and on walls
+ * that came through unstretched, are returned untouched.
+ */
+export function heldClosets(
+  rooms: Array<Room>,
+  before: Map<string, Array<Point>>,
+): Array<Room> {
+  if (before.size === 0) return rooms
+  return rooms.map((room) => {
+    const attachment = room.kind === 'closet' ? room.attachment : undefined
+    const was = attachment && before.get(attachment.roomId)
+    if (!attachment || !was) return room
+    const host = rooms.find((candidate) => candidate.id === attachment.roomId)
+    const previous = wallAt(was, attachment.wall)
+    const now = host && wallAt(host.points, attachment.wall)
+    if (!previous || !now) return room
+    const t = clampT(
+      heldT(previous, now, attachment.t),
+      closetSize(room).width,
+      now.length,
+    )
+    return t === attachment.t
+      ? room
+      : { ...room, attachment: { ...attachment, t } }
   })
 }
 

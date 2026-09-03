@@ -7,9 +7,11 @@ import type { Opening, Point, Room } from './types.ts'
 /**
  * Doors and windows do not float in the plan: each rides on one wall, and
  * everything about it is read through that wall's own frame. Position is kept
- * as a fraction along the wall so it survives the room being stretched or
- * reshaped, and is turned back into centimetres only where a person meets it —
- * the inspector's fields, and the step a drag snaps to.
+ * as a fraction along the wall so it survives the room being reshaped, and is
+ * turned back into centimetres only where a person meets it — the inspector's
+ * fields, and the step a drag snaps to. A wall that is stretched has that
+ * fraction reckoned again rather than carried over, so what hangs on it holds
+ * its place in the plan: see `heldT`.
  */
 
 /** A stretch of a wall, as `[from, to]` fractions of its length. */
@@ -198,6 +200,59 @@ export function reattachOpenings(
       wall: best.index,
       t: clampT(projectT(best.wall, centre), opening.width, best.wall.length),
     }
+  })
+}
+
+/**
+ * Where something standing at `t` on `was` stands on the same wall once it has
+ * been stretched into `now`.
+ *
+ * A fraction is the wrong thing to keep when a room is made bigger: the wall
+ * grows and everything riding on it slides along in proportion, so widening a
+ * room drags its door and its windows off the spots they were put on. What is
+ * kept instead is the distance from whichever end of the wall stayed where it
+ * was, and the wall grows past the door rather than under it.
+ *
+ * A wall that moved at both ends was slid or turned as a whole rather than
+ * stretched from one end — the wall a person pushed, or a room dragged across
+ * the plan — and everything on it travels with it, which is what the plain
+ * fraction already does.
+ */
+export function heldT(was: Wall, now: Wall, t: number): number {
+  if (samePoint(was.a, now.a)) return (t * was.length) / now.length
+  if (samePoint(was.b, now.b)) return 1 - ((1 - t) * was.length) / now.length
+  return t
+}
+
+/** Hold one opening in place through a change to the outline it is cut into. */
+export function heldOpening(
+  opening: Opening,
+  before: Array<Point>,
+  after: Array<Point>,
+): Opening {
+  const was = wallAt(before, opening.wall)
+  const now = wallAt(after, opening.wall)
+  if (!was || !now) return opening
+  const t = clampT(heldT(was, now, opening.t), opening.width, now.length)
+  return t === opening.t ? opening : { ...opening, t }
+}
+
+/**
+ * Hold every opening in the rooms whose outlines have just changed, `before`
+ * carrying the corners each of those rooms was drawn with. Openings in rooms
+ * left alone are returned untouched, as are those whose wall came through the
+ * change unstretched.
+ */
+export function heldOpenings(
+  openings: Array<Opening>,
+  before: Map<string, Array<Point>>,
+  after: Array<Room>,
+): Array<Opening> {
+  if (before.size === 0) return openings
+  return openings.map((opening) => {
+    const was = before.get(opening.roomId)
+    const room = was && after.find((r) => r.id === opening.roomId)
+    return room ? heldOpening(opening, was, room.points) : opening
   })
 }
 

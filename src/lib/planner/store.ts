@@ -4,6 +4,7 @@ import { DEFAULT_ROOM, FURNITURE_PRESETS } from './presets.ts'
 import {
   DEFAULT_CLOSET,
   closetSize,
+  heldClosets,
   placeCloset,
   reattachClosets,
   reflowClosets,
@@ -23,6 +24,7 @@ import {
 import {
   clampT,
   fittedWidth,
+  heldOpenings,
   openingInWall,
   openingWall,
   reattachOpenings,
@@ -311,6 +313,25 @@ function reshaped(
     ...state,
     ...flowedClosets(rooms, openings),
   }
+}
+
+/**
+ * Settle the plan after one room has been reshaped. Everything hanging on the
+ * walls that moved holds the place it was put — a room made bigger grows
+ * around its doors, windows and closets instead of dragging them along — and
+ * the closets are then laid back out from where they now stand.
+ */
+function heldPlan(
+  state: PlannerState,
+  roomId: string,
+  before: Array<Point>,
+  rooms: Array<Room>,
+): { rooms: Array<Room>; openings: Array<Opening> } {
+  const moved = new Map([[roomId, before]])
+  return flowedClosets(
+    heldClosets(rooms, moved),
+    heldOpenings(state.openings, moved, rooms),
+  )
 }
 
 /**
@@ -1414,7 +1435,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         room.id === id ? { ...room, ...patch } : room,
       )
       const plan = patch.points
-        ? flowedClosets(rooms, s.openings)
+        ? heldPlan(s, id, current.points, rooms)
         : { rooms, openings: s.openings }
       return {
         ...s,
@@ -1494,7 +1515,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           `vertex:${roomId}:${index}`,
           `Moved a corner of ${room.name}`,
         ),
-        ...flowedClosets(rooms, s.openings),
+        ...heldPlan(s, roomId, room.points, rooms),
       }
     })
   },
@@ -1527,7 +1548,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           `wall:${roomId}:${index}`,
           `Moved a wall of ${room.name}`,
         ),
-        ...flowedClosets(rooms, s.openings),
+        ...heldPlan(s, roomId, room.points, rooms),
       }
     })
   },
