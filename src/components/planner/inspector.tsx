@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import {
   IconArrowsExchange,
+  IconBrush,
   IconLock,
   IconLockOpen,
   IconRotate,
@@ -64,6 +65,7 @@ import type {
   Opening,
   OpeningKind,
   Room,
+  StyleBrush,
   Units,
 } from '#/lib/planner/types.ts'
 import type { PlanNameEdit } from '#/lib/planner/planName.ts'
@@ -584,8 +586,53 @@ function WallPanel({
   )
 }
 
+/**
+ * The colour of this item, picked up to be put down on others — the format
+ * painter of a word processor, for a floor plan.
+ *
+ * One click takes the colour and spends it on the next item clicked; a
+ * double-click keeps the brush in hand for as many as it is walked over, the
+ * way that button has always worked. Clicking it again, or Escape on the
+ * canvas, puts it down unspent.
+ */
+function StyleBrushButton({
+  item,
+  brush,
+}: {
+  item: Furniture
+  brush: StyleBrush | null
+}) {
+  const actions = plannerStore.actions
+
+  return (
+    <div className="grid gap-1">
+      <Button
+        variant={brush ? 'default' : 'outline'}
+        size="sm"
+        aria-pressed={brush !== null}
+        title="Double-click to keep the brush for several items"
+        onClick={() =>
+          brush ? actions.dropStyle() : actions.pickUpStyle(item.id)
+        }
+        onDoubleClick={() => actions.pickUpStyle(item.id, true)}
+      >
+        <IconBrush />
+        {brush ? 'Painting — click furniture' : 'Copy color to furniture'}
+      </Button>
+      {brush ? (
+        <p className="text-muted-foreground text-[10px] leading-relaxed">
+          {brush.sticky
+            ? 'Paint as many items as you like. Escape puts the brush down.'
+            : 'Click an item to paint it. Double-click the brush to paint several.'}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
   const actions = plannerStore.actions
+  const brush = useSelector(plannerStore, (s) => s.brush)
   const collisionId = useId()
   const update = (patch: Partial<Furniture>) =>
     actions.updateFurniture(item.id, patch)
@@ -599,6 +646,7 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
       <SectionTitle>{FURNITURE_PRESETS[item.kind].label}</SectionTitle>
       <NameField value={item.name} onChange={(name) => update({ name })} />
       <ColorField value={item.color} onChange={(color) => update({ color })} />
+      <StyleBrushButton item={item} brush={brush} />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
           label="Width"

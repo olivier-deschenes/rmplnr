@@ -75,6 +75,7 @@ import type {
   Rename,
   Room,
   Selection,
+  StyleBrush,
   Tool,
   Units,
   Viewport,
@@ -135,6 +136,8 @@ export type PlannerState = {
   renaming: Rename
   /** What was last copied, waiting to be put down again. */
   clipboard: Clipboard | null
+  /** The colour picked up off one item, waiting to be painted onto others. */
+  brush: StyleBrush | null
   tool: Tool
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
@@ -176,6 +179,7 @@ const initialState: PlannerState = {
   selection: null,
   renaming: null,
   clipboard: null,
+  brush: null,
   tool: 'select',
   openingKind: 'door',
   snap: true,
@@ -728,6 +732,7 @@ function opened(
     renaming: null,
     draft: null,
     rect: null,
+    brush: null,
     tool: 'select',
     viewport: framedOn(state, plan),
     history: EMPTY_HISTORY,
@@ -807,6 +812,8 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       draft: tool === 'room' ? s.draft : null,
       rect: tool === 'rect' ? s.rect : null,
       renaming: null,
+      // Reaching for another tool is putting down whatever was in hand.
+      brush: null,
     }))
   },
 
@@ -1276,6 +1283,56 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           const width = fittedWidth(next.width, wall.length)
           return { ...next, width, t: clampT(next.t, width, wall.length) }
         }),
+      }
+    })
+  },
+
+  /**
+   * Pick one item's colour up to be put down on others.
+   *
+   * `sticky` is the brush kept in hand: without it the first item painted
+   * spends it, which is what a single tap of a format painter does. The tool
+   * comes back to select in the same move, because furniture is what the brush
+   * is put down on and none of it is clickable under a drawing tool.
+   */
+  pickUpStyle(itemId: string, sticky = false) {
+    setState((s) => {
+      const item = s.furniture.find((f) => f.id === itemId)
+      if (!item) return s
+      return { ...s, tool: 'select', brush: { color: item.color, sticky } }
+    })
+  },
+
+  /** Put the brush down again, with or without having painted anything. */
+  dropStyle() {
+    setState((s) => (s.brush === null ? s : { ...s, brush: null }))
+  },
+
+  /**
+   * Put the brush's colour on one item, and nothing else about it.
+   *
+   * The selection stays where it is: the panel goes on describing the item the
+   * colour was taken from, which is what says what the brush is still holding.
+   * Each item painted is a step of its own to undo — a run of them is a run of
+   * separate choices, not one gesture the way a drag is.
+   */
+  paintFurniture(id: string) {
+    setState((s) => {
+      const brush = s.brush
+      const item = s.furniture.find((f) => f.id === id)
+      if (!brush || !item) return s
+      // A sticky brush stays in hand; a tapped one is spent on this item,
+      // whether or not the item had anything to change.
+      const left = brush.sticky ? brush : null
+      if (item.color === brush.color) return { ...s, brush: left }
+      const patch = { color: brush.color }
+      return {
+        ...s,
+        history: commit(s, null, describeFurniture(item, patch)),
+        furniture: s.furniture.map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
+        brush: left,
       }
     })
   },

@@ -244,6 +244,7 @@ export function Canvas() {
     openings,
     selection,
     renaming,
+    brush,
     tool,
     openingKind,
     units,
@@ -401,8 +402,9 @@ export function Canvas() {
   }, [])
 
   /**
-   * Escape backs out of whatever reaches furthest in: the draft first, then
-   * the rectangle, then the tool, and only then the selection.
+   * Escape backs out of whatever reaches furthest in: the brush in hand
+   * first, then the draft, then the rectangle, then the tool, and only then
+   * the selection.
    */
   const cancel = () => {
     if (underlayStore.state.positioning) {
@@ -410,7 +412,8 @@ export function Canvas() {
       return
     }
     const state = plannerStore.state
-    if (state.draft) actions.cancelDraft()
+    if (state.brush) actions.dropStyle()
+    else if (state.draft) actions.cancelDraft()
     else if (state.rect) actions.cancelRect()
     else if (state.tool !== 'select') actions.setTool('select')
     else actions.select(null)
@@ -879,6 +882,9 @@ export function Canvas() {
       return
     }
     if (state.tool !== 'select') return
+    // Two quick strokes of the brush over the same item are two strokes, not
+    // an invitation to rename it.
+    if (state.brush) return
     const world = toWorld(event)
 
     const room =
@@ -965,6 +971,14 @@ export function Canvas() {
     if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
     event.stopPropagation()
+    // With the brush in hand a click paints what it lands on and stops there:
+    // it neither selects the item nor takes hold of it, so the panel goes on
+    // showing the one the colour came from and a slip of the hand cannot drag
+    // something across the plan mid-brushful.
+    if (plannerStore.state.brush) {
+      actions.paintFurniture(item.id)
+      return
+    }
     actions.select({ type: 'furniture', id: item.id })
     begin(
       {
@@ -1200,9 +1214,11 @@ export function Canvas() {
     ? 'cursor-grabbing'
     : positioningUnderlay
       ? 'cursor-move'
-      : tool === 'select'
-        ? 'cursor-default'
-        : 'cursor-crosshair'
+      : brush
+        ? 'cursor-copy'
+        : tool === 'select'
+          ? 'cursor-default'
+          : 'cursor-crosshair'
 
   return (
     <svg

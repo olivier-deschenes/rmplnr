@@ -286,6 +286,19 @@ export type Clipboard =
   | { type: 'furniture'; item: Furniture }
   | { type: 'opening'; opening: Opening }
 
+/**
+ * A colour lifted off one piece of furniture to be put down on others, the way
+ * a format painter carries one.
+ *
+ * It holds the colour itself rather than the item it came from, so it outlives
+ * that item being recoloured or deleted — and `undefined` is a colour here too:
+ * the default one, which paints a plain footprint back.
+ *
+ * `sticky` is the brush kept in hand rather than tapped once: it stays after
+ * the first item it paints instead of being spent on it.
+ */
+export type StyleBrush = { color: string | undefined; sticky: boolean }
+
 export type Tool = 'select' | 'room' | 'rect' | 'opening' | 'closet'
 
 /** The two opposite corners of a rectangle room being dragged out. */

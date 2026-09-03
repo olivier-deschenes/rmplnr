@@ -41,6 +41,9 @@ export function describeFurniture(
   patch: Partial<Furniture>,
 ): string {
   if (patch.name !== undefined) return `Renamed ${item.name}`
+  // Asked for by key rather than by value: clearing a colour back to the
+  // default is a recolour too, and it arrives as an undefined one.
+  if ('color' in patch) return `Recoloured ${item.name}`
   // A resize sends the new size along with the centre it turned around, so the
   // size has the first say in what to call it.
   if (patch.w !== undefined || patch.h !== undefined)

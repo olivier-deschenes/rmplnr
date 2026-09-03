@@ -983,3 +983,109 @@ describe('room rotation', () => {
     expect(plannerStore.state.rooms).toEqual(project.rooms)
   })
 })
+
+describe('the style brush', () => {
+  beforeEach(() => plannerStore.actions.openProject(PLAN_A))
+
+  /** Two items, the first coloured, both of them selectable by id. */
+  function pair(): [string, string] {
+    plannerStore.actions.addFurniture('chair')
+    const source = plannerStore.state.furniture.at(-1)!.id
+    plannerStore.actions.addFurniture('table')
+    const target = plannerStore.state.furniture.at(-1)!.id
+    plannerStore.actions.updateFurniture(source, { color: '#ff0000' })
+    plannerStore.actions.sealHistory()
+    return [source, target]
+  }
+
+  const colorOf = (id: string) =>
+    plannerStore.state.furniture.find((item) => item.id === id)?.color
+
+  it('carries one colour onto another item and is spent there', () => {
+    const [source, target] = pair()
+    plannerStore.actions.select({ type: 'furniture', id: source })
+
+    plannerStore.actions.pickUpStyle(source)
+    expect(plannerStore.state.brush).toEqual({
+      color: '#ff0000',
+      sticky: false,
+    })
+
+    plannerStore.actions.paintFurniture(target)
+
+    expect(colorOf(target)).toBe('#ff0000')
+    // Spent on the one item, and the selection left where it was: the panel
+    // goes on describing what the colour came from.
+    expect(plannerStore.state.brush).toBeNull()
+    expect(plannerStore.state.selection).toEqual({
+      type: 'furniture',
+      id: source,
+    })
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Recoloured Table 1',
+    )
+
+    plannerStore.actions.undo()
+    expect(colorOf(target)).toBeUndefined()
+  })
+
+  it('stays in hand while it is held down, and paints each item its own step', () => {
+    const [source, target] = pair()
+    plannerStore.actions.addFurniture('chair')
+    const third = plannerStore.state.furniture.at(-1)!.id
+
+    plannerStore.actions.pickUpStyle(source, true)
+    plannerStore.actions.paintFurniture(target)
+    expect(plannerStore.state.brush).toEqual({ color: '#ff0000', sticky: true })
+    plannerStore.actions.paintFurniture(third)
+
+    expect(colorOf(target)).toBe('#ff0000')
+    expect(colorOf(third)).toBe('#ff0000')
+
+    // Each item painted comes back on its own.
+    plannerStore.actions.undo()
+    expect(colorOf(third)).toBeUndefined()
+    expect(colorOf(target)).toBe('#ff0000')
+
+    plannerStore.actions.dropStyle()
+    expect(plannerStore.state.brush).toBeNull()
+  })
+
+  /* The default colour is a colour too: the brush paints a plain item back. */
+  it('carries the default colour as readily as a chosen one', () => {
+    const [source, target] = pair()
+    plannerStore.actions.updateFurniture(target, { color: '#00ff00' })
+    plannerStore.actions.sealHistory()
+
+    plannerStore.actions.pickUpStyle(target)
+    plannerStore.actions.paintFurniture(source)
+    expect(colorOf(source)).toBe('#00ff00')
+
+    plannerStore.actions.addFurniture('box')
+    const plain = plannerStore.state.furniture.at(-1)!.id
+    plannerStore.actions.pickUpStyle(plain)
+    plannerStore.actions.paintFurniture(source)
+
+    expect(colorOf(source)).toBeUndefined()
+  })
+
+  it('comes back to the select tool, and is put down by reaching for another', () => {
+    const [source] = pair()
+    plannerStore.actions.setTool('room')
+
+    plannerStore.actions.pickUpStyle(source)
+    expect(plannerStore.state.tool).toBe('select')
+
+    plannerStore.actions.setTool('rect')
+    expect(plannerStore.state.brush).toBeNull()
+  })
+
+  it('is put down when another plan is opened', () => {
+    const [source] = pair()
+    plannerStore.actions.pickUpStyle(source, true)
+
+    plannerStore.actions.openProject(PLAN_B)
+
+    expect(plannerStore.state.brush).toBeNull()
+  })
+})

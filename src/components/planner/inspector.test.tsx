@@ -113,3 +113,26 @@ it('edits catalogue footprints in imperial units and can save a custom preset', 
   expect(html).toContain('Choose color')
   expect(html).toContain('Save as custom preset')
 })
+
+it('offers the style brush on furniture, and says what it is doing once picked up', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.addFurniture('sofa')
+  const item = plannerStore.state.furniture[0]
+
+  expect(renderToStaticMarkup(<Inspector />)).toContain(
+    'Copy color to furniture',
+  )
+
+  plannerStore.actions.pickUpStyle(item.id)
+  const armed = renderToStaticMarkup(<Inspector />)
+
+  expect(armed).toContain('Painting — click furniture')
+  expect(armed).toContain('aria-pressed="true"')
+  expect(armed).toContain('Double-click the brush to paint several.')
+
+  plannerStore.actions.pickUpStyle(item.id, true)
+
+  expect(renderToStaticMarkup(<Inspector />)).toContain(
+    'Escape puts the brush down.',
+  )
+})

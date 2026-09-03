@@ -1,7 +1,7 @@
 import { openingEnds, pointOnWall, wallAt } from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
-import type { ReactElement } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import type {
   Furniture,
   FurnitureKind,
@@ -17,6 +17,33 @@ const MIN_WALL_PX = 2
 /** How thick a wall should be drawn at this zoom, in world centimetres. */
 function wallWidth(scale: number): number {
   return Math.max(WALL_THICKNESS, MIN_WALL_PX / scale)
+}
+
+/**
+ * How much of a chosen colour survives into a fill. A plan is read off its
+ * outlines, its glyphs and the names written over them, and a solid fill buries
+ * all three; a wash leaves them legible while still saying across the whole
+ * plan, at a glance, which things go together. A floor is washed thinner than
+ * an object because it covers so much more paper.
+ */
+const ROOM_WASH = 0.13
+const ITEM_WASH = 0.2
+
+/** Thinner again for a footprint others may stand on, so both stay readable. */
+const SOFT_WASH = 0.11
+
+/** The colour laid on as a fill only, for a shape that draws no edge of its own. */
+function wash(color: string, alpha: number): CSSProperties {
+  return { fill: color, fillOpacity: alpha }
+}
+
+/**
+ * A coloured thing on the plan: the colour at full strength on every line it
+ * draws — its edge and its glyph — and the same colour washed almost back to
+ * the paper behind them.
+ */
+function inked(color: string, alpha: number): CSSProperties {
+  return { stroke: color, ...wash(color, alpha) }
 }
 
 /**
@@ -36,16 +63,31 @@ export function RoomFloor({
   selected: boolean
   onPointerDown: (event: React.PointerEvent) => void
 }) {
+  const points = room.points.map((p) => `${p.x},${p.y}`).join(' ')
+
+  if (!room.color) {
+    return (
+      <polygon
+        points={points}
+        className={`cursor-move ${selected ? 'fill-muted' : 'fill-background'}`}
+        stroke="none"
+        onPointerDown={onPointerDown}
+      />
+    )
+  }
+
+  // Two coats: the paper first, so the grid stays covered whatever the wash is
+  // thinned to, and the colour over it. A room takes no outline of its own —
+  // the wall is its edge, and it is drawn later, in one pass over every floor.
   return (
-    <polygon
-      points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
-      className={`cursor-move ${
-        room.color ? '' : selected ? 'fill-muted' : 'fill-background'
-      }`}
-      style={room.color ? { fill: room.color } : undefined}
-      stroke="none"
-      onPointerDown={onPointerDown}
-    />
+    <g className="cursor-move" onPointerDown={onPointerDown}>
+      <polygon points={points} className="fill-background" stroke="none" />
+      <polygon
+        points={points}
+        style={wash(room.color, ROOM_WASH)}
+        stroke="none"
+      />
+    </g>
   )
 }
 
@@ -119,6 +161,18 @@ type FurnitureShapeProps = {
   onPointerDown: (event: React.PointerEvent) => void
 }
 
+/**
+ * One piece of furniture: its footprint, and the glyph that says what it is.
+ *
+ * A colour is worn on the edge and washed out inside it, so that the outline,
+ * the glyph and the name over it all keep reading — and so that a plan with a
+ * colour on every object still looks like a drawing rather than a chart. The
+ * paper coat under the wash is what keeps the grid, and anything else beneath,
+ * from showing through a colour that is mostly transparent.
+ *
+ * A footprint that does not collide — a rug, say — skips that coat and is
+ * washed thinner still: things are meant to stand on it and be seen doing so.
+ */
 export function FurnitureShape({
   item,
   selected,
@@ -127,34 +181,29 @@ export function FurnitureShape({
   const left = item.x - item.w / 2
   const top = item.y - item.h / 2
   const Glyph = FURNITURE_GLYPHS[item.kind]
+  const soft = item.collides === false
+  const box = { x: left, y: top, width: item.w, height: item.h }
 
   return (
     <g
       transform={`rotate(${item.rotation} ${item.x} ${item.y})`}
-      className="fill-background stroke-foreground cursor-move"
+      className={
+        item.color
+          ? 'cursor-move'
+          : `stroke-foreground cursor-move ${soft ? 'fill-muted/40' : 'fill-background'}`
+      }
+      style={
+        item.color ? inked(item.color, soft ? SOFT_WASH : ITEM_WASH) : undefined
+      }
       strokeWidth={selected ? 2.25 : 1.25}
       strokeLinejoin="round"
       vectorEffect="non-scaling-stroke"
       onPointerDown={onPointerDown}
     >
-      <rect
-        x={left}
-        y={top}
-        width={item.w}
-        height={item.h}
-        className={
-          !item.color && item.collides === false ? 'fill-muted/40' : undefined
-        }
-        style={
-          item.color
-            ? {
-                fill: item.color,
-                fillOpacity: item.collides === false ? 0.55 : 1,
-              }
-            : undefined
-        }
-        strokeDasharray={item.collides === false ? '6 4' : undefined}
-      />
+      {item.color && !soft && (
+        <rect {...box} className="fill-background" stroke="none" />
+      )}
+      <rect {...box} strokeDasharray={soft ? '6 4' : undefined} />
       <Glyph left={left} top={top} w={item.w} h={item.h} />
     </g>
   )
@@ -176,22 +225,43 @@ function TableGlyph({ left, top, w, h }: GlyphProps) {
   )
 }
 
-/** Sofa facing "down": backrest along the top edge, an arm on each side. */
-function SofaGlyph({ left, top, w, h }: GlyphProps) {
-  const back = h * 0.22
-  const arm = w * 0.12
+/**
+ * How an upholstered arm, a back and a seat cushion actually measure, in
+ * centimetres. Drawing them at their own size rather than at a fraction of the
+ * footprint is what makes a suite come out looking like a suite: a sofa, a
+ * loveseat and a chair from one collection get the same arms and the same back,
+ * and differ only in how many cushions fit between the arms — which is the one
+ * thing that really does differ between them.
+ */
+const ARM_CM = 22
+const BACK_CM = 22
+const CUSHION_CM = 60
+
+/** A chair with this much of both dimensions is an armchair, not a dining one. */
+const ARMCHAIR_CM = 70
+
+/**
+ * Upholstered seating facing "down": an arm down each side, the back laid
+ * between them along the top edge, and the seat divided into cushions.
+ *
+ * The arm and the back thin down on a footprint too small to hold them at their
+ * true size, so a seat is left however far the piece is dragged in.
+ */
+function SeatingGlyph({ left, top, w, h }: GlyphProps) {
+  const arm = Math.min(ARM_CM, w * 0.25)
+  const back = Math.min(BACK_CM, h * 0.3)
+  const seat = w - arm * 2
+  const cushions = Math.max(1, Math.round(seat / CUSHION_CM))
+
   return (
     <>
-      <rect x={left} y={top} width={w} height={back} fill="none" />
+      <rect x={left + arm} y={top} width={seat} height={back} fill="none" />
       <rect x={left} y={top} width={arm} height={h} fill="none" />
       <rect x={left + w - arm} y={top} width={arm} height={h} fill="none" />
-      <line
-        x1={left + w / 2}
-        y1={top + back}
-        x2={left + w / 2}
-        y2={top + h}
-        fill="none"
-      />
+      {Array.from({ length: cushions - 1 }, (_, i) => {
+        const x = left + arm + (seat * (i + 1)) / cushions
+        return <line key={i} x1={x} y1={top + back} x2={x} y2={top + h} />
+      })}
     </>
   )
 }
@@ -252,8 +322,16 @@ function DeskGlyph({ left, top, w, h }: GlyphProps) {
   )
 }
 
-/** Chair seat with its back along the top edge. */
-function ChairGlyph({ left, top, w, h }: GlyphProps) {
+/**
+ * A chair, of whichever sort its footprint says it is. An armchair belongs to
+ * the same family as the sofa it is bought beside and is drawn as one seat of
+ * it; below that size a chair is a dining chair, and is only a seat and a back.
+ */
+function ChairGlyph(props: GlyphProps): ReactElement {
+  if (props.w >= ARMCHAIR_CM && props.h >= ARMCHAIR_CM)
+    return <SeatingGlyph {...props} />
+
+  const { left, top, w, h } = props
   const inset = Math.min(w, h) * 0.14
   return (
     <>
@@ -450,7 +528,7 @@ const FURNITURE_GLYPHS: Record<
   (props: GlyphProps) => ReactElement
 > = {
   table: TableGlyph,
-  sofa: SofaGlyph,
+  sofa: SeatingGlyph,
   bed: BedGlyph,
   desk: DeskGlyph,
   chair: ChairGlyph,
