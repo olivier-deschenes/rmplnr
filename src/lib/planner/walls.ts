@@ -103,6 +103,29 @@ export function sharedWalls(
   return shares
 }
 
+/** A full-width removal that makes this whole physical wall absent. */
+export function wallRemovalAt(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+  roomId: string,
+  index: number,
+): Opening | undefined {
+  const room = rooms.find((candidate) => candidate.id === roomId)
+  const frame = room && wallAt(room.points, index)
+  if (!frame) return undefined
+
+  return openings.find((opening) => {
+    if (!opening.wallRemoval) return false
+    if (opening.roomId === roomId && opening.wall === index) return true
+    const owner = rooms.find((candidate) => candidate.id === opening.roomId)
+    const source = owner && wallAt(owner.points, opening.wall)
+    const shared = source && sharedSpan(frame, source)
+    return Boolean(
+      shared && Math.abs(shared[0]) < 1e-9 && Math.abs(shared[1] - 1) < 1e-9,
+    )
+  })
+}
+
 /** The rooms this one holds a wall in common with. */
 export function neighbours(rooms: Array<Room>, roomId: string): Array<Room> {
   const room = rooms.find((r) => r.id === roomId)
@@ -289,7 +312,7 @@ export function editConnectedWall(
         error: `That change would detach an opening from ${owner?.name ?? 'its room'}.`,
       }
     }
-    if (opening.width > wall.length + 1e-6) {
+    if (!opening.wallRemoval && opening.width > wall.length + 1e-6) {
       return {
         ok: false,
         error: `${OPENING_PRESETS[opening.kind].label} in ${owner.name} is wider than the edited wall.`,

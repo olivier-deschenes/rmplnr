@@ -83,6 +83,9 @@ function toCanonicalOpening(opening: Opening): Opening {
     width: opening.width,
     hinge: opening.hinge,
     swing: opening.swing,
+    ...(opening.wallRemoval === undefined
+      ? {}
+      : { wallRemoval: opening.wallRemoval }),
   }
 }
 

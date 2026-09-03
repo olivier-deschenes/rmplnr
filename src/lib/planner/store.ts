@@ -26,6 +26,7 @@ import {
   fittedWidth,
   heldOpenings,
   openingInWall,
+  openingSpan,
   openingWall,
   reattachOpenings,
   wallAt,
@@ -47,7 +48,7 @@ import {
   selectionName,
 } from './describe.ts'
 import { SNAP_STEP } from './units.ts'
-import { editConnectedWall, removeRoomWall } from './walls.ts'
+import { editConnectedWall, sharedWalls, wallRemovalAt } from './walls.ts'
 import {
   DEFAULT_SCALE,
   LibrarySchema,
@@ -316,11 +317,9 @@ function reshaped(
 }
 
 /**
- * The plan with one wall taken out of one room, or the same plan and the reason
- * it stayed. The walls either side run on to meet each other, so what comes
- * back has one corner fewer and every door, window and closet read back onto
- * it — the same settling a removed corner gets, since the walls are renumbered
- * either way.
+ * Make a wall absent without opening the polygon that owns the room. The absent
+ * wall is represented by a full-width opening, which means drawing, collision,
+ * exports and any room sharing the physical wall all see the same clear span.
  */
 function withoutWall(
   state: PlannerState,
@@ -329,28 +328,61 @@ function withoutWall(
 ): { state: PlannerState; error: string | null } {
   const room = state.rooms.find((candidate) => candidate.id === roomId)
   if (!room) return { state, error: 'This room no longer exists.' }
+  if (room.kind === 'closet') {
+    return {
+      state,
+      error: 'A closet keeps its four walls; resize it instead.',
+    }
+  }
+  if (room.locked) {
+    return { state, error: `Unlock ${room.name} to remove its walls.` }
+  }
+  const frame = wallAt(room.points, index)
+  if (!frame) return { state, error: 'This wall no longer exists.' }
+  if (wallRemovalAt(state.rooms, state.openings, roomId, index)) {
+    return { state, error: 'This wall has already been removed.' }
+  }
 
-  const result = removeRoomWall(state.rooms, roomId, index)
-  if (!result.ok) return { state, error: result.error }
+  // Doors and windows cannot remain hanging in a wall that no longer exists.
+  // Include openings owned by the other side of a shared wall, but only when
+  // they overlap the physical stretch being removed.
+  const displacedOpenings = new Set(
+    state.openings
+      .filter((opening) => opening.roomId === roomId && opening.wall === index)
+      .map((opening) => opening.id),
+  )
+  for (const share of sharedWalls(state.rooms, roomId, index)) {
+    for (const opening of state.openings) {
+      if (opening.roomId !== share.roomId || opening.wall !== share.wall)
+        continue
+      const span = openingSpan(share.frame, opening)
+      if (span[1] > share.span[0] && span[0] < share.span[1]) {
+        displacedOpenings.add(opening.id)
+      }
+    }
+  }
+
+  const removal = openingInWall(frame, {
+    id: newId(),
+    kind: 'opening',
+    roomId,
+    wall: index,
+    t: 0.5,
+    width: frame.length,
+    wallRemoval: true,
+  })
 
   return {
     state: {
-      ...reshaped(
-        {
-          ...state,
-          history: commit(
-            state,
-            null,
-            `Removed wall ${index + 1} of ${room.name}`,
-          ),
-        },
-        room,
-        result.points,
-      ),
-      // The walls that are left are not the walls that were selected: the one
-      // held is gone and the rest have shuffled up behind it. The room it
-      // belonged to is what is still there to hold.
-      selection: { type: 'room', id: roomId },
+      ...state,
+      history: commit(state, null, `Removed wall ${index + 1} of ${room.name}`),
+      openings: [
+        ...state.openings.filter(
+          (opening) => !displacedOpenings.has(opening.id),
+        ),
+        removal,
+      ],
+      selection: { type: 'opening', id: removal.id },
     },
     error: null,
   }
@@ -609,7 +641,7 @@ function copyOf(state: PlannerState): Clipboard | null {
   }
   if (selection.type !== 'opening') return null
   const opening = state.openings.find((o) => o.id === selection.id)
-  return opening ? { type: 'opening', opening } : null
+  return opening && !opening.wallRemoval ? { type: 'opening', opening } : null
 }
 
 /**
@@ -684,6 +716,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
   // An opening has nowhere to be but a wall, so a copy goes back on the wall
   // it came off — and nowhere at all once that wall has been taken down.
   const source = clipboard.opening
+  if (source.wallRemoval) return state
   const room = state.rooms.find((r) => r.id === source.roomId)
   const wall = room && wallAt(room.points, source.wall)
   if (!room || !wall) return state
@@ -1305,6 +1338,8 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     if (!room) return
     const frame = wallAt(room.points, wall)
     if (!frame) return
+    // A door or window cannot hang in an edge that has no wall left.
+    if (wallRemovalAt(state.rooms, state.openings, roomId, wall)) return
     const opening = openingInWall(frame, {
       id: newId(),
       kind,
@@ -1442,12 +1477,35 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   /**
-   * Resolve an overlapping pointer drop. A clear destination stays exactly
-   * where it was dropped, even when the drag crossed another object on its way
-   * there; an occupied destination rests against the nearest obstruction edge
-   * found by looking back along the drag.
+   * Follow the rotate handle without resolving collisions until it is released.
+   * This lets the pointer finish the turn before the final footprint is tested.
    */
-  finishFurnitureMove(id: string, origin: Furniture) {
+  previewFurnitureRotation(id: string, rotation: number) {
+    setState((s) => {
+      const current = s.furniture.find((f) => f.id === id)
+      if (!current) return s
+      const patch = { rotation }
+      return {
+        ...s,
+        history: commit(
+          s,
+          patchLabel('furniture', id, patch),
+          describeFurniture(current, patch),
+        ),
+        furniture: s.furniture.map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
+      }
+    })
+  },
+
+  /**
+   * Resolve an overlapping pointer move or turn. A clear final footprint stays
+   * exactly where the pointer put it, even when the gesture crossed another
+   * object on its way there; an occupied one rests at the nearest clear result
+   * found by looking back through the gesture.
+   */
+  finishFurnitureTransform(id: string, origin: Furniture) {
     setState((s) => {
       const current = s.furniture.find((f) => f.id === id)
       if (
@@ -1687,6 +1745,29 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     return outcome
   },
 
+  /** Put back a wall that is currently represented by a full-width gap. */
+  restoreWall(id: string) {
+    setState((s) => {
+      const removal = s.openings.find(
+        (opening) => opening.id === id && opening.wallRemoval,
+      )
+      if (!removal) return s
+      const room = s.rooms.find((candidate) => candidate.id === removal.roomId)
+      return {
+        ...s,
+        history: commit(
+          s,
+          null,
+          `Restored wall ${removal.wall + 1}${room ? ` of ${room.name}` : ''}`,
+        ),
+        openings: s.openings.filter((opening) => opening.id !== id),
+        selection: room
+          ? { type: 'wall', id: room.id, index: removal.wall }
+          : null,
+      }
+    })
+  },
+
   deleteSelected() {
     setState((s) => {
       if (!s.selection) return s
@@ -1707,9 +1788,19 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           if (room.attachment?.roomId === id) removedRooms.add(room.id)
         }
       }
+      const removedOpening =
+        type === 'opening'
+          ? s.openings.find((opening) => opening.id === id)
+          : undefined
+      const historyText = removedOpening?.wallRemoval
+        ? `Restored wall ${removedOpening.wall + 1} of ${
+            s.rooms.find((room) => room.id === removedOpening.roomId)?.name ??
+            'room'
+          }`
+        : `Deleted ${selectionName(s)}`
       return {
         ...s,
-        history: commit(s, null, `Deleted ${selectionName(s)}`),
+        history: commit(s, null, historyText),
         rooms:
           type === 'room'
             ? s.rooms.filter((room) => !removedRooms.has(room.id))
@@ -1722,7 +1813,13 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         openings: s.openings.filter((o) =>
           type === 'room' ? !removedRooms.has(o.roomId) : o.id !== id,
         ),
-        selection: null,
+        selection: removedOpening?.wallRemoval
+          ? {
+              type: 'wall',
+              id: removedOpening.roomId,
+              index: removedOpening.wall,
+            }
+          : null,
         renaming: null,
       }
     })
@@ -1743,7 +1840,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         // far it pushes the opening along its own wall.
         const opening = s.openings.find((o) => o.id === id)
         const wall = opening && openingWall(s.rooms, opening)
-        if (!opening || !wall) return s
+        if (!opening || !wall || opening.wallRemoval) return s
         const along = dx * wall.tangent.x + dy * wall.tangent.y
         return {
           ...s,

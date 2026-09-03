@@ -183,7 +183,7 @@ type Drag =
   | { mode: 'move-room'; id: string; grab: Point; origin: Array<Point> }
   | { mode: 'move-closet'; id: string; grabT: number }
   | { mode: 'resize'; id: string; handle: Handle }
-  | { mode: 'rotate'; id: string }
+  | { mode: 'rotate'; id: string; origin: Furniture }
   | {
       mode: 'rotate-room'
       id: string
@@ -754,9 +754,10 @@ export function Canvas() {
       case 'rotate': {
         const item = state.furniture.find((f) => f.id === drag.id)
         if (item) {
-          actions.updateFurniture(drag.id, {
-            rotation: rotationFor(item, world, state.snap || event.shiftKey),
-          })
+          actions.previewFurnitureRotation(
+            drag.id,
+            rotationFor(item, world, state.snap || event.shiftKey),
+          )
         }
         break
       }
@@ -852,7 +853,10 @@ export function Canvas() {
       underlayStore.actions.commitPosition()
     }
     if (drag?.mode === 'move-furniture' && slopRef.current?.armed) {
-      actions.finishFurnitureMove(drag.id, drag.origin)
+      actions.finishFurnitureTransform(drag.id, drag.origin)
+    }
+    if (drag?.mode === 'rotate' && slopRef.current?.armed) {
+      actions.finishFurnitureTransform(drag.id, drag.origin)
     }
     if (drag) actions.sealHistory()
     dragRef.current = null
@@ -1014,7 +1018,9 @@ export function Canvas() {
     event.stopPropagation()
     const current = plannerStore.state.selection
     if (current?.type !== 'furniture') return
-    begin({ mode: 'rotate', id: current.id }, event)
+    const item = plannerStore.state.furniture.find((f) => f.id === current.id)
+    if (!item) return
+    begin({ mode: 'rotate', id: current.id, origin: item }, event)
   }
 
   function onRoomRotateHandleDown(event: React.PointerEvent) {
@@ -1045,6 +1051,8 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'opening', id: opening.id })
+    // A removed wall fills its entire edge and has nowhere along it to move.
+    if (opening.wallRemoval) return
     begin({ mode: 'opening', id: opening.id }, event)
   }
 
@@ -1433,16 +1441,18 @@ export function Canvas() {
           onRotateDown={onRotateHandleDown}
         />
       )}
-      {tool === 'select' && selectedOpening && (
-        <OpeningEditor
-          opening={selectedOpening.opening}
-          wall={selectedOpening.wall}
-          viewport={viewport}
-          units={units}
-          avoid={written}
-          onEndDown={onOpeningEndDown}
-        />
-      )}
+      {tool === 'select' &&
+        selectedOpening &&
+        !selectedOpening.opening.wallRemoval && (
+          <OpeningEditor
+            opening={selectedOpening.opening}
+            wall={selectedOpening.wall}
+            viewport={viewport}
+            units={units}
+            avoid={written}
+            onEndDown={onOpeningEndDown}
+          />
+        )}
       {rectDraft && (
         <RectPreview rect={rectDraft} viewport={viewport} units={units} />
       )}

@@ -154,6 +154,22 @@ describe('serializeProject', () => {
     expect(parseProjectFile(serializeProject(project))).toEqual(project)
   })
 
+  it('preserves a wall removal', () => {
+    const removed: Project['openings'][number] = {
+      ...plan().openings[0],
+      id: 'removed-wall-1',
+      kind: 'opening',
+      width: 400,
+      wallRemoval: true,
+    }
+    const project = plan({ openings: [removed] })
+
+    expect(parseProjectFile(serializeProject(project))).toEqual(project)
+    expect(JSON.parse(serializeProject(project)).openings[0].wallRemoval).toBe(
+      true,
+    )
+  })
+
   it('changes the serialized content and hash for a lock-only change', async () => {
     const unlocked = plan()
     const locked = plan({

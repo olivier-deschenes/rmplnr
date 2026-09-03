@@ -647,6 +647,8 @@ export function OpeningShape({
   selected,
   ghost,
 }: OpeningShapeProps) {
+  // Removing a wall is the absence of a mark, not a cased opening with jambs.
+  if (opening.wallRemoval) return null
   const { start, end, centre, width } = openingEnds(wall, opening)
   const along = wall.tangent
   const across = wall.normal

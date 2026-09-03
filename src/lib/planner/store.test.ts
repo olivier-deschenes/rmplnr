@@ -405,13 +405,13 @@ describe('furniture catalogue', () => {
     plannerStore.actions.previewFurnitureMove('table', 300, 100)
     expect(plannerStore.state.furniture[0]).toMatchObject({ x: 300, y: 100 })
 
-    plannerStore.actions.finishFurnitureMove('table', origin)
+    plannerStore.actions.finishFurnitureTransform('table', origin)
     expect(plannerStore.state.furniture[0].x).toBeCloseTo(200, 3)
     expect(plannerStore.state.furniture[0].y).toBeCloseTo(100, 3)
 
     const secondOrigin = plannerStore.state.furniture[0]
     plannerStore.actions.previewFurnitureMove('table', 600, 100)
-    plannerStore.actions.finishFurnitureMove('table', secondOrigin)
+    plannerStore.actions.finishFurnitureTransform('table', secondOrigin)
     expect(plannerStore.state.furniture[0].x).toBeCloseTo(500, 3)
   })
 
@@ -454,9 +454,57 @@ describe('furniture catalogue', () => {
 
     const origin = plannerStore.state.furniture[0]
     plannerStore.actions.previewFurnitureMove('table', 500, 100)
-    plannerStore.actions.finishFurnitureMove('table', origin)
+    plannerStore.actions.finishFurnitureTransform('table', origin)
 
     expect(plannerStore.state.furniture[0]).toMatchObject({ x: 500, y: 100 })
+  })
+
+  it('previews a turn freely and resolves its collision only when finished', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [
+        {
+          ...plan(PLAN_A, 'Flat'),
+          rooms: [],
+          furniture: [
+            {
+              id: 'desk',
+              kind: 'desk',
+              name: 'Desk',
+              x: 100,
+              y: 100,
+              w: 100,
+              h: 50,
+              rotation: 0,
+              collides: true,
+            },
+            {
+              id: 'chair',
+              kind: 'chair',
+              name: 'Chair',
+              x: 100,
+              y: 165,
+              w: 50,
+              h: 50,
+              rotation: 0,
+              collides: true,
+            },
+          ],
+        },
+      ],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+
+    const origin = plannerStore.state.furniture[0]
+    plannerStore.actions.previewFurnitureRotation('desk', 90)
+
+    expect(plannerStore.state.furniture[0].rotation).toBe(90)
+
+    plannerStore.actions.finishFurnitureTransform('desk', origin)
+
+    expect(plannerStore.state.furniture[0].rotation).toBeGreaterThan(0)
+    expect(plannerStore.state.furniture[0].rotation).toBeLessThan(90)
   })
 })
 
@@ -982,7 +1030,10 @@ function openCanted() {
 describe('removing a wall', () => {
   beforeEach(openCanted)
 
-  it('squares off a canted corner and leaves the window where it stood', () => {
+  it('keeps the room outline and replaces the wall with a full-width gap', () => {
+    const before = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-canted',
+    )!.points
     plannerStore.actions.select({ type: 'wall', id: 'room-canted', index: 2 })
 
     const result = plannerStore.actions.removeWall('room-canted', 2)
@@ -991,24 +1042,35 @@ describe('removing a wall', () => {
     const room = plannerStore.state.rooms.find(
       (candidate) => candidate.id === 'room-canted',
     )!
-    expect(room.points).toEqual([
-      { x: 0, y: 0 },
-      { x: 400, y: 0 },
-      { x: 400, y: 300 },
-      { x: 0, y: 300 },
-    ])
-    // The wall the window is cut into grew from 200 to 300 as the cant went,
-    // and the window is read back onto it at the spot it was already in.
+    expect(room.points).toEqual(before)
+    expect(
+      wallGaps(
+        plannerStore.state.rooms,
+        plannerStore.state.openings,
+        room.id,
+        2,
+      ),
+    ).toContainEqual([0, 1])
+    // Openings elsewhere in the room stay exactly where they were.
     const window = plannerStore.state.openings.find(
       (opening) => opening.id === 'window-side',
     )!
     expect(window.wall).toBe(1)
     const wall = openingWall(plannerStore.state.rooms, window)!
     expect(openingEnds(wall, window).centre).toEqual({ x: 400, y: 100 })
-    // The wall that was held is gone, so the room is what is left to hold.
+    const removal = plannerStore.state.openings.find(
+      (opening) => opening.wallRemoval,
+    )!
+    expect(removal).toMatchObject({
+      kind: 'opening',
+      roomId: 'room-canted',
+      wall: 2,
+      t: 0.5,
+      wallRemoval: true,
+    })
     expect(plannerStore.state.selection).toEqual({
-      type: 'room',
-      id: 'room-canted',
+      type: 'opening',
+      id: removal.id,
     })
     expect(plannerStore.state.history.past).toHaveLength(1)
     expect(plannerStore.state.history.past.at(-1)?.text).toBe(
@@ -1017,15 +1079,19 @@ describe('removing a wall', () => {
   })
 
   it('puts the wall back in one undo', () => {
-    const before = plannerStore.state.rooms
+    const before = {
+      rooms: plannerStore.state.rooms,
+      openings: plannerStore.state.openings,
+    }
 
     plannerStore.actions.removeWall('room-canted', 2)
     plannerStore.actions.undo()
 
-    expect(plannerStore.state.rooms).toEqual(before)
+    expect(plannerStore.state.rooms).toEqual(before.rooms)
+    expect(plannerStore.state.openings).toEqual(before.openings)
   })
 
-  it('leaves the room next door holding its own leaf of a party wall', () => {
+  it('opens the same physical stretch through the room next door', () => {
     const nook = plannerStore.state.rooms.find(
       (candidate) => candidate.id === 'room-nook',
     )!
@@ -1039,56 +1105,60 @@ describe('removing a wall', () => {
     const result = plannerStore.actions.removeWall('room-canted', 2)
 
     expect(result).toEqual({ ok: true })
-    // Only the canted room's leaf came down. The nook is not reshaped, and its
-    // wall stands where it stood, with its window still cut through it.
+    // Neither room is reshaped; the full-width gap is projected through both
+    // copies of their shared physical wall.
     expect(
       plannerStore.state.rooms.find(
         (candidate) => candidate.id === 'room-nook',
       ),
     ).toEqual(nook)
+    const sharedGap = wallGaps(
+      plannerStore.state.rooms,
+      plannerStore.state.openings,
+      'room-nook',
+      2,
+    ).find(([from, to]) => Math.abs(from) < 1e-9 && Math.abs(to - 1) < 1e-9)
+    expect(sharedGap).toBeDefined()
+    expect(sharedWalls(plannerStore.state.rooms, 'room-nook', 2)).not.toEqual(
+      [],
+    )
+  })
+
+  it('removes fixtures that were hanging in the deleted physical wall', () => {
+    plannerStore.actions.removeWall('room-canted', 2)
+
+    expect(
+      plannerStore.state.openings.find((opening) => opening.id === 'door-cant'),
+    ).toBeUndefined()
     expect(
       plannerStore.state.openings.find(
         (opening) => opening.id === 'window-nook',
       ),
-    ).toEqual({
-      id: 'window-nook',
-      kind: 'window',
-      roomId: 'room-nook',
-      wall: 2,
-      t: 0.5,
-      width: 80,
-      hinge: 'start',
-      swing: 'in',
-    })
-    // Nothing shares that wall any more: it is the nook's outside wall now.
-    expect(sharedWalls(plannerStore.state.rooms, 'room-nook', 2)).toEqual([])
+    ).toBeUndefined()
+    expect(
+      plannerStore.state.openings.find(
+        (opening) => opening.id === 'window-side',
+      ),
+    ).toBeDefined()
   })
 
-  it('closes the neighbour’s wall back up where the removed one was pierced', () => {
-    const gaps = () =>
+  it('removes a wall whose neighbours are parallel', () => {
+    const result = plannerStore.actions.removeWall('room-canted', 0)
+
+    expect(result).toEqual({ ok: true })
+    expect(
       wallGaps(
         plannerStore.state.rooms,
         plannerStore.state.openings,
-        'room-nook',
-        2,
-      )
-    // A door through a party wall is one hole through both leaves, so while the
-    // cant is shared the nook's wall carries the canted room's door as well as
-    // its own window.
-    expect(gaps()).toHaveLength(2)
-
-    plannerStore.actions.removeWall('room-canted', 2)
-
-    // With nothing sharing that wall, only the nook's own window is left out of
-    // it: the door belonged to a wall the nook never built.
-    expect(gaps()).toHaveLength(1)
-    // And the door is not lost — it is read back onto a wall the canted room
-    // still has.
-    const door = plannerStore.state.openings.find(
-      (opening) => opening.id === 'door-cant',
-    )!
-    expect(door.roomId).toBe('room-canted')
-    expect(openingWall(plannerStore.state.rooms, door)).not.toBeNull()
+        'room-canted',
+        0,
+      ),
+    ).toContainEqual([0, 1])
+    expect(
+      plannerStore.state.rooms.find(
+        (candidate) => candidate.id === 'room-canted',
+      )!.points,
+    ).toHaveLength(5)
   })
 
   it('refuses every wall of a locked room', () => {
@@ -1113,9 +1183,30 @@ describe('removing a wall', () => {
       plannerStore.state.rooms.find(
         (candidate) => candidate.id === 'room-canted',
       )!.points,
-    ).toHaveLength(4)
+    ).toHaveLength(5)
+    expect(
+      plannerStore.state.openings.some((opening) => opening.wallRemoval),
+    ).toBe(true)
     // The room itself is still there: Delete on a wall is not Delete on a room.
     expect(plannerStore.state.rooms).toHaveLength(3)
+  })
+
+  it('restores the selected removed wall when it is deleted', () => {
+    plannerStore.actions.removeWall('room-canted', 0)
+
+    plannerStore.actions.deleteSelected()
+
+    expect(
+      plannerStore.state.openings.some((opening) => opening.wallRemoval),
+    ).toBe(false)
+    expect(plannerStore.state.selection).toEqual({
+      type: 'wall',
+      id: 'room-canted',
+      index: 0,
+    })
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Restored wall 1 of Living',
+    )
   })
 })
 

@@ -253,13 +253,15 @@ function PendingChanges({
 
 function CommitForm({
   controller,
-}: Pick<GitHubCommitDialogProps, 'controller'>) {
+  onCommitted,
+}: Pick<GitHubCommitDialogProps, 'controller'> & { onCommitted: () => void }) {
   const form = useForm({
     defaultValues: { message: 'Update plans' },
     validators: { onSubmit: commitFormSchema },
     onSubmit: async ({ value }) => {
       if (await controller.commit(value.message.trim())) {
         form.reset()
+        onCommitted()
       }
     },
   })
@@ -369,7 +371,10 @@ export function GitHubCommitDialog({
                   ) : null}
                 </div>
                 <PendingChanges controller={controller} />
-                <CommitForm controller={controller} />
+                <CommitForm
+                  controller={controller}
+                  onCommitted={() => onOpenChange(false)}
+                />
               </section>
             ) : null}
 

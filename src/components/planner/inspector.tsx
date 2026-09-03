@@ -38,6 +38,7 @@ import {
 } from '#/lib/planner/presets.ts'
 import { closetSize } from '#/lib/planner/closets.ts'
 import { wallAt } from '#/lib/planner/openings.ts'
+import { wallRemovalAt } from '#/lib/planner/walls.ts'
 import {
   angleBetween,
   normalizeAngle,
@@ -605,8 +606,8 @@ function WallPanel({
       </dl>
       <p className="text-muted-foreground text-[10px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
-        clockwise. Removing a wall carries the two either side of it on until
-        they meet, so a room never opens up.
+        clockwise. Removing a wall leaves the room area intact and turns this
+        entire edge into an open passage.
       </p>
     </>
   )
@@ -799,6 +800,36 @@ function OpeningPanel({
   const wall = wallAt(room.points, opening.wall)
   if (!wall) return null
 
+  if (opening.wallRemoval) {
+    return (
+      <>
+        <SectionTitle>Removed wall</SectionTitle>
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          This edge is fully open. It is not drawn and does not block furniture.
+        </p>
+        <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+          <dt>In</dt>
+          <dd className="text-foreground truncate text-right">{room.name}</dd>
+          <dt>Wall</dt>
+          <dd className="text-foreground text-right tabular-nums">
+            {opening.wall + 1} of {room.points.length}
+          </dd>
+          <dt>Opening</dt>
+          <dd className="text-foreground text-right tabular-nums">
+            {formatLength(wall.length, units)}
+          </dd>
+        </dl>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => actions.restoreWall(opening.id)}
+        >
+          Restore wall
+        </Button>
+      </>
+    )
+  }
+
   // Kept as a fraction, shown as the distance from the wall's first corner:
   // the number someone standing in the room with a tape measure would want.
   const offset = opening.t * wall.length
@@ -955,7 +986,14 @@ export function Inspector({
     selection?.type === 'wall'
       ? rooms.find((candidate) => candidate.id === selection.id)
       : undefined
+  const removedWall =
+    selection?.type === 'wall'
+      ? wallRemovalAt(rooms, openings, selection.id, selection.index)
+      : undefined
   const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
+  const removedWallRoom =
+    removedWall &&
+    rooms.find((candidate) => candidate.id === removedWall.roomId)
   const closetHost =
     room?.kind === 'closet' && room.attachment
       ? rooms.find((candidate) => candidate.id === room.attachment?.roomId)
@@ -975,7 +1013,14 @@ export function Inspector({
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.
         */}
-        {wallRoom && selection?.type === 'wall' ? (
+        {removedWall && removedWallRoom ? (
+          <OpeningPanel
+            key={`${removedWall.id}-${units}`}
+            opening={removedWall}
+            room={removedWallRoom}
+            units={units}
+          />
+        ) : wallRoom && selection?.type === 'wall' ? (
           <WallPanel
             key={`${wallRoom.id}-${selection.index}-${units}`}
             room={wallRoom}

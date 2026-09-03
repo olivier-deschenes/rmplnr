@@ -81,6 +81,22 @@ it('offers a remove-wall action, held while the room is locked', () => {
   )
 })
 
+it('describes a removed wall and offers to restore it', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+  const room = plannerStore.state.rooms[0]
+  plannerStore.actions.setRoomLocked(room.id, false)
+  plannerStore.actions.removeWall(room.id, 0)
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Removed wall')
+  expect(html).toContain('This edge is fully open')
+  expect(html).toContain('Restore wall')
+})
+
 it('offers room rotation controls and holds them while the room is locked', () => {
   plannerStore.actions.openProject(PLAN)
   plannerStore.actions.beginRect({ x: 0, y: 0 })
