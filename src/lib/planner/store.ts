@@ -28,7 +28,12 @@ import {
   reattachOpenings,
   wallAt,
 } from './openings.ts'
-import { blockersFor, fits, settleFurniture } from './collision.ts'
+import {
+  blockersFor,
+  fits,
+  settleFurniture,
+  settleFurnitureDrop,
+} from './collision.ts'
 import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
@@ -410,10 +415,9 @@ function displaced(from: Furniture, to: Furniture): boolean {
 }
 
 /**
- * Where a piece of furniture asked to stand at `to` actually ends up. Every
- * route into a piece of furniture — a drag, a handle, an arrow key, a typed
- * field — comes through here, so there is one place that decides how near it
- * gets, and nothing can be got into a wall by taking a different way in.
+ * Where a piece of furniture asked to stand at `to` actually ends up. Exact
+ * edits, handles and arrow keys come through here. A pointer drag is previewed
+ * freely and uses the same collision rule only when it is dropped.
  *
  * A patch that leaves the footprint alone, such as a rename, is not a
  * placement and is not measured against anything.
@@ -1198,6 +1202,53 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           describeFurniture(current, patch),
         ),
         furniture: s.furniture.map((f) => (f.id === id ? next : f)),
+      }
+    })
+  },
+
+  /**
+   * Follow the pointer without collision constraints. The history entry still
+   * starts here so the whole gesture remains one undoable move.
+   */
+  previewFurnitureMove(id: string, x: number, y: number) {
+    setState((s) => {
+      const current = s.furniture.find((f) => f.id === id)
+      if (!current) return s
+      const patch = { x, y }
+      return {
+        ...s,
+        history: commit(
+          s,
+          patchLabel('furniture', id, patch),
+          describeFurniture(current, patch),
+        ),
+        furniture: s.furniture.map((f) =>
+          f.id === id ? { ...f, ...patch } : f,
+        ),
+      }
+    })
+  },
+
+  /**
+   * Resolve an overlapping pointer drop. A clear destination stays exactly
+   * where it was dropped, even when the drag crossed another object on its way
+   * there; an occupied destination rests against the nearest obstruction edge
+   * found by looking back along the drag.
+   */
+  finishFurnitureMove(id: string, origin: Furniture) {
+    setState((s) => {
+      const current = s.furniture.find((f) => f.id === id)
+      if (
+        !current ||
+        !s.collide ||
+        current.collides === false ||
+        fits(current, inTheWayOf(s, id), 0)
+      )
+        return s
+      const settled = settleFurnitureDrop(origin, current, inTheWayOf(s, id))
+      return {
+        ...s,
+        furniture: s.furniture.map((f) => (f.id === id ? settled : f)),
       }
     })
   },

@@ -68,6 +68,8 @@ it('offers room rotation controls and holds them while the room is locked', () =
   const html = renderToStaticMarkup(<Inspector />)
 
   expect(html).toContain('Rotate 90°')
+  expect(html).toContain('Choose color')
+  expect(html).toContain('Default')
   expect(html).toMatch(
     /<button[^>]*disabled=""[^>]*aria-label="Rotate Room 1 90 degrees counterclockwise"/,
   )
@@ -108,5 +110,6 @@ it('edits catalogue footprints in imperial units and can save a custom preset', 
   expect(html).toContain('value="59.06"')
   expect(html).toContain('value="78.74"')
   expect(html).toContain('Solid footprint')
+  expect(html).toContain('Choose color')
   expect(html).toContain('Save as custom preset')
 })

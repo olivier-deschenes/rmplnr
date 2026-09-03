@@ -10,6 +10,9 @@ export const DEFAULT_SCALE = 0.6
 
 export const PointSchema = z.object({ x: z.number(), y: z.number() })
 
+/** A canvas fill chosen by the reader. Kept strict so saved plans stay CSS-safe. */
+export const ColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+
 export const ClosetAttachmentSchema = z.object({
   /** The room whose outside face this closet sits against. */
   roomId: z.string(),
@@ -21,6 +24,7 @@ export const ClosetAttachmentSchema = z.object({
 export const RoomSchema = z.object({
   id: z.string(),
   name: z.string(),
+  color: ColorSchema.optional(),
   points: z.array(PointSchema).min(3),
   /** Ordinary rooms omit this; closets carry their wall attachment below. */
   kind: z.literal('closet').optional(),
@@ -56,6 +60,7 @@ export const FurnitureSchema = z.object({
   id: z.string(),
   kind: FurnitureKindSchema,
   name: z.string(),
+  color: ColorSchema.optional(),
   /** Centre of the unrotated box, which keeps the rotation maths simple. */
   x: z.number(),
   y: z.number(),

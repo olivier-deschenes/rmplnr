@@ -39,7 +39,10 @@ export function RoomFloor({
   return (
     <polygon
       points={room.points.map((p) => `${p.x},${p.y}`).join(' ')}
-      className={`cursor-move ${selected ? 'fill-muted' : 'fill-background'}`}
+      className={`cursor-move ${
+        room.color ? '' : selected ? 'fill-muted' : 'fill-background'
+      }`}
+      style={room.color ? { fill: room.color } : undefined}
       stroke="none"
       onPointerDown={onPointerDown}
     />
@@ -139,7 +142,17 @@ export function FurnitureShape({
         y={top}
         width={item.w}
         height={item.h}
-        className={item.collides === false ? 'fill-muted/40' : undefined}
+        className={
+          !item.color && item.collides === false ? 'fill-muted/40' : undefined
+        }
+        style={
+          item.color
+            ? {
+                fill: item.color,
+                fillOpacity: item.collides === false ? 0.55 : 1,
+              }
+            : undefined
+        }
         strokeDasharray={item.collides === false ? '6 4' : undefined}
       />
       <Glyph left={left} top={top} w={item.w} h={item.h} />

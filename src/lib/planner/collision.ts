@@ -342,3 +342,26 @@ export function settleFurniture(
     ? furthest(from, to, blockers)
     : slide(from, to, blockers)
 }
+
+/**
+ * Settle only the end of a free pointer drag. Starting at the occupied drop
+ * point, look back along the drag for the nearest clear placement, then move
+ * forward from there until the item rests against what it was dropped on.
+ * Obstacles crossed earlier in the drag therefore do not affect the result.
+ */
+export function settleFurnitureDrop(
+  from: Furniture,
+  to: Furniture,
+  blockers: Array<Blocker>,
+): Furniture {
+  if (fits(to, blockers, REST)) return to
+  const strides = Math.min(
+    PROBE_LIMIT,
+    Math.max(1, Math.ceil(travelled(from, to) / PROBE)),
+  )
+  for (let i = 1; i <= strides; i++) {
+    const clear = between(from, to, 1 - i / strides)
+    if (fits(clear, blockers, REST)) return furthest(clear, to, blockers)
+  }
+  return to
+}

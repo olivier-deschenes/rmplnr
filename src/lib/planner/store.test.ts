@@ -271,6 +271,112 @@ describe('furniture catalogue', () => {
       collides: false,
     })
   })
+
+  it('moves freely during a drag and settles an overlapping drop', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [
+        {
+          ...plan(PLAN_A, 'Flat'),
+          rooms: [],
+          furniture: [
+            {
+              id: 'table',
+              kind: 'table',
+              name: 'Table',
+              x: 100,
+              y: 100,
+              w: 100,
+              h: 100,
+              rotation: 0,
+              collides: true,
+            },
+            {
+              id: 'sofa',
+              kind: 'sofa',
+              name: 'Sofa',
+              x: 300,
+              y: 100,
+              w: 100,
+              h: 100,
+              rotation: 0,
+              collides: true,
+            },
+            {
+              id: 'chair',
+              kind: 'chair',
+              name: 'Chair',
+              x: 600,
+              y: 100,
+              w: 100,
+              h: 100,
+              rotation: 0,
+              collides: true,
+            },
+          ],
+        },
+      ],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+
+    const origin = plannerStore.state.furniture[0]
+    plannerStore.actions.previewFurnitureMove('table', 300, 100)
+    expect(plannerStore.state.furniture[0]).toMatchObject({ x: 300, y: 100 })
+
+    plannerStore.actions.finishFurnitureMove('table', origin)
+    expect(plannerStore.state.furniture[0].x).toBeCloseTo(200, 3)
+    expect(plannerStore.state.furniture[0].y).toBeCloseTo(100, 3)
+
+    const secondOrigin = plannerStore.state.furniture[0]
+    plannerStore.actions.previewFurnitureMove('table', 600, 100)
+    plannerStore.actions.finishFurnitureMove('table', secondOrigin)
+    expect(plannerStore.state.furniture[0].x).toBeCloseTo(500, 3)
+  })
+
+  it('keeps a clear drop after moving through another object', () => {
+    plannerStore.actions.closeProject()
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [
+        {
+          ...plan(PLAN_A, 'Flat'),
+          rooms: [],
+          furniture: [
+            {
+              id: 'table',
+              kind: 'table',
+              name: 'Table',
+              x: 100,
+              y: 100,
+              w: 100,
+              h: 100,
+              rotation: 0,
+              collides: true,
+            },
+            {
+              id: 'sofa',
+              kind: 'sofa',
+              name: 'Sofa',
+              x: 300,
+              y: 100,
+              w: 100,
+              h: 100,
+              rotation: 0,
+              collides: true,
+            },
+          ],
+        },
+      ],
+    })
+    plannerStore.actions.openProject(PLAN_A)
+
+    const origin = plannerStore.state.furniture[0]
+    plannerStore.actions.previewFurnitureMove('table', 500, 100)
+    plannerStore.actions.finishFurnitureMove('table', origin)
+
+    expect(plannerStore.state.furniture[0]).toMatchObject({ x: 500, y: 100 })
+  })
 })
 
 describe('currentProjects', () => {

@@ -42,6 +42,7 @@ function toCanonicalRoom(room: Room): Room {
   return {
     id: room.id,
     name: room.name,
+    ...(room.color ? { color: room.color } : {}),
     points: room.points.map((point) => ({ x: point.x, y: point.y })),
     ...(room.kind ? { kind: room.kind } : {}),
     ...(room.attachment
@@ -62,6 +63,7 @@ function toCanonicalFurniture(item: Furniture): Furniture {
     id: item.id,
     kind: item.kind,
     name: item.name,
+    ...(item.color ? { color: item.color } : {}),
     x: item.x,
     y: item.y,
     w: item.w,

@@ -53,7 +53,7 @@ export const AI_FURNITURE_PROMPT = [
   `Only return dimensions from ${MIN_SIZE} to ${MAX_FURNITURE_SIZE_LABEL} cm; otherwise say the product cannot be imported.`,
   'For an importable product, return exactly one JSON object with these keys and no others:',
   '{"name":"Product name and variant","kind":"box","widthCm":100,"depthCm":50,"collides":true,"sourceUrl":"https://manufacturer.example/product"}',
-  'Return JSON only, with no Markdown fence, explanation, citations, or extra text.',
+  'Put the JSON in one ```json code block for easy copying. Return no other text.',
   'I have not named the product yet. First, ask only for its name, exact model, or URL. Do not return the example JSON yet.',
 ].join('\n\n')
 

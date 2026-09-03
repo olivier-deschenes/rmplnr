@@ -184,6 +184,15 @@ describe('serializeProject', () => {
     )
   })
 
+  it('preserves room and furniture colors', () => {
+    const project = plan({
+      rooms: [{ ...plan().rooms[0], color: '#f59e0b' }],
+      furniture: [{ ...plan().furniture[0], color: '#0ea5e9' }],
+    })
+
+    expect(parseProjectFile(serializeProject(project))).toEqual(project)
+  })
+
   it('trims a plan name into a file its own parser accepts', () => {
     const project = plan({ name: '  Flat  ' })
     const contents = serializeProject(project)

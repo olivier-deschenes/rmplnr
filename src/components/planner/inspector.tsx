@@ -261,6 +261,52 @@ function NameField({
   )
 }
 
+/** Native color input, wrapped in the same shadcn controls as the inspector. */
+function ColorField({
+  value,
+  onChange,
+}: {
+  value?: string
+  onChange: (next: string | undefined) => void
+}) {
+  const id = useId()
+  const displayed = value ?? '#e5e7eb'
+
+  return (
+    <div className="grid gap-1">
+      <Label htmlFor={id} className="text-muted-foreground text-[10px]">
+        Color
+      </Label>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          type="color"
+          value={displayed}
+          aria-label="Choose color"
+          className="h-8 w-12 cursor-pointer p-1"
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={() => plannerStore.actions.sealHistory()}
+        />
+        <span className="text-muted-foreground flex-1 font-mono text-[10px] uppercase">
+          {value ?? 'Default'}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!value}
+          onClick={() => {
+            onChange(undefined)
+            plannerStore.actions.sealHistory()
+          }}
+        >
+          Reset
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /**
  * What can be done to the selection whatever it is, at the foot of every
  * panel. Both have a key to themselves on the canvas; the buttons are here for
@@ -314,6 +360,10 @@ function ClosetPanel({
       <NameField
         value={room.name}
         onChange={(name) => actions.updateRoom(room.id, { name })}
+      />
+      <ColorField
+        value={room.color}
+        onChange={(color) => actions.updateRoom(room.id, { color })}
       />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
@@ -393,6 +443,10 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
       <NameField
         value={room.name}
         onChange={(name) => actions.updateRoom(room.id, { name })}
+      />
+      <ColorField
+        value={room.color}
+        onChange={(color) => actions.updateRoom(room.id, { color })}
       />
       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-1">
         <LengthField
@@ -544,6 +598,7 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
     <>
       <SectionTitle>{FURNITURE_PRESETS[item.kind].label}</SectionTitle>
       <NameField value={item.name} onChange={(name) => update({ name })} />
+      <ColorField value={item.color} onChange={(color) => update({ color })} />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
           label="Width"

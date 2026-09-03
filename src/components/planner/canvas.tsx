@@ -675,7 +675,7 @@ export function Canvas() {
           x = topLeft.x + drag.origin.w / 2
           y = topLeft.y + drag.origin.h / 2
         }
-        actions.updateFurniture(drag.id, { x, y })
+        actions.previewFurnitureMove(drag.id, x, y)
         break
       }
       case 'move-room': {
@@ -835,6 +835,9 @@ export function Canvas() {
     if (drag?.mode === 'rect') actions.commitRect()
     if (drag?.mode === 'move-underlay') {
       underlayStore.actions.commitPosition()
+    }
+    if (drag?.mode === 'move-furniture' && slopRef.current?.armed) {
+      actions.finishFurnitureMove(drag.id, drag.origin)
     }
     if (drag) actions.sealHistory()
     dragRef.current = null
