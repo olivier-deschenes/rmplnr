@@ -26,6 +26,7 @@ import {
   IconPhotoScan,
   IconRectangle,
   IconSettings,
+  IconShare,
   IconTrash,
   IconUpload,
   IconVectorTriangle,
@@ -77,6 +78,7 @@ import {
   downloadProjectJson,
 } from '#/lib/planner/projectExport.ts'
 import { OPENING_PRESETS, OPENING_TOOLS } from '#/lib/planner/presets.ts'
+import { projectShareUrl } from '#/lib/planner/planSharing.ts'
 import { currentProjects, plannerStore, saveNow } from '#/lib/planner/store.ts'
 import { EDIT_KEYS, OPENING_KEYS, TOOL_KEYS } from '#/lib/planner/shortcuts.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
@@ -507,6 +509,35 @@ function downloadBackup() {
   downloadLibraryBackup(currentProjects(plannerStore.state))
 }
 
+/** Use the native share sheet where there is one, and copy everywhere else. */
+async function shareProject(): Promise<void> {
+  const project = currentProject()
+  if (!project) return
+
+  try {
+    const url = await projectShareUrl(project)
+    const nativeShare: unknown = Reflect.get(navigator, 'share')
+    if (typeof nativeShare === 'function') {
+      try {
+        await nativeShare.call(navigator, {
+          title: `${project.name} · rmplnr`,
+          url,
+        })
+        return
+      } catch (problem) {
+        if (problem instanceof DOMException && problem.name === 'AbortError') {
+          return
+        }
+      }
+    }
+
+    await navigator.clipboard.writeText(url)
+    toast.success('Share link copied.')
+  } catch {
+    toast.error('Could not share this plan.')
+  }
+}
+
 /** Download the open plan without hiding the action in the plan switcher. */
 function ExportMenu() {
   const underlay = useSelector(underlayStore, (state) => state.underlay)
@@ -567,7 +598,7 @@ function FileMenu({
             variant="outline"
             size="sm"
             className="max-sm:size-11 max-sm:px-0"
-            aria-label="Import or export"
+            aria-label="Share, import, or export"
           >
             <IconDownload data-icon="inline-start" />
             <span className="max-sm:sr-only">Files</span>
@@ -581,6 +612,14 @@ function FileMenu({
           align="end"
           className="w-48 max-sm:[&_[data-slot=dropdown-menu-item]]:min-h-11"
         >
+          <DropdownMenuItem
+            className="min-h-11 sm:hidden"
+            onSelect={() => void shareProject()}
+          >
+            <IconShare />
+            Share plan
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="sm:hidden" />
           <DropdownMenuItem onSelect={() => setImporting(true)}>
             <IconUpload />
             Import JSON
@@ -898,6 +937,18 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
         data-toolbar-section="actions"
         className="flex h-12 shrink-0 items-center gap-0.5 pr-2 sm:h-11 xl:h-auto xl:p-0"
       >
+        <Hint label="Share this plan">
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-sm:hidden"
+            aria-label="Share this plan"
+            onClick={() => void shareProject()}
+          >
+            <IconShare data-icon="inline-start" />
+            <span className="max-sm:sr-only">Share</span>
+          </Button>
+        </Hint>
         <AIImportDialog className="max-sm:size-11 max-sm:px-0" />
         <UnderlayControl />
         <div className="xl:hidden">

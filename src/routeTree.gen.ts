@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ShareRouteImport } from './routes/share'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as ApiGithubEventsRouteImport } from './routes/api.github.events'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api.github.webhook'
@@ -18,6 +19,11 @@ import { Route as ApiGithubOauthCallbackRouteImport } from './routes/api.github.
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShareRoute = ShareRouteImport.update({
+  id: '/share',
+  path: '/share',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PProjectIdRoute = PProjectIdRouteImport.update({
@@ -43,6 +49,7 @@ const ApiGithubOauthCallbackRoute = ApiGithubOauthCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
   '/api/github/webhook': typeof ApiGithubWebhookRoute
@@ -67,6 +76,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/share'
     | '/p/$projectId'
     | '/api/github/events'
     | '/api/github/webhook'
@@ -74,6 +84,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/share'
     | '/p/$projectId'
     | '/api/github/events'
     | '/api/github/webhook'
@@ -81,6 +92,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/share'
     | '/p/$projectId'
     | '/api/github/events'
     | '/api/github/webhook'
@@ -89,6 +101,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ShareRoute: typeof ShareRoute
   PProjectIdRoute: typeof PProjectIdRoute
   ApiGithubEventsRoute: typeof ApiGithubEventsRoute
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
@@ -102,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/share': {
+      id: '/share'
+      path: '/share'
+      fullPath: '/share'
+      preLoaderRoute: typeof ShareRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/p/$projectId': {
@@ -137,6 +157,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ShareRoute: ShareRoute,
   PProjectIdRoute: PProjectIdRoute,
   ApiGithubEventsRoute: ApiGithubEventsRoute,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
