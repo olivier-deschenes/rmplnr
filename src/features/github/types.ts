@@ -17,6 +17,12 @@ export type GitHubSyncConflictKind =
   | 'local-deleted-remote-modified'
   | 'invalid-remote'
 
+/**
+ * Which copy the user chose to keep. `remote` means GitHub's file wins here,
+ * `local` means this browser's plan wins and the next commit says so.
+ */
+export type GitHubConflictResolution = 'remote' | 'local'
+
 export interface GitHubSyncConflict {
   kind: GitHubSyncConflictKind
   /** Missing only when an invalid managed file has no usable plan ID. */

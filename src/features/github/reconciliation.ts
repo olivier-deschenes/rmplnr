@@ -2,6 +2,7 @@ import { hashProjects } from './hash.ts'
 import { getGitHubProjectPath } from './types.ts'
 
 import type {
+  GitHubConflictResolution,
   GitHubProjectBaseline,
   GitHubReconciliationChanges,
   GitHubReconciliationPlan,
@@ -227,6 +228,84 @@ export async function planGitHubReconciliation(
       changeCount > 0 ||
       sortedConflicts.length > 0,
     canCommitAfterApply: sortedConflicts.length === 0,
+  }
+}
+
+export interface GitHubConflictResolutionResult {
+  state: GitHubWorkspaceState
+  /** Plans to write into the library — in practice at most one. */
+  projectUpserts: Project[]
+}
+
+function sameConflict(
+  left: GitHubSyncConflict,
+  right: GitHubSyncConflict,
+): boolean {
+  return left.path === right.path && left.kind === right.kind
+}
+
+/**
+ * Settles one conflict by saying which side wins. Nothing here touches GitHub.
+ *
+ * Taking GitHub's copy is immediate: the file is already parsed and hashed in
+ * the snapshot, so it can be written straight into the library. Keeping this
+ * browser's copy is a promise instead — the baseline is moved onto GitHub's
+ * current blob, which leaves the local plan reading as an ordinary edit (or,
+ * with nothing local, as a deletion), and the next commit is what carries it.
+ *
+ * Returns `null` for a conflict the browser cannot settle on its own: an
+ * unreadable managed file has no copy to choose between.
+ */
+export function resolveGitHubSyncConflict(
+  state: GitHubWorkspaceState,
+  localProjects: Iterable<Project>,
+  remoteSnapshot: GitHubRemoteSnapshot,
+  conflict: GitHubSyncConflict,
+  resolution: GitHubConflictResolution,
+): GitHubConflictResolutionResult | null {
+  const projectId = conflict.projectId
+  if (!projectId || conflict.kind === 'invalid-remote') return null
+
+  const remote = remoteSnapshot.projects[projectId]
+  const local = [...localProjects].find((project) => project.id === projectId)
+  const selectedIds = new Set(state.selectedProjectIds)
+  const baseProjects = { ...state.baseProjects }
+  const projectUpserts: Project[] = []
+
+  if (resolution === 'remote') {
+    if (remote) {
+      projectUpserts.push(remote.project)
+      baseProjects[projectId] = baselineFromRemote(remote)
+      selectedIds.add(projectId)
+    } else {
+      // GitHub deleted it. A local plan is never deleted on the user's behalf;
+      // it just stops being something this repository knows about.
+      delete baseProjects[projectId]
+      selectedIds.delete(projectId)
+    }
+  } else if (remote) {
+    baseProjects[projectId] = baselineFromRemote(remote)
+    if (local) selectedIds.add(projectId)
+    else selectedIds.delete(projectId)
+  } else if (local) {
+    // With no baseline the plan reads as an addition, which puts back the file
+    // GitHub deleted.
+    delete baseProjects[projectId]
+    selectedIds.add(projectId)
+  } else {
+    return null
+  }
+
+  return {
+    state: {
+      ...state,
+      selectedProjectIds: [...selectedIds].sort(),
+      baseProjects,
+      conflicts: state.conflicts.filter(
+        (other) => !sameConflict(other, conflict),
+      ),
+    },
+    projectUpserts,
   }
 }
 

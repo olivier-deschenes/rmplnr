@@ -2,7 +2,9 @@ import { useForm } from '@tanstack/react-form'
 import {
   IconAlertTriangle,
   IconCheck,
+  IconCloudDownload,
   IconCopy,
+  IconDeviceLaptop,
   IconDownload,
   IconExternalLink,
   IconGitCommit,
@@ -30,7 +32,11 @@ import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Spinner } from '#/components/ui/spinner.tsx'
 
-import { describeGitHubSync } from './syncStatus.ts'
+import {
+  describeGitHubConflict,
+  describeGitHubSync,
+  isGitHubConflictResolvable,
+} from './syncStatus.ts'
 import {
   TextLink,
   ToneDot,
@@ -40,6 +46,8 @@ import {
 } from './dialogShared.tsx'
 
 import type { GitHubSyncController } from './useGithubSync.ts'
+import type { GitHubSyncConflict } from './types.ts'
+import type { Project } from '#/lib/planner/types.ts'
 
 interface GitHubCommitDialogProps {
   open: boolean
@@ -71,6 +79,125 @@ function ReviewList({
   )
 }
 
+/**
+ * One conflict, and the way out of it.
+ *
+ * The five conflict kinds are not one situation with five names: "we both drew
+ * on this" and "you deleted it here while GitHub kept editing" call for
+ * different words and different consequences. So the card says which one
+ * happened, spells out what each button will do, and only then offers them.
+ */
+function ConflictCard({
+  conflict,
+  controller,
+  repository,
+  local,
+}: {
+  conflict: GitHubSyncConflict
+  controller: GitHubSyncController
+  repository: NonNullable<GitHubSyncController['repository']>
+  local: Project | undefined
+}) {
+  const copy = describeGitHubConflict(conflict, local !== undefined)
+  const resolvable = isGitHubConflictResolvable(conflict)
+  // `nameFor` falls back to the ID, which beside the file path is the same
+  // UUID twice. An unreadable file has no name to find, so it shows its path.
+  const known = conflict.projectId
+    ? nameFor(conflict.projectId, controller)
+    : null
+  const name = local?.name ?? (known === conflict.projectId ? null : known)
+
+  return (
+    <div className="border-t pt-3">
+      <p className="text-foreground font-medium">{name ?? conflict.path}</p>
+      {name ? (
+        <p className="mt-0.5 font-mono text-[11px] break-all opacity-70">
+          {conflict.path}
+        </p>
+      ) : null}
+
+      <p className="mt-1.5">{copy.summary}</p>
+      {conflict.error ? (
+        <p className="mt-1 font-mono text-[11px] break-all">{conflict.error}</p>
+      ) : null}
+      {copy.manual ? <p className="mt-1.5">{copy.manual}</p> : null}
+
+      {resolvable && copy.remote && copy.local ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={controller.busy}
+            className="h-auto flex-col items-start gap-0.5 py-2 text-left whitespace-normal"
+            onClick={() => void controller.resolveConflict(conflict, 'remote')}
+          >
+            <span className="flex items-center gap-1.5 font-medium">
+              <IconCloudDownload className="size-3.5 shrink-0" />
+              Take GitHub's version
+            </span>
+            <span className="font-normal opacity-80">{copy.remote}</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={controller.busy}
+            className="h-auto flex-col items-start gap-0.5 py-2 text-left whitespace-normal"
+            onClick={() => void controller.resolveConflict(conflict, 'local')}
+          >
+            <span className="flex items-center gap-1.5 font-medium">
+              <IconDeviceLaptop className="size-3.5 shrink-0" />
+              Keep this browser's
+            </span>
+            <span className="font-normal opacity-80">{copy.local}</span>
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button asChild type="button" size="sm" variant="ghost">
+          <a
+            href={githubFileUrl(repository, conflict.path)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <IconExternalLink />
+            Open on GitHub
+          </a>
+        </Button>
+        {local ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(serializeProject(local))
+                  .then(() => toast.success('Local JSON copied'))
+                  .catch(() => toast.error('Local JSON could not be copied'))
+              }}
+            >
+              <IconCopy />
+              Copy local JSON
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => downloadProjectFile(local)}
+            >
+              <IconDownload />
+              Export local JSON
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function IncomingReview({
   controller,
 }: Pick<GitHubCommitDialogProps, 'controller'>) {
@@ -80,6 +207,19 @@ function IncomingReview({
   if (!review || !repository) return null
 
   const { changes, conflicts } = review.plan
+  const resolvableCount = conflicts.filter(isGitHubConflictResolvable).length
+  // An unreadable file is not a plan and has no copy to choose between, so
+  // neither "pick a side" nor the word "plan" fits a pile made only of those.
+  const conflictTitle =
+    resolvableCount === 0
+      ? conflicts.length === 1
+        ? '1 file on GitHub cannot be read'
+        : `${conflicts.length} files on GitHub cannot be read`
+      : resolvableCount < conflicts.length
+        ? `${conflicts.length} conflicts block commits`
+        : conflicts.length === 1
+          ? '1 plan needs a decision'
+          : `${conflicts.length} plans need a decision`
   const hasManagedChanges =
     changes.additions.length > 0 ||
     changes.updates.length > 0 ||
@@ -119,7 +259,7 @@ function IncomingReview({
             controller={controller}
           />
         </ul>
-      ) : (
+      ) : conflicts.length > 0 ? null : (
         <p className="text-muted-foreground">
           The repository changed, but no managed plan content changed.
         </p>
@@ -128,77 +268,42 @@ function IncomingReview({
       {conflicts.length > 0 ? (
         <Alert variant="destructive">
           <IconAlertTriangle />
-          <AlertTitle>Resolve on GitHub before syncing</AlertTitle>
+          <AlertTitle>{conflictTitle}</AlertTitle>
           <AlertDescription>
             <p>
-              A plan changed in both places, or a managed file is invalid. All
-              commits are blocked until the GitHub JSON is resolved.
+              {resolvableCount === 0
+                ? 'Commits stay blocked while the plans folder holds a file this app cannot read.'
+                : "Commits are blocked until each one below is settled. Nothing is sent to GitHub by choosing here — a choice that keeps this browser's copy is carried by your next commit."}
             </p>
+            {resolvableCount > 1 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mb-3"
+                disabled={controller.busy}
+                onClick={() => void controller.resolveAllConflicts('remote')}
+              >
+                <IconCloudDownload />
+                Take GitHub's version for all {resolvableCount}
+              </Button>
+            ) : null}
             <div className="space-y-3">
-              {conflicts.map((conflict) => {
-                const local = conflict.projectId
-                  ? projects.find(
-                      (project) => project.id === conflict.projectId,
-                    )
-                  : undefined
-                return (
-                  <div
-                    key={`${conflict.path}:${conflict.kind}`}
-                    className="border-t pt-3"
-                  >
-                    <p className="text-foreground font-medium">
-                      {local?.name ?? conflict.path}
-                    </p>
-                    <p className="mt-1 font-mono text-[11px] break-all">
-                      {conflict.path}
-                    </p>
-                    {conflict.error ? (
-                      <p className="mt-1">{conflict.error}</p>
-                    ) : null}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button asChild type="button" size="sm" variant="outline">
-                        <a
-                          href={githubFileUrl(repository, conflict.path)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <IconExternalLink />
-                          Open on GitHub
-                        </a>
-                      </Button>
-                      {local ? (
-                        <>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              void navigator.clipboard
-                                .writeText(serializeProject(local))
-                                .then(() => toast.success('Local JSON copied'))
-                                .catch(() =>
-                                  toast.error('Local JSON could not be copied'),
-                                )
-                            }}
-                          >
-                            <IconCopy />
-                            Copy local JSON
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => downloadProjectFile(local)}
-                          >
-                            <IconDownload />
-                            Export local JSON
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                )
-              })}
+              {conflicts.map((conflict) => (
+                <ConflictCard
+                  key={`${conflict.path}:${conflict.kind}`}
+                  conflict={conflict}
+                  controller={controller}
+                  repository={repository}
+                  local={
+                    conflict.projectId
+                      ? projects.find(
+                          (project) => project.id === conflict.projectId,
+                        )
+                      : undefined
+                  }
+                />
+              ))}
             </div>
           </AlertDescription>
         </Alert>

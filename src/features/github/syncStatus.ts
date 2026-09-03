@@ -1,4 +1,4 @@
-import type { GitHubWorkspaceChanges } from './types.ts'
+import type { GitHubSyncConflict, GitHubWorkspaceChanges } from './types.ts'
 import type { GitHubSyncDisplayState } from './useGithubSync.ts'
 
 /**
@@ -105,7 +105,83 @@ export function describeGitHubSync(
         tone: 'bad',
         label: 'Conflict',
         title: 'Conflict blocks commits',
-        detail: 'A plan changed in both places. Resolve it on GitHub.',
+        detail: 'Choose which copy to keep before committing again.',
       }
   }
+}
+
+export interface GitHubConflictCopy {
+  /** What is actually in conflict, said in the order it happened. */
+  summary: string
+  /** What each choice does here, or `null` when it is not on offer. */
+  remote: string | null
+  local: string | null
+  /** Shown instead of the choices when neither side can settle it. */
+  manual: string | null
+}
+
+/**
+ * A conflict in words. The kinds are not interchangeable — "both of you drew
+ * on it" and "you deleted it, GitHub kept editing" want different sentences
+ * and different buttons — so each gets its own.
+ */
+export function describeGitHubConflict(
+  conflict: GitHubSyncConflict,
+  hasLocalPlan: boolean,
+): GitHubConflictCopy {
+  switch (conflict.kind) {
+    case 'both-added':
+      return {
+        summary:
+          'This plan was started here and on GitHub under the same ID, and the two are different.',
+        remote: "Replace this browser's copy with GitHub's.",
+        local:
+          "Keep this browser's copy and overwrite GitHub on the next commit.",
+        manual: null,
+      }
+    case 'both-modified':
+      return {
+        summary:
+          'This plan was edited here and on GitHub since the last sync, in different ways.',
+        remote: "Discard the edits made here and take GitHub's copy.",
+        local:
+          'Keep the edits made here and overwrite GitHub on the next commit.',
+        manual: null,
+      }
+    case 'local-modified-remote-deleted':
+      return {
+        summary: 'This plan was edited here, and deleted on GitHub.',
+        remote:
+          'Accept the deletion. The plan stays in this browser and stops syncing.',
+        local: 'Put the plan back on GitHub on the next commit.',
+        manual: null,
+      }
+    case 'local-deleted-remote-modified':
+      return {
+        summary: hasLocalPlan
+          ? 'This plan was taken out of sync here, and edited on GitHub afterwards.'
+          : 'This plan is no longer in this browser, and was edited on GitHub afterwards.',
+        remote: hasLocalPlan
+          ? "Sync it again, starting from GitHub's copy."
+          : "Bring the plan back into this browser from GitHub's copy.",
+        local: 'Delete it from GitHub on the next commit.',
+        manual: null,
+      }
+    case 'invalid-remote':
+      return {
+        summary:
+          'A file in the plans folder on GitHub is not a plan this app can read, so it cannot be compared with anything here.',
+        remote: null,
+        local: null,
+        manual:
+          'Fix the JSON or move the file out of the plans folder on GitHub. Commits stay blocked until it reads as a plan or is gone.',
+      }
+  }
+}
+
+/** Whether this conflict can be settled from the browser at all. */
+export function isGitHubConflictResolvable(
+  conflict: GitHubSyncConflict,
+): boolean {
+  return conflict.kind !== 'invalid-remote' && conflict.projectId !== undefined
 }

@@ -16,8 +16,12 @@ import {
   selectGithubRepository,
 } from './githubFunctions.ts'
 import { deriveGitHubWorkspaceChanges } from './dirtyState.ts'
-import { planGitHubReconciliation } from './reconciliation.ts'
+import {
+  planGitHubReconciliation,
+  resolveGitHubSyncConflict,
+} from './reconciliation.ts'
 import { toGitHubRemoteSnapshot } from './remoteSnapshot.ts'
+import { isGitHubConflictResolvable } from './syncStatus.ts'
 import { isRepositoryEventMessage } from './repositoryEvents.ts'
 import {
   GITHUB_WORKSPACE_STORAGE_KEY,
@@ -36,8 +40,10 @@ import type {
   GithubSelectedRepository,
 } from './contracts.ts'
 import type {
+  GitHubConflictResolution,
   GitHubReconciliationPlan,
   GitHubRemoteSnapshot,
+  GitHubSyncConflict,
   GitHubWorkspaceChanges,
   GitHubWorkspaceState,
 } from './types.ts'
@@ -96,6 +102,15 @@ export interface GitHubSyncController {
   refreshRepositories: () => Promise<void>
   selectRepository: (repositoryId: string) => Promise<boolean>
   refresh: () => Promise<void>
+  /** Settles one conflict in favour of GitHub's file or this browser's plan. */
+  resolveConflict: (
+    conflict: GitHubSyncConflict,
+    resolution: GitHubConflictResolution,
+  ) => Promise<boolean>
+  /** The same choice, made once for every conflict that can take it. */
+  resolveAllConflicts: (
+    resolution: GitHubConflictResolution,
+  ) => Promise<boolean>
   confirmReview: () => Promise<boolean>
   commit: (message: string) => Promise<boolean>
   disconnect: () => Promise<boolean>
@@ -496,6 +511,135 @@ export function useGithubSync(): GitHubSyncController {
     }
   }, [processSnapshot, refetchSnapshot])
 
+  /**
+   * Settles conflicts against the review already in hand.
+   *
+   * Deciding a conflict needs no network: the snapshot being reviewed holds
+   * GitHub's parsed plans, so both candidate copies are already here. The
+   * decisions are folded in one after another so a batch sees the state the
+   * one before it left, then the whole review is re-planned from the same
+   * snapshot — which is what clears the settled conflicts and shows whatever
+   * is still outstanding.
+   */
+  const applyResolutions = useCallback(
+    async (
+      entries: Array<{
+        conflict: GitHubSyncConflict
+        resolution: GitHubConflictResolution
+      }>,
+    ) => {
+      const currentReview = review
+      const current = workspaceRef.current
+      if (!currentReview || !current || entries.length === 0) return false
+
+      setBusy(true)
+      setActionError(null)
+      try {
+        let nextState = current
+        let nextProjects = projectsRef.current
+        const upserts: Project[] = []
+
+        for (const { conflict, resolution } of entries) {
+          const settled = resolveGitHubSyncConflict(
+            nextState,
+            nextProjects,
+            currentReview.remote,
+            conflict,
+            resolution,
+          )
+          if (!settled) continue
+          nextState = settled.state
+          if (settled.projectUpserts.length === 0) continue
+          upserts.push(...settled.projectUpserts)
+          const byId = new Map(
+            settled.projectUpserts.map((project) => [project.id, project]),
+          )
+          nextProjects = [
+            ...nextProjects.map((project) => byId.get(project.id) ?? project),
+            ...settled.projectUpserts.filter(
+              (project) =>
+                !nextProjects.some((existing) => existing.id === project.id),
+            ),
+          ]
+        }
+
+        if (nextState === current && upserts.length === 0) {
+          toast.error('That conflict has to be settled on GitHub.')
+          return false
+        }
+
+        // The library is the store's, not this hook's: it writes the accepted
+        // plans in, and its own autosave puts them in the browser.
+        plannerStore.actions.upsertProjects(upserts)
+
+        const plan = await planGitHubReconciliation(
+          nextState,
+          nextProjects,
+          currentReview.remote,
+        )
+        persistWorkspace({ ...nextState, conflicts: plan.conflicts })
+        setReview({ ...currentReview, plan })
+        return true
+      } catch {
+        toast.error('That choice could not be saved in this browser.')
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [persistWorkspace, review],
+  )
+
+  const resolveConflict = useCallback(
+    async (
+      conflict: GitHubSyncConflict,
+      resolution: GitHubConflictResolution,
+    ) => {
+      const settled = await applyResolutions([{ conflict, resolution }])
+      if (settled) {
+        toast.success(
+          resolution === 'remote'
+            ? "GitHub's copy kept"
+            : 'Your copy kept — commit to send it to GitHub',
+        )
+      }
+      return settled
+    },
+    [applyResolutions],
+  )
+
+  const resolveAllConflicts = useCallback(
+    async (resolution: GitHubConflictResolution) => {
+      const conflicts = review?.plan.conflicts ?? []
+      const resolvable = conflicts.filter(isGitHubConflictResolvable)
+      if (resolvable.length === 0) {
+        toast.error('These conflicts have to be settled on GitHub.')
+        return false
+      }
+
+      const settled = await applyResolutions(
+        resolvable.map((conflict) => ({ conflict, resolution })),
+      )
+      if (settled) {
+        const blocked = conflicts.length - resolvable.length
+        toast.success(
+          resolution === 'remote'
+            ? "GitHub's copies kept"
+            : 'Your copies kept — commit to send them to GitHub',
+          blocked > 0
+            ? {
+                description: `${blocked} unreadable ${
+                  blocked === 1 ? 'file' : 'files'
+                } still need fixing on GitHub.`,
+              }
+            : undefined,
+        )
+      }
+      return settled
+    },
+    [applyResolutions, review],
+  )
+
   const confirmReview = useCallback(async () => {
     const currentReview = review
     const currentWorkspace = workspaceRef.current
@@ -669,6 +813,8 @@ export function useGithubSync(): GitHubSyncController {
     refreshRepositories,
     selectRepository: chooseRepository,
     refresh,
+    resolveConflict,
+    resolveAllConflicts,
     confirmReview,
     commit,
     disconnect,

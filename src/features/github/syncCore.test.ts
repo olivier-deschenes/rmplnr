@@ -7,6 +7,7 @@ import { hashProject } from './hash.ts'
 import {
   applyGitHubReconciliationPlan,
   planGitHubReconciliation,
+  resolveGitHubSyncConflict,
 } from './reconciliation.ts'
 import { createGitHubRemoteSnapshot } from './remoteSnapshot.ts'
 import {
@@ -233,6 +234,217 @@ describe('planGitHubReconciliation', () => {
     )
 
     expect(JSON.stringify(state)).toBe(before)
+  })
+})
+
+describe('resolveGitHubSyncConflict', () => {
+  /** Walks a conflict out of the reconciler so the shapes stay real. */
+  async function conflictOver(
+    state: GitHubWorkspaceState,
+    localProjects: Array<Project>,
+    snapshot: GitHubRemoteSnapshot,
+  ) {
+    const reconciled = await planGitHubReconciliation(
+      state,
+      localProjects,
+      snapshot,
+    )
+    expect(reconciled.conflicts).toHaveLength(1)
+    return reconciled.conflicts[0]
+  }
+
+  it("takes GitHub's copy into the library when both sides were edited", async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const theirs = plan(PLAN_A, 'Flat', 'Kitchen')
+    const snapshot = await remote(sha('c'), [
+      { project: theirs, blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+    expect(conflict.kind).toBe('both-modified')
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [mine],
+      snapshot,
+      conflict,
+      'remote',
+    )
+    expect(settled?.projectUpserts).toEqual([theirs])
+    expect(settled?.state.conflicts).toEqual([])
+    expect(settled?.state.baseProjects[PLAN_A]?.blobSha).toBe(sha('d'))
+
+    // Nothing is left waiting: the library now holds exactly what GitHub has.
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [theirs])
+    expect(after.hasChanges).toBe(false)
+  })
+
+  it('leaves the local edit waiting as an update when this browser wins', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const snapshot = await remote(sha('c'), [
+      { project: plan(PLAN_A, 'Flat', 'Kitchen'), blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [mine],
+      snapshot,
+      conflict,
+      'local',
+    )
+    expect(settled?.projectUpserts).toEqual([])
+
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [mine])
+    expect(after.updated).toEqual([PLAN_A])
+    expect(after.canCommit).toBe(true)
+  })
+
+  it('re-conflicts with nothing once the choice is made', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const snapshot = await remote(sha('c'), [
+      { project: plan(PLAN_A, 'Flat', 'Kitchen'), blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [mine],
+      snapshot,
+      conflict,
+      'local',
+    )
+
+    const replanned = await planGitHubReconciliation(
+      settled!.state,
+      [mine],
+      snapshot,
+    )
+    expect(replanned.conflicts).toEqual([])
+  })
+
+  it('brings a plan back into the browser it was deleted from', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const theirs = plan(PLAN_A, 'Flat', 'Kitchen')
+    const snapshot = await remote(sha('c'), [
+      { project: theirs, blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [], snapshot)
+    expect(conflict.kind).toBe('local-deleted-remote-modified')
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [],
+      snapshot,
+      conflict,
+      'remote',
+    )
+    expect(settled?.projectUpserts).toEqual([theirs])
+    expect(settled?.state.selectedProjectIds).toEqual([PLAN_A])
+
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [theirs])
+    expect(after.hasChanges).toBe(false)
+  })
+
+  it('carries the deletion to GitHub when the browser wins instead', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const snapshot = await remote(sha('c'), [
+      { project: plan(PLAN_A, 'Flat', 'Kitchen'), blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [], snapshot)
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [],
+      snapshot,
+      conflict,
+      'local',
+    )
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [])
+    expect(after.deleted).toEqual([PLAN_A])
+    expect(after.canCommit).toBe(true)
+  })
+
+  it('puts a plan back on GitHub that was deleted there but edited here', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const snapshot = await remote(sha('c'), [])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+    expect(conflict.kind).toBe('local-modified-remote-deleted')
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [mine],
+      snapshot,
+      conflict,
+      'local',
+    )
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [mine])
+    expect(after.added).toEqual([PLAN_A])
+  })
+
+  it('accepts a GitHub deletion without touching the local plan', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const snapshot = await remote(sha('c'), [])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+
+    const settled = resolveGitHubSyncConflict(
+      base.state,
+      [mine],
+      snapshot,
+      conflict,
+      'remote',
+    )
+    expect(settled?.projectUpserts).toEqual([])
+    expect(settled?.state.baseProjects[PLAN_A]).toBeUndefined()
+    expect(settled?.state.selectedProjectIds).toEqual([])
+
+    // The plan is still the user's; it has only stopped being GitHub's.
+    const after = await deriveGitHubWorkspaceChanges(settled!.state, [mine])
+    expect(after.hasChanges).toBe(false)
+  })
+
+  it('refuses a file GitHub cannot read, whichever side is asked for', async () => {
+    const snapshot = await createGitHubRemoteSnapshot(sha('c'), [
+      {
+        path: getGitHubProjectPath(PLAN_A),
+        blobSha: sha('d'),
+        contents: 'not json',
+      },
+    ])
+    const conflict = await conflictOver(
+      createGitHubWorkspaceState(REPOSITORY_ID),
+      [],
+      snapshot,
+    )
+    expect(conflict.kind).toBe('invalid-remote')
+
+    for (const resolution of ['remote', 'local'] as const) {
+      expect(
+        resolveGitHubSyncConflict(
+          createGitHubWorkspaceState(REPOSITORY_ID),
+          [],
+          snapshot,
+          conflict,
+          resolution,
+        ),
+      ).toBeNull()
+    }
+  })
+
+  it('leaves the state it was given alone', async () => {
+    const base = await synced([plan(PLAN_A, 'Flat')])
+    const frozen = structuredClone(base.state)
+    const mine = plan(PLAN_A, 'Flat', 'Studio')
+    const snapshot = await remote(sha('c'), [
+      { project: plan(PLAN_A, 'Flat', 'Kitchen'), blobSha: sha('d') },
+    ])
+    const conflict = await conflictOver(base.state, [mine], snapshot)
+
+    resolveGitHubSyncConflict(base.state, [mine], snapshot, conflict, 'remote')
+    expect(base.state).toEqual(frozen)
   })
 })
 
