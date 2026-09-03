@@ -59,6 +59,28 @@ it('shows exact length and angle controls for a selected wall', () => {
   expect(html).toContain('Start corner')
 })
 
+it('offers a remove-wall action, held while the room is locked', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+  const room = plannerStore.state.rooms[0]
+  plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
+
+  // A room lands locked, and a locked room does not give up its walls.
+  expect(renderToStaticMarkup(<Inspector />)).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
+  )
+
+  plannerStore.actions.setRoomLocked(room.id, false)
+  const unlocked = renderToStaticMarkup(<Inspector />)
+
+  expect(unlocked).toContain('Remove wall')
+  expect(unlocked).not.toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
+  )
+})
+
 it('offers room rotation controls and holds them while the room is locked', () => {
   plannerStore.actions.openProject(PLAN)
   plannerStore.actions.beginRect({ x: 0, y: 0 })

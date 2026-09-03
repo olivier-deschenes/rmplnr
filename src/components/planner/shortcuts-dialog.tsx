@@ -42,7 +42,10 @@ export const SHORTCUT_GROUPS: Array<ShortcutGroup> = [
       { label: 'Copy', hotkey: EDIT_KEYS.copy },
       { label: 'Paste', hotkey: EDIT_KEYS.paste },
       { label: 'Duplicate', hotkey: EDIT_KEYS.duplicate },
-      { label: 'Delete or remove last corner', hotkey: EDIT_KEYS.remove },
+      {
+        label: 'Delete, remove held wall, or remove last corner',
+        hotkey: EDIT_KEYS.remove,
+      },
       { label: 'Finish outline', hotkey: EDIT_KEYS.commit },
       { label: 'Cancel current action', hotkey: EDIT_KEYS.cancel },
     ],

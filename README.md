@@ -69,20 +69,20 @@ Clearing site data removes local plans that have not been exported or synced.
 
 `Mod` means Command on macOS and Control on Windows or Linux.
 
-| Action                               | Shortcut                           |
-| ------------------------------------ | ---------------------------------- |
-| Select                               | `V`                                |
-| Draw polygon room                    | `R`                                |
-| Draw rectangular room                | `E`                                |
-| Add door / window / opening          | `D` / `W` / `O`                    |
-| Undo / redo                          | `Mod+Z` / `Mod+Shift+Z` or `Mod+Y` |
-| Copy / paste / duplicate             | `Mod+C` / `Mod+V` / `Mod+D`        |
-| Delete selection or last draft point | `Delete` or `Backspace`            |
-| Finish a room outline                | `Enter`                            |
-| Cancel the current action            | `Escape`                           |
-| Nudge the selection                  | Arrow keys                         |
-| Nudge ten snap steps                 | `Shift` + arrow key                |
-| Pan while dragging                   | Hold `Space`                       |
+| Action                                           | Shortcut                           |
+| ------------------------------------------------ | ---------------------------------- |
+| Select                                           | `V`                                |
+| Draw polygon room                                | `R`                                |
+| Draw rectangular room                            | `E`                                |
+| Add door / window / opening                      | `D` / `W` / `O`                    |
+| Undo / redo                                      | `Mod+Z` / `Mod+Shift+Z` or `Mod+Y` |
+| Copy / paste / duplicate                         | `Mod+C` / `Mod+V` / `Mod+D`        |
+| Delete selection, held wall, or last draft point | `Delete` or `Backspace`            |
+| Finish a room outline                            | `Enter`                            |
+| Cancel the current action                        | `Escape`                           |
+| Nudge the selection                              | Arrow keys                         |
+| Nudge ten snap steps                             | `Shift` + arrow key                |
+| Pan while dragging                               | Hold `Space`                       |
 
 ## Cloudflare deployment
 

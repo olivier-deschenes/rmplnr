@@ -5,6 +5,7 @@ import {
   distance,
   editWallGeometry,
   outlineIssue,
+  removeWallGeometry,
 } from './geometry.ts'
 
 import type { Point } from './types.ts'
@@ -62,6 +63,92 @@ describe('exact wall geometry', () => {
     expect(result).toEqual({
       ok: false,
       error: 'That change would make the room cross over itself.',
+    })
+  })
+})
+
+/** A 400 x 300 room with its bottom-right corner cut off on the slant. */
+const CANTED: Array<Point> = [
+  { x: 0, y: 0 },
+  { x: 400, y: 0 },
+  { x: 400, y: 200 },
+  { x: 300, y: 300 },
+  { x: 0, y: 300 },
+]
+
+describe('removing a wall', () => {
+  it('squares off a canted corner by running the walls either side on to meet', () => {
+    const result = removeWallGeometry(CANTED, 2)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 400, y: 300 },
+      { x: 0, y: 300 },
+    ])
+  })
+
+  it('closes the ring back up when the wall is the last one', () => {
+    // The same room, started from another corner, so the cant is the wall that
+    // runs from the last corner round to the first.
+    const started: Array<Point> = [
+      { x: 300, y: 300 },
+      { x: 0, y: 300 },
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 400, y: 200 },
+    ]
+
+    const result = removeWallGeometry(started, 4)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.points).toEqual([
+      { x: 0, y: 300 },
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 400, y: 300 },
+    ])
+  })
+
+  it('refuses every wall of a rectangle, whose walls come in parallel pairs', () => {
+    for (const index of [0, 1, 2, 3]) {
+      expect(removeWallGeometry(RECTANGLE, index)).toEqual({
+        ok: false,
+        error: 'The walls either side of this one are parallel and never meet.',
+      })
+    }
+  })
+
+  it('refuses to take a room below three walls', () => {
+    expect(removeWallGeometry(RECTANGLE.slice(0, 3), 0)).toEqual({
+      ok: false,
+      error: 'A room needs at least three walls.',
+    })
+  })
+
+  it('refuses a wall whose neighbours only meet behind themselves', () => {
+    // A room that narrows away from its top wall: the two walls beside that one
+    // converge below the room, so carrying them on to meet turns both around.
+    const trapezoid: Array<Point> = [
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+    ]
+
+    expect(removeWallGeometry(trapezoid, 0)).toEqual({
+      ok: false,
+      error: 'Removing that wall would turn one beside it back on itself.',
+    })
+  })
+
+  it('refuses a wall that is no longer there', () => {
+    expect(removeWallGeometry(CANTED, 9)).toEqual({
+      ok: false,
+      error: 'This wall no longer exists.',
     })
   })
 })

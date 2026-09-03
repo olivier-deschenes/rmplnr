@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import { useHotkeys, useKeyHold } from '@tanstack/react-hotkeys'
+import { toast } from 'sonner'
 
 import { Grid } from './grid.tsx'
 import { UnderlayImage, useBlobUrl } from './underlay.tsx'
@@ -465,10 +466,21 @@ export function Canvas() {
       // A draft gives up its last corner before the plan gives up anything.
       ...[EDIT_KEYS.remove, EDIT_KEYS.removeAlt].map((hotkey) => ({
         hotkey,
-        callback: () =>
-          plannerStore.state.draft
-            ? actions.popDraftPoint()
-            : actions.deleteSelected(),
+        callback: () => {
+          if (plannerStore.state.draft) {
+            actions.popDraftPoint()
+            return
+          }
+          // A wall that cannot go has a reason, and the key has no panel to
+          // print it in. Everything else deleted goes without argument.
+          const held = plannerStore.state.selection
+          if (held?.type !== 'wall') {
+            actions.deleteSelected()
+            return
+          }
+          const result = actions.removeWall(held.id, held.index)
+          if (!result.ok) toast.error(result.error)
+        },
       })),
       // Space is held rather than struck, and `useKeyHold` below is what reads
       // it. It is registered all the same so that the press is taken off the

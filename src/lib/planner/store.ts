@@ -47,7 +47,7 @@ import {
   selectionName,
 } from './describe.ts'
 import { SNAP_STEP } from './units.ts'
-import { editConnectedWall } from './walls.ts'
+import { editConnectedWall, removeRoomWall } from './walls.ts'
 import {
   DEFAULT_SCALE,
   LibrarySchema,
@@ -312,6 +312,47 @@ function reshaped(
   return {
     ...state,
     ...flowedClosets(rooms, openings),
+  }
+}
+
+/**
+ * The plan with one wall taken out of one room, or the same plan and the reason
+ * it stayed. The walls either side run on to meet each other, so what comes
+ * back has one corner fewer and every door, window and closet read back onto
+ * it — the same settling a removed corner gets, since the walls are renumbered
+ * either way.
+ */
+function withoutWall(
+  state: PlannerState,
+  roomId: string,
+  index: number,
+): { state: PlannerState; error: string | null } {
+  const room = state.rooms.find((candidate) => candidate.id === roomId)
+  if (!room) return { state, error: 'This room no longer exists.' }
+
+  const result = removeRoomWall(state.rooms, roomId, index)
+  if (!result.ok) return { state, error: result.error }
+
+  return {
+    state: {
+      ...reshaped(
+        {
+          ...state,
+          history: commit(
+            state,
+            null,
+            `Removed wall ${index + 1} of ${room.name}`,
+          ),
+        },
+        room,
+        result.points,
+      ),
+      // The walls that are left are not the walls that were selected: the one
+      // held is gone and the rest have shuffled up behind it. The room it
+      // belonged to is what is still there to hold.
+      selection: { type: 'room', id: roomId },
+    },
+    error: null,
   }
 }
 
@@ -1626,11 +1667,34 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /**
+   * Take a wall out of a room and close the outline back up behind it, in one
+   * history step. A wall that cannot go explains itself and changes nothing.
+   */
+  removeWall(
+    roomId: string,
+    index: number,
+  ): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = {
+      ok: false,
+      error: 'The wall could not be removed.',
+    }
+    setState((s) => {
+      const { state, error } = withoutWall(s, roomId, index)
+      outcome = error === null ? { ok: true } : { ok: false, error }
+      return state
+    })
+    return outcome
+  },
+
   deleteSelected() {
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
-      if (type === 'wall') return s
+      // Delete on a held wall takes that wall out of its room, rather than the
+      // room the wall belongs to: the selection is the wall, and the room is
+      // still reachable by holding the room itself.
+      if (type === 'wall') return withoutWall(s, id, s.selection.index).state
       const removedRooms = new Set<string>()
       if (type === 'room') {
         // A locked room is held against deletion too, and holds the closets

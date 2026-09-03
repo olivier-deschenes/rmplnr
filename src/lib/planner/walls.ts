@@ -8,7 +8,11 @@ import {
   wallAt,
 } from './openings.ts'
 import { closetSize, heldClosets, reflowClosets } from './closets.ts'
-import { editWallGeometry, outlineIssue } from './geometry.ts'
+import {
+  editWallGeometry,
+  outlineIssue,
+  removeWallGeometry,
+} from './geometry.ts'
 import { OPENING_PRESETS } from './presets.ts'
 
 import type { Opening, Point, Room } from './types.ts'
@@ -313,6 +317,48 @@ export function editConnectedWall(
   }
 
   return { ok: true, rooms: flowedRooms, openings: fittedOpenings }
+}
+
+export type WallRemovalResult =
+  { ok: true; points: Array<Point> } | { ok: false; error: string }
+
+/**
+ * The outline a room is left with once one of its walls is taken out, or why
+ * that wall has to stay. `removeWallGeometry` settles the shape; what is added
+ * here is the room's own say in it — whether it is a closet, whether it is
+ * locked, and whether the wall is still there to take.
+ *
+ * A wall two rooms hold in common is two leaves laid over each other, and only
+ * this room's is taken down. The room on the other side keeps its own, standing
+ * exactly where it stood, with whatever it had cut through it: a wall knocked
+ * out of one room is not knocked out of its neighbour, and the neighbour is
+ * neither reshaped nor asked for permission. What was one wall between them
+ * becomes that room's outside wall, which this one has simply stopped meeting.
+ *
+ * Anything hanging on the wall that goes — a door, a window, a closet — is read
+ * back onto the outline that is left, exactly as when a corner is taken out.
+ */
+export function removeRoomWall(
+  rooms: Array<Room>,
+  roomId: string,
+  index: number,
+): WallRemovalResult {
+  const room = rooms.find((candidate) => candidate.id === roomId)
+  if (!room) return { ok: false, error: 'This room no longer exists.' }
+  if (room.kind === 'closet') {
+    return {
+      ok: false,
+      error: 'A closet keeps its four walls; resize it instead.',
+    }
+  }
+  if (room.locked) {
+    return { ok: false, error: `Unlock ${room.name} to remove its walls.` }
+  }
+  if (!wallAt(room.points, index)) {
+    return { ok: false, error: 'This wall no longer exists.' }
+  }
+
+  return removeWallGeometry(room.points, index)
 }
 
 /** What is left of `span` once `gaps` are taken out of it. */

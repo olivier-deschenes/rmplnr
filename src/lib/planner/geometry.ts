@@ -266,7 +266,15 @@ export function outlineIssue(
   if (before.length !== after.length || after.length < 3) {
     return 'That wall no longer belongs to a complete room.'
   }
+  return shapeIssue(before, after)
+}
 
+/**
+ * The half of `outlineIssue` that does not care how many corners there are:
+ * whether what is left is a room at all. Taking a wall out ends with one corner
+ * fewer than it started with, and has every one of these ways to go wrong.
+ */
+function shapeIssue(before: Array<Point>, after: Array<Point>): string | null {
   for (let i = 0; i < after.length; i++) {
     const next = (i + 1) % after.length
     if (distance(after[i], after[next]) < MIN_SIZE - GEOMETRY_EPSILON) {
@@ -348,6 +356,73 @@ export function editWallGeometry(
   }
   const next = points.map((point, i) => (i === endIndex ? nextEnd : point))
   const issue = outlineIssue(points, next)
+  return issue ? { ok: false, error: issue } : { ok: true, points: next }
+}
+
+/**
+ * Take one wall out of an outline, and hand back the outline that leaves.
+ *
+ * A room is a closed ring of walls, so a wall cannot simply be deleted and a
+ * gap left where it stood. The two walls it ran between are carried on instead
+ * until they meet, and the corner they meet at stands in for the pair the
+ * removed wall had at its ends — which is what squaring off a bay or a notch
+ * comes to, and why the room keeps its shape everywhere else.
+ *
+ * Two walls that run parallel never meet, so the wall between them is the only
+ * thing holding the room together and cannot go: every wall of a rectangle is
+ * of that kind. Nor can a wall go from a room down to its last three, or where
+ * carrying its neighbours on would run one of them backwards or fold the room
+ * through itself.
+ */
+export function removeWallGeometry(
+  points: Array<Point>,
+  index: number,
+): WallGeometryResult {
+  if (index < 0 || index >= points.length) {
+    return { ok: false, error: 'This wall no longer exists.' }
+  }
+  const count = points.length
+  if (count <= 3) {
+    return { ok: false, error: 'A room needs at least three walls.' }
+  }
+
+  const before = points[(index - 1 + count) % count]
+  const start = points[index]
+  const end = points[(index + 1) % count]
+  const after = points[(index + 2) % count]
+
+  const corner = crossing(before, start, end, after)
+  if (!corner) {
+    return {
+      ok: false,
+      error: 'The walls either side of this one are parallel and never meet.',
+    }
+  }
+
+  // Each neighbour is meant to give up or gain length while pointing the way it
+  // already pointed. One that arrives at the corner from the far side has been
+  // turned right around, and has taken a leg of the room with it.
+  const kept: Array<[Point, Point, Point]> = [
+    [before, start, corner],
+    [after, end, corner],
+  ]
+  for (const [fixed, was, now] of kept) {
+    const forward =
+      (was.x - fixed.x) * (now.x - fixed.x) +
+      (was.y - fixed.y) * (now.y - fixed.y)
+    if (forward <= 0) {
+      return {
+        ok: false,
+        error: 'Removing that wall would turn one beside it back on itself.',
+      }
+    }
+  }
+
+  const endIndex = (index + 1) % count
+  const next = points.flatMap((point, i) =>
+    i === endIndex ? [] : [i === index ? corner : point],
+  )
+  const issue = shapeIssue(points, next)
   return issue ? { ok: false, error: issue } : { ok: true, points: next }
 }
 

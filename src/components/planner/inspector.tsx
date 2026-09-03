@@ -7,6 +7,7 @@ import {
   IconLockOpen,
   IconRotate,
   IconRotateClockwise,
+  IconTrash,
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
@@ -533,12 +534,21 @@ function WallPanel({
   index: number
   units: Units
 }) {
+  // Why a wall could not be taken out is about the wall rather than about
+  // anything typed, so it is held here rather than under a field.
+  const [removal, setRemoval] = useState<string | null>(null)
   const wall = wallAt(room.points, index)
   if (!wall) return null
   const locked = room.locked === true
   const change = (patch: { length?: number; angle?: number }) => {
     const result = plannerStore.actions.setWallDimensions(room.id, index, patch)
     return result.ok ? null : result.error
+  }
+  const remove = () => {
+    const result = plannerStore.actions.removeWall(room.id, index)
+    // A wall that goes takes this panel with it: the room is what is left to
+    // hold, so there is nothing here to clear the message off.
+    setRemoval(result.ok ? null : result.error)
   }
 
   return (
@@ -572,6 +582,21 @@ function WallPanel({
           </AlertDescription>
         </Alert>
       ) : null}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={locked}
+        aria-label={`Remove wall ${index + 1} of ${room.name}`}
+        onClick={remove}
+      >
+        <IconTrash />
+        Remove wall
+      </Button>
+      {removal ? (
+        <Alert variant="destructive">
+          <AlertDescription role="alert">{removal}</AlertDescription>
+        </Alert>
+      ) : null}
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
         <dt>In</dt>
         <dd className="text-foreground truncate text-right">{room.name}</dd>
@@ -580,7 +605,8 @@ function WallPanel({
       </dl>
       <p className="text-muted-foreground text-[10px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
-        clockwise.
+        clockwise. Removing a wall carries the two either side of it on until
+        they meet, so a room never opens up.
       </p>
     </>
   )

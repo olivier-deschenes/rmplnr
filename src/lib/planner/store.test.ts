@@ -896,6 +896,229 @@ describe('exact wall dimensions', () => {
   })
 })
 
+/** A room with a canted corner, a window on the wall beside it, and a neighbour. */
+function cantedRoom(): Project {
+  return {
+    id: PLAN_C,
+    name: 'Canted plan',
+    rooms: [
+      {
+        id: 'room-canted',
+        name: 'Living',
+        points: [
+          { x: 0, y: 0 },
+          { x: 400, y: 0 },
+          { x: 400, y: 200 },
+          { x: 300, y: 300 },
+          { x: 0, y: 300 },
+        ],
+      },
+      {
+        id: 'room-study',
+        name: 'Study',
+        points: [
+          { x: 0, y: -200 },
+          { x: 400, y: -200 },
+          { x: 400, y: 0 },
+          { x: 0, y: 0 },
+        ],
+      },
+      {
+        // Sits against the cant, so its wall 2 and the canted room's wall 2
+        // are the two leaves of one party wall.
+        id: 'room-nook',
+        name: 'Nook',
+        points: [
+          { x: 400, y: 200 },
+          { x: 400, y: 300 },
+          { x: 300, y: 300 },
+        ],
+      },
+    ],
+    furniture: [],
+    openings: [
+      {
+        id: 'window-side',
+        kind: 'window',
+        roomId: 'room-canted',
+        wall: 1,
+        t: 0.5,
+        width: 80,
+        hinge: 'start',
+        swing: 'in',
+      },
+      {
+        id: 'window-nook',
+        kind: 'window',
+        roomId: 'room-nook',
+        wall: 2,
+        t: 0.5,
+        width: 80,
+        hinge: 'start',
+        swing: 'in',
+      },
+      {
+        // Cut into the canted room's side of the party wall, and therefore a
+        // hole through the nook's side of it too.
+        id: 'door-cant',
+        kind: 'door',
+        roomId: 'room-canted',
+        wall: 2,
+        t: 0.25,
+        width: 60,
+        hinge: 'start',
+        swing: 'in',
+      },
+    ],
+  }
+}
+
+function openCanted() {
+  const project = cantedRoom()
+  plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+  plannerStore.actions.openProject(project.id)
+}
+
+describe('removing a wall', () => {
+  beforeEach(openCanted)
+
+  it('squares off a canted corner and leaves the window where it stood', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-canted', index: 2 })
+
+    const result = plannerStore.actions.removeWall('room-canted', 2)
+
+    expect(result).toEqual({ ok: true })
+    const room = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-canted',
+    )!
+    expect(room.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+      { x: 400, y: 300 },
+      { x: 0, y: 300 },
+    ])
+    // The wall the window is cut into grew from 200 to 300 as the cant went,
+    // and the window is read back onto it at the spot it was already in.
+    const window = plannerStore.state.openings.find(
+      (opening) => opening.id === 'window-side',
+    )!
+    expect(window.wall).toBe(1)
+    const wall = openingWall(plannerStore.state.rooms, window)!
+    expect(openingEnds(wall, window).centre).toEqual({ x: 400, y: 100 })
+    // The wall that was held is gone, so the room is what is left to hold.
+    expect(plannerStore.state.selection).toEqual({
+      type: 'room',
+      id: 'room-canted',
+    })
+    expect(plannerStore.state.history.past).toHaveLength(1)
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Removed wall 3 of Living',
+    )
+  })
+
+  it('puts the wall back in one undo', () => {
+    const before = plannerStore.state.rooms
+
+    plannerStore.actions.removeWall('room-canted', 2)
+    plannerStore.actions.undo()
+
+    expect(plannerStore.state.rooms).toEqual(before)
+  })
+
+  it('leaves the room next door holding its own leaf of a party wall', () => {
+    const nook = plannerStore.state.rooms.find(
+      (candidate) => candidate.id === 'room-nook',
+    )!
+    // The cant is one wall built twice, once from either side.
+    expect(
+      sharedWalls(plannerStore.state.rooms, 'room-canted', 2).map(
+        (share) => share.roomId,
+      ),
+    ).toEqual(['room-nook'])
+
+    const result = plannerStore.actions.removeWall('room-canted', 2)
+
+    expect(result).toEqual({ ok: true })
+    // Only the canted room's leaf came down. The nook is not reshaped, and its
+    // wall stands where it stood, with its window still cut through it.
+    expect(
+      plannerStore.state.rooms.find(
+        (candidate) => candidate.id === 'room-nook',
+      ),
+    ).toEqual(nook)
+    expect(
+      plannerStore.state.openings.find(
+        (opening) => opening.id === 'window-nook',
+      ),
+    ).toEqual({
+      id: 'window-nook',
+      kind: 'window',
+      roomId: 'room-nook',
+      wall: 2,
+      t: 0.5,
+      width: 80,
+      hinge: 'start',
+      swing: 'in',
+    })
+    // Nothing shares that wall any more: it is the nook's outside wall now.
+    expect(sharedWalls(plannerStore.state.rooms, 'room-nook', 2)).toEqual([])
+  })
+
+  it('closes the neighbour’s wall back up where the removed one was pierced', () => {
+    const gaps = () =>
+      wallGaps(
+        plannerStore.state.rooms,
+        plannerStore.state.openings,
+        'room-nook',
+        2,
+      )
+    // A door through a party wall is one hole through both leaves, so while the
+    // cant is shared the nook's wall carries the canted room's door as well as
+    // its own window.
+    expect(gaps()).toHaveLength(2)
+
+    plannerStore.actions.removeWall('room-canted', 2)
+
+    // With nothing sharing that wall, only the nook's own window is left out of
+    // it: the door belonged to a wall the nook never built.
+    expect(gaps()).toHaveLength(1)
+    // And the door is not lost — it is read back onto a wall the canted room
+    // still has.
+    const door = plannerStore.state.openings.find(
+      (opening) => opening.id === 'door-cant',
+    )!
+    expect(door.roomId).toBe('room-canted')
+    expect(openingWall(plannerStore.state.rooms, door)).not.toBeNull()
+  })
+
+  it('refuses every wall of a locked room', () => {
+    plannerStore.actions.setRoomLocked('room-canted', true)
+    const before = plannerStore.state
+
+    const result = plannerStore.actions.removeWall('room-canted', 2)
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Unlock Living to remove its walls.',
+    })
+    expect(plannerStore.state).toBe(before)
+  })
+
+  it('takes the held wall out when the selection is deleted', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-canted', index: 2 })
+
+    plannerStore.actions.deleteSelected()
+
+    expect(
+      plannerStore.state.rooms.find(
+        (candidate) => candidate.id === 'room-canted',
+      )!.points,
+    ).toHaveLength(4)
+    // The room itself is still there: Delete on a wall is not Delete on a room.
+    expect(plannerStore.state.rooms).toHaveLength(3)
+  })
+})
+
 describe('locked rooms', () => {
   beforeEach(() => {
     plannerStore.actions.openProject(PLAN_A)
