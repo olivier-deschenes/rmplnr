@@ -117,8 +117,8 @@ function NumberField({
   }
 
   return (
-    <Label className="grid gap-1" htmlFor={id}>
-      <span className="text-muted-foreground text-[10px]">{label}</span>
+    <Label className="grid gap-1.5" htmlFor={id}>
+      <span className="text-muted-foreground text-xs">{label}</span>
       <Input
         id={id}
         type="number"
@@ -143,7 +143,7 @@ function NumberField({
         <span
           id={`${id}-error`}
           role="alert"
-          className="text-destructive text-[10px]"
+          className="text-destructive text-xs"
         >
           {error}
         </span>
@@ -184,11 +184,7 @@ function LengthField({
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-muted-foreground text-[10px] tracking-wider uppercase">
-      {children}
-    </h2>
-  )
+  return <h2 className="text-sm font-medium">{children}</h2>
 }
 
 function NameField({
@@ -238,8 +234,8 @@ function NameField({
   }
 
   return (
-    <Label className="grid gap-1" htmlFor={id}>
-      <span className="text-muted-foreground text-[10px]">Name</span>
+    <Label className="grid gap-1.5" htmlFor={id}>
+      <span className="text-muted-foreground text-xs">Name</span>
       <Input
         id={id}
         value={displayed}
@@ -256,7 +252,7 @@ function NameField({
         <span
           id={id ? `${id}-error` : undefined}
           role="alert"
-          className="text-destructive text-[10px]"
+          className="text-destructive text-xs"
         >
           {edit.error}
         </span>
@@ -277,8 +273,8 @@ function ColorField({
   const displayed = value ?? '#e5e7eb'
 
   return (
-    <div className="grid gap-1">
-      <Label htmlFor={id} className="text-muted-foreground text-[10px]">
+    <div className="grid gap-1.5">
+      <Label htmlFor={id} className="text-muted-foreground text-xs">
         Color
       </Label>
       <div className="flex items-center gap-2">
@@ -291,7 +287,7 @@ function ColorField({
           onChange={(event) => onChange(event.target.value)}
           onBlur={() => plannerStore.actions.sealHistory()}
         />
-        <span className="text-muted-foreground flex-1 font-mono text-[10px] uppercase">
+        <span className="text-muted-foreground flex-1 font-mono text-xs">
           {value ?? 'Default'}
         </span>
         <Button
@@ -385,7 +381,7 @@ function ClosetPanel({
           onCommit={(depth) => actions.updateCloset(room.id, { depth })}
         />
       </div>
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Attached to</dt>
         <dd className="text-foreground truncate text-right">
           {host?.name ?? 'Missing room'}
@@ -406,7 +402,7 @@ function RoomLockButton({ room }: { room: Room }) {
     <Button
       variant={locked ? 'secondary' : 'ghost'}
       size="sm"
-      className="h-6 gap-1 px-2 text-[10px]"
+      className="h-8 gap-1.5 px-2 text-xs"
       aria-pressed={locked}
       onClick={() => plannerStore.actions.setRoomLocked(room.id, !locked)}
     >
@@ -490,8 +486,8 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           }
         />
       </div>
-      <div className="grid gap-1">
-        <span className="text-muted-foreground text-[10px]">Rotate 90°</span>
+      <div className="grid gap-1.5">
+        <span className="text-muted-foreground text-xs">Rotate 90°</span>
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"
@@ -515,7 +511,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           </Button>
         </div>
       </div>
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
           {formatArea(polygonArea(room.points), units, 2)}
@@ -598,13 +594,13 @@ function WallPanel({
           <AlertDescription role="alert">{removal}</AlertDescription>
         </Alert>
       ) : null}
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>In</dt>
         <dd className="text-foreground truncate text-right">{room.name}</dd>
         <dt>Anchor</dt>
         <dd className="text-foreground text-right">Start corner</dd>
       </dl>
-      <p className="text-muted-foreground text-[10px] leading-relaxed">
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
         clockwise. Removing a wall leaves the room area intact and turns this
         entire edge into an open passage.
@@ -632,7 +628,7 @@ function StyleBrushButton({
   const actions = plannerStore.actions
 
   return (
-    <div className="grid gap-1">
+    <div className="grid gap-1.5">
       <Button
         variant={brush ? 'default' : 'outline'}
         size="sm"
@@ -647,7 +643,7 @@ function StyleBrushButton({
         {brush ? 'Painting — click furniture' : 'Copy color to furniture'}
       </Button>
       {brush ? (
-        <p className="text-muted-foreground text-[10px] leading-relaxed">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           {brush.sticky
             ? 'Paint as many items as you like. Escape puts the brush down.'
             : 'Click an item to paint it. Double-click the brush to paint several.'}
@@ -714,7 +710,7 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
           </Label>
           <p
             id={`${collisionId}-description`}
-            className="text-muted-foreground text-[10px] leading-relaxed"
+            className="text-muted-foreground text-[13px] leading-relaxed"
           >
             Keep this item out of walls and other solid items.
           </p>
@@ -752,8 +748,8 @@ function ChoiceField({
   onChange: (next: string) => void
 }) {
   return (
-    <div className="grid gap-1">
-      <span className="text-muted-foreground text-[10px]">{label}</span>
+    <div className="grid gap-1.5">
+      <span className="text-muted-foreground text-xs">{label}</span>
       <ToggleGroup
         type="single"
         variant="outline"
@@ -804,10 +800,10 @@ function OpeningPanel({
     return (
       <>
         <SectionTitle>Removed wall</SectionTitle>
-        <p className="text-muted-foreground text-xs leading-relaxed">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           This edge is fully open. It is not drawn and does not block furniture.
         </p>
-        <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+        <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
           <dt>In</dt>
           <dd className="text-foreground truncate text-right">{room.name}</dd>
           <dt>Wall</dt>
@@ -837,8 +833,8 @@ function OpeningPanel({
   return (
     <>
       <SectionTitle>{OPENING_PRESETS[opening.kind].label}</SectionTitle>
-      <Label className="grid gap-1">
-        <span className="text-muted-foreground text-[10px]">Type</span>
+      <Label className="grid gap-1.5">
+        <span className="text-muted-foreground text-xs">Type</span>
         <Select
           value={opening.kind}
           onValueChange={(kind) => {
@@ -895,7 +891,7 @@ function OpeningPanel({
           onChange={(swing) => update({ swing: swing as Opening['swing'] })}
         />
       )}
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>In</dt>
         <dd className="text-foreground truncate text-right">{room.name}</dd>
         <dt>Wall</dt>
@@ -935,7 +931,7 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
         id={nameId}
         onChange={(next) => plannerStore.actions.renameProject(next)}
       />
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-1 text-[11px]">
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Floor area</dt>
         <dd className="text-foreground text-right tabular-nums">
           {formatArea(total, units, 2)}
@@ -953,6 +949,9 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
           {openings.length}
         </dd>
       </dl>
+      <p className="text-muted-foreground border-t pt-4 text-[13px] leading-relaxed">
+        Select a room, wall, or piece of furniture to edit its details.
+      </p>
     </>
   )
 }
@@ -1002,13 +1001,16 @@ export function Inspector({
   return (
     <aside
       aria-label="Inspector"
-      className={cn('flex w-64 shrink-0 flex-col border-l', className)}
+      className={cn(
+        'flex w-72 shrink-0 flex-col border-l bg-background',
+        className,
+      )}
     >
       {/*
         The panel above scrolls on its own so that the history below it keeps
         its place at the foot of the sidebar, whatever is selected.
       */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {/*
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.

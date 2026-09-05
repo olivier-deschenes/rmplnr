@@ -37,13 +37,8 @@ function MobileInspector() {
     return () => wide.removeEventListener('change', closeAtDesktop)
   }, [])
 
-  const changeOpen = (next: boolean) => {
-    setOpen(next)
-    requestAnimationFrame(() => plannerStore.actions.fit())
-  }
-
   return (
-    <Sheet open={open} onOpenChange={changeOpen}>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button
           variant="ghost"
@@ -58,7 +53,7 @@ function MobileInspector() {
         side="right"
         className="w-[min(22rem,calc(100vw-2rem))] p-0 [&>[data-slot=sheet-close]]:size-11"
       >
-        <SheetHeader className="shrink-0 border-b p-3 pr-14">
+        <SheetHeader className="shrink-0 border-b p-4 pr-14">
           <SheetTitle>Inspector</SheetTitle>
           <SheetDescription className="sr-only">
             Edit the plan or the selected room, wall, opening, or furniture.

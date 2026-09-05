@@ -136,6 +136,34 @@ beforeEach(() => {
 describe('furniture catalogue', () => {
   beforeEach(() => plannerStore.actions.openProject(PLAN_A))
 
+  it('puts down an unfinished outline when adding furniture', () => {
+    plannerStore.actions.setTool('room')
+    plannerStore.actions.addDraftPoint({ x: 20, y: 20 })
+    plannerStore.actions.addDraftPoint({ x: 180, y: 20 })
+    plannerStore.actions.addFurniture('desk')
+
+    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.draft).toBeNull()
+    expect(plannerStore.state.rect).toBeNull()
+    expect(plannerStore.state.selection?.type).toBe('furniture')
+    plannerStore.actions.undo()
+    expect(plannerStore.state.furniture).toHaveLength(0)
+  })
+
+  it('clears an unfinished outline when adding a custom preset', () => {
+    plannerStore.actions.addFurniture('desk')
+    const presetId = plannerStore.actions.saveFurniturePreset(
+      plannerStore.state.furniture[0].id,
+    )!
+    plannerStore.actions.setTool('room')
+    plannerStore.actions.addDraftPoint({ x: 20, y: 20 })
+    plannerStore.actions.addCustomFurniture(presetId)
+
+    expect(plannerStore.state.draft).toBeNull()
+    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.furniture).toHaveLength(2)
+  })
+
   it('adds every built-in preset at its exact metric footprint', () => {
     for (const kind of FURNITURE_KINDS) {
       plannerStore.actions.addFurniture(kind)
@@ -1515,4 +1543,20 @@ describe('a room made bigger', () => {
     expect(after.x).toBeCloseTo(before.x, 6)
     expect(after.w).toBeCloseTo(before.w, 6)
   })
+})
+
+it('keeps a copied room color and leaves the copy movable', () => {
+  const source = plan(PLAN_A, 'Flat')
+  source.rooms[0].color = '#809080'
+  source.rooms[0].locked = true
+  plannerStore.actions.loadLibrary({ version: 1, projects: [source] })
+  plannerStore.actions.openProject(PLAN_A)
+  plannerStore.actions.select({ type: 'room', id: source.rooms[0].id })
+  plannerStore.actions.duplicateSelection()
+  const copy = plannerStore.state.rooms.at(-1)!
+  expect(copy.color).toBe('#809080')
+  expect(copy.id).not.toBe(source.rooms[0].id)
+  expect(copy.locked).not.toBe(true)
+  plannerStore.actions.undo()
+  expect(plannerStore.state.rooms).toEqual(source.rooms)
 })

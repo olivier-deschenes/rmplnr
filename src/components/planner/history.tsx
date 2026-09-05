@@ -27,18 +27,16 @@ export function HistoryPanel() {
   const current = actions.findIndex((action) => !action.undone)
 
   return (
-    <section className="flex max-h-[45%] shrink-0 flex-col gap-2 border-t p-3">
-      <h2 className="text-muted-foreground text-[10px] tracking-wider uppercase">
-        History
-      </h2>
+    <section className="flex max-h-[35%] shrink-0 flex-col gap-3 border-t p-4">
+      <h2 className="text-sm font-medium">History</h2>
       {actions.length === 0 ? (
-        <p className="text-muted-foreground text-[11px]">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
           {planIsEmpty
-            ? 'Nothing yet — draw a room to start'
+            ? 'Nothing yet. Draw a room to start.'
             : 'No edits this session'}
         </p>
       ) : (
-        <ol className="grid content-start gap-1 overflow-y-auto text-[11px]">
+        <ol className="grid content-start gap-2 overflow-y-auto text-xs leading-relaxed">
           {actions.map((action, index) => (
             <li
               key={`${index}-${action.text}`}

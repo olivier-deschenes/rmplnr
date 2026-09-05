@@ -563,6 +563,10 @@ function withFurniture(
     furniture: [...state.furniture, item],
     selection: { type: 'furniture', id: item.id },
     tool: 'select',
+    draft: null,
+    rect: null,
+    brush: null,
+    renaming: null,
   }
 }
 
@@ -659,6 +663,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
   if (clipboard.type === 'room') {
     const room: Room = {
       id: newId(),
+      color: clipboard.room.color,
       name: copyName(
         clipboard.room.name,
         state.rooms.map((r) => r.name),

@@ -1245,7 +1245,7 @@ export function Canvas() {
       ref={svgRef}
       width="100%"
       height="100%"
-      className={`block touch-none select-none ${cursorClass}`}
+      className={`block touch-none font-mono select-none ${cursorClass}`}
       onPointerDown={onCanvasPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

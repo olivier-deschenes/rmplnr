@@ -292,23 +292,35 @@ export function AIImportForm({
 }
 
 /** The bar's one way in to everything an AI can add to the plan. */
-export function AIImportDialog({ className }: { className?: string }) {
-  const [open, setOpen] = useState(false)
+export function AIImportDialog({
+  className,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  className?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = onOpenChange ?? setInternalOpen
   const units = useSelector(plannerStore, (state) => state.units)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={className}
-          aria-label="Add rooms and furniture with AI"
-        >
-          <IconSparkles data-icon="inline-start" />
-          <span className="max-sm:sr-only">AI</span>
-        </Button>
-      </DialogTrigger>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className={className}
+            aria-label="Add rooms and furniture with AI"
+          >
+            <IconSparkles data-icon="inline-start" />
+            <span className="max-sm:sr-only">AI</span>
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="grid max-h-[min(90vh,44rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add with AI</DialogTitle>

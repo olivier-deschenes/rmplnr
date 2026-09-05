@@ -34,7 +34,7 @@ export function Grid({
           <path
             d={`M ${minor} 0 L 0 0 0 ${minor}`}
             fill="none"
-            className="stroke-foreground/12"
+            className="stroke-foreground/6"
             strokeWidth={1}
           />
         </pattern>
@@ -48,7 +48,7 @@ export function Grid({
           <path
             d={`M ${major} 0 L 0 0 0 ${major}`}
             fill="none"
-            className="stroke-foreground/28"
+            className="stroke-foreground/16"
             strokeWidth={1}
           />
         </pattern>

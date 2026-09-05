@@ -79,11 +79,39 @@ it('explains cancellation and panning for the rectangle tool', () => {
   const html = guidance()
   expect(html).toContain('Hold Space and drag to pan')
   expect(html).toContain('press Esc to cancel')
+  expect(html).toContain('>Cancel</button>')
+})
+
+it('offers touch controls and enables finishing only after three corners', () => {
+  plannerStore.actions.setTool('room')
+  plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
+
+  const started = guidance()
+  expect(started).toContain('aria-label="Undo last corner"')
+  expect(started).toMatch(
+    /<button[^>]*aria-label="Finish outline"[^>]*disabled=""/,
+  )
+
+  plannerStore.actions.addDraftPoint({ x: 400, y: 0 })
+  plannerStore.actions.addDraftPoint({ x: 400, y: 300 })
+
+  const ready = guidance()
+  expect(ready).toContain('aria-label="Finish outline"')
+  expect(ready).not.toMatch(
+    /<button[^>]*aria-label="Finish outline"[^>]*disabled=""/,
+  )
+  expect(ready).toContain('>Cancel</button>')
+})
+
+it('offers a Done button while placing openings', () => {
+  plannerStore.actions.setOpeningTool('door')
+
+  expect(guidance()).toContain('>Done</button>')
 })
 
 it('distinguishes an untouched blank plan from a reopened populated plan', () => {
   expect(renderToStaticMarkup(<HistoryPanel />)).toContain(
-    'Nothing yet — draw a room to start',
+    'Nothing yet. Draw a room to start.',
   )
 
   open(plan(true))

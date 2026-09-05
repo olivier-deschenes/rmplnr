@@ -14,7 +14,6 @@ import {
   IconGrill,
   IconHanger,
   IconLayoutRows,
-  IconPlus,
   IconSearch,
   IconSettings,
   IconSofa,
@@ -259,11 +258,11 @@ export function FurnitureCatalogue() {
           <Button
             variant={tool === 'closet' ? 'default' : 'outline'}
             size="sm"
-            className="max-sm:size-11 max-sm:px-0"
+            className="h-9 gap-1.5 max-sm:size-11 max-sm:px-0"
             aria-label="Add furniture or a closet"
           >
-            <IconPlus data-icon="inline-start" />
-            <span className="max-sm:sr-only">Add</span>
+            <IconArmchair data-icon="inline-start" />
+            <span className="max-sm:sr-only">Furniture</span>
           </Button>
         </DialogTrigger>
         <DialogContent className="grid max-h-[min(90vh,44rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-2xl">
