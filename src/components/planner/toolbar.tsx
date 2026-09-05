@@ -753,7 +753,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
             </Link>
           </Button>
         </Hint>
-        <Separator orientation="vertical" className="mx-2 h-4 max-sm:hidden" />
+        <Separator orientation="vertical" className="mx-2 max-sm:hidden" />
         <ProjectMenu />
         <SaveStatus />
       </div>
@@ -779,7 +779,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
             Share
           </Button>
         </Hint>
-        <Separator orientation="vertical" className="mx-1 h-4 max-sm:hidden" />
+        <Separator orientation="vertical" className="mx-1 max-sm:hidden" />
         <Hint label="Keyboard shortcuts">
           <Button
             variant="ghost"
@@ -857,7 +857,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
 
         <FurnitureCatalogue />
 
-        <Separator orientation="vertical" className="mx-1 h-5 max-sm:hidden" />
+        <Separator orientation="vertical" className="mx-1 max-sm:hidden" />
 
         <Hint label={`Snap to ${formatSnapStep(units)}`}>
           <Toggle
@@ -886,7 +886,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           </Toggle>
         </Hint>
 
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 max-sm:gap-0">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 self-stretch max-sm:gap-0">
           <Hint label="Undo" keys={EDIT_KEYS.undo}>
             <Button
               variant="ghost"
@@ -912,8 +912,8 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
             </Button>
           </Hint>
 
-          <div className="hidden items-center lg:flex">
-            <Separator orientation="vertical" className="mx-1.5 h-5" />
+          <div className="hidden items-center self-stretch lg:flex">
+            <Separator orientation="vertical" className="mx-1.5" />
             <Hint label="Zoom out">
               <Button
                 variant="ghost"
