@@ -147,6 +147,8 @@ export type PlannerState = {
   snap: boolean
   /** Whether furniture is held out of the walls and out of each other. */
   collide: boolean
+  /** Canvas visibility only; furniture stays in the plan. */
+  showFurniture: boolean
   /** Display only: the plan itself is always stored in centimetres. */
   units: Units
   viewport: Viewport
@@ -187,6 +189,7 @@ const initialState: PlannerState = {
   openingKind: 'door',
   snap: true,
   collide: true,
+  showFurniture: true,
   units: 'metric',
   viewport: { tx: 0, ty: 0, scale: DEFAULT_SCALE },
   draft: null,
@@ -923,6 +926,20 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 
   toggleCollide() {
     setState((s) => ({ ...s, collide: !s.collide }))
+  },
+
+  setShowFurniture(showFurniture: boolean) {
+    setState((s) => ({
+      ...s,
+      showFurniture,
+      selection:
+        !showFurniture && s.selection?.type === 'furniture'
+          ? null
+          : s.selection,
+      renaming:
+        !showFurniture && s.renaming?.type === 'furniture' ? null : s.renaming,
+      brush: showFurniture ? s.brush : null,
+    }))
   },
 
   setCollide(collide: boolean) {

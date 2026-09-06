@@ -241,7 +241,8 @@ export function Canvas() {
 
   const {
     rooms,
-    furniture,
+    furniture: allFurniture,
+    showFurniture,
     openings,
     selection,
     renaming,
@@ -254,6 +255,7 @@ export function Canvas() {
     rect: rectDraft,
     size,
   } = useSelector(plannerStore)
+  const furniture = showFurniture ? allFurniture : []
   const { underlay, positioning: positioningUnderlay } =
     useSelector(underlayStore)
   const underlayUrl = useBlobUrl(underlay?.blob ?? null)
@@ -924,7 +926,7 @@ export function Canvas() {
 
     const target = nameableAt(
       state.rooms,
-      state.furniture,
+      state.showFurniture ? state.furniture : [],
       world,
       WALL_GRAB / 2 / state.viewport.scale,
     )

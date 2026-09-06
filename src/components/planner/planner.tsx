@@ -97,7 +97,7 @@ export function Planner({ projectId }: { projectId: string }) {
   )
 
   useEffect(() => {
-    if (missing) navigate({ to: '/', replace: true })
+    if (missing) navigate({ to: '/projects', replace: true })
   }, [missing, navigate])
 
   if (!ready) return <PageLoading label="Opening plan…" />

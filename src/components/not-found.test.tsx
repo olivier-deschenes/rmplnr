@@ -23,6 +23,6 @@ it('shows a useful recovery page for an unknown URL', async () => {
   expect(html).toContain('rmplnr')
   expect(html).toContain('Page not found')
   expect(html).toContain('Your saved plans are still in this browser.')
-  expect(html).toContain('href="/"')
+  expect(html).toContain('href="/projects"')
   expect(html).toContain('All plans')
 })

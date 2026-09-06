@@ -26,7 +26,7 @@ export function NotFoundPage() {
       </section>
 
       <Button asChild variant="outline" size="sm" className="self-start">
-        <Link to="/">All plans</Link>
+        <Link to="/projects">All plans</Link>
       </Button>
     </main>
   )

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ShareRouteImport } from './routes/share'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as ApiGithubEventsRouteImport } from './routes/api.github.events'
@@ -19,6 +20,11 @@ import { Route as ApiGithubOauthCallbackRouteImport } from './routes/api.github.
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsRoute = ProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ShareRoute = ShareRouteImport.update({
@@ -49,6 +55,7 @@ const ApiGithubOauthCallbackRoute = ApiGithubOauthCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/projects': typeof ProjectsRoute
   '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/projects': typeof ProjectsRoute
   '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/projects': typeof ProjectsRoute
   '/share': typeof ShareRoute
   '/p/$projectId': typeof PProjectIdRoute
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -76,6 +85,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/projects'
     | '/share'
     | '/p/$projectId'
     | '/api/github/events'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/projects'
     | '/share'
     | '/p/$projectId'
     | '/api/github/events'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/projects'
     | '/share'
     | '/p/$projectId'
     | '/api/github/events'
@@ -101,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ProjectsRoute: typeof ProjectsRoute
   ShareRoute: typeof ShareRoute
   PProjectIdRoute: typeof PProjectIdRoute
   ApiGithubEventsRoute: typeof ApiGithubEventsRoute
@@ -115,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects': {
+      id: '/projects'
+      path: '/projects'
+      fullPath: '/projects'
+      preLoaderRoute: typeof ProjectsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/share': {
@@ -157,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ProjectsRoute: ProjectsRoute,
   ShareRoute: ShareRoute,
   PProjectIdRoute: PProjectIdRoute,
   ApiGithubEventsRoute: ApiGithubEventsRoute,

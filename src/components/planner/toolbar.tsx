@@ -16,6 +16,8 @@ import {
   IconCheck,
   IconDownload,
   IconDoor,
+  IconEye,
+  IconEyeOff,
   IconFile,
   IconFocusCentered,
   IconJson,
@@ -316,7 +318,7 @@ function ProjectMenu() {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link to="/">
+            <Link to="/projects">
               <IconArrowLeft />
               All plans
             </Link>
@@ -627,6 +629,7 @@ function OptionsMenu({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
   const units = useSelector(plannerStore, (s) => s.units)
   const snap = useSelector(plannerStore, (s) => s.snap)
   const collide = useSelector(plannerStore, (s) => s.collide)
+  const showFurniture = useSelector(plannerStore, (s) => s.showFurniture)
   const actions = plannerStore.actions
 
   return (
@@ -661,6 +664,14 @@ function OptionsMenu({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator className="lg:hidden" />
         <DropdownMenuLabel className="lg:hidden">View</DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          className="min-h-11 lg:hidden"
+          checked={showFurniture}
+          onCheckedChange={actions.setShowFurniture}
+        >
+          <IconEye />
+          Show furniture
+        </DropdownMenuCheckboxItem>
         <DropdownMenuItem
           className="min-h-11 lg:hidden"
           onSelect={() => actions.zoomBy(1.25)}
@@ -726,6 +737,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
   const openingKind = useSelector(plannerStore, (s) => s.openingKind)
   const snap = useSelector(plannerStore, (s) => s.snap)
   const collide = useSelector(plannerStore, (s) => s.collide)
+  const showFurniture = useSelector(plannerStore, (s) => s.showFurniture)
   const units = useSelector(plannerStore, (s) => s.units)
   const scale = useSelector(plannerStore, (s) => s.viewport.scale)
   const canUndo = useSelector(plannerStore, (s) => s.history.past.length > 0)
@@ -747,7 +759,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
             className="text-muted-foreground h-9 gap-1.5 max-sm:size-11 max-sm:px-0"
             asChild
           >
-            <Link to="/" aria-label="Back to all plans">
+            <Link to="/projects" aria-label="Back to all plans">
               <IconArrowLeft />
               <span className="max-sm:sr-only">All plans</span>
             </Link>
@@ -856,6 +868,19 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
         </ToggleGroup>
 
         <FurnitureCatalogue />
+
+        <Hint label={showFurniture ? 'Hide furniture' : 'Show furniture'}>
+          <Toggle
+            variant="outline"
+            size="sm"
+            className={`${LONE_TOGGLE} size-9 border-transparent max-lg:hidden`}
+            aria-label="Show furniture"
+            pressed={showFurniture}
+            onPressedChange={actions.setShowFurniture}
+          >
+            {showFurniture ? <IconEye /> : <IconEyeOff />}
+          </Toggle>
+        </Hint>
 
         <Separator orientation="vertical" className="mx-1 max-sm:hidden" />
 
