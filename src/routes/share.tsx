@@ -13,8 +13,19 @@ import {
   restoreLibrary,
   saveNow,
 } from '#/lib/planner/store.ts'
+import { seo } from '#/lib/seo.ts'
 
-export const Route = createFileRoute('/share')({ component: SharedPlan })
+export const Route = createFileRoute('/share')({
+  component: SharedPlan,
+  // The shared plan rides in the URL fragment, which never reaches the server
+  // and never reaches a crawler. There is no page here to index.
+  head: () =>
+    seo({
+      title: 'Opening a shared plan · rmplnr',
+      description: 'Add a room plan someone shared with you to this browser.',
+      noindex: true,
+    }),
+})
 
 function SharedPlan() {
   const [error, setError] = useState<string | null>(null)

@@ -65,6 +65,36 @@ bun run cf-types:check
 
 Clearing site data removes local plans that have not been exported or synced.
 
+## Search and social
+
+The landing page is the only page written to be indexed. The editor, the plan
+list, and the share handler are one person's local workspace, so each sends
+`noindex, follow`: search engines are asked to leave them out of results while
+still following their links. `robots.txt` deliberately leaves those paths
+crawlable — a crawler has to fetch a page to read the tag that excludes it —
+and closes off only `/api/`, which serves no page.
+
+- `src/lib/seo.ts` holds the site's title, description, canonical origin, and
+  social card, and builds the tags for a route's `head()`.
+- `src/lib/structuredData.ts` describes the landing page as schema.org
+  `WebSite`, `WebApplication`, and `FAQPage` nodes. The questions come from
+  `src/lib/faq.ts`, which the landing page also renders, so the markup and the
+  visible page cannot drift apart.
+- `public/` holds `robots.txt`, `sitemap.xml`, `site.webmanifest`, the
+  favicons, and `og.png`, the 1200x630 social card. They are copied into the
+  Worker's assets by the build.
+
+The site answers to `rmplnr.com`. `www.rmplnr.com` is pointed at the same
+Worker and permanently redirected to the canonical host by
+`src/server/canonicalHost.ts`, so no page exists under two names. Requests
+under `/api/` are served where they land, since a redirect is re-requested as
+a `GET` and would drop a webhook or OAuth body.
+
+Changing the domain means changing `SITE_URL` in `src/lib/seo.ts`,
+`CANONICAL_HOST` in `src/server/canonicalHost.ts`, the `routes` in
+`wrangler.jsonc`, and the absolute URLs in `public/robots.txt` and
+`public/sitemap.xml` together.
+
 ## Keyboard shortcuts
 
 `Mod` means Command on macOS and Control on Windows or Linux.

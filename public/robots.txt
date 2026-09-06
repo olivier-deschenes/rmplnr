@@ -1,0 +1,11 @@
+# rmplnr — https://rmplnr.com
+#
+# The private pages (/projects, /p/*, /share) are left crawlable on purpose:
+# they carry a `noindex` tag, and a crawler has to fetch a page to read it.
+# Only the API, which serves no page, is closed off.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://rmplnr.com/sitemap.xml

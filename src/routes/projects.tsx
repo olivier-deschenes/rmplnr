@@ -28,12 +28,21 @@ import { downloadLibraryBackup } from '#/lib/planner/projectExport.ts'
 import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
 import { createStarterPlan } from '#/lib/planner/starterPlan.ts'
 import { formatArea } from '#/lib/planner/units.ts'
+import { seo } from '#/lib/seo.ts'
 
 import type { Project, Units } from '#/lib/planner/types.ts'
 
 export const Route = createFileRoute('/projects')({
   component: Projects,
-  head: () => ({ meta: [{ title: 'Your plans · rmplnr' }] }),
+  // A shelf of plans that live in one browser. There is nothing here for a
+  // crawler to find, so it is kept out of the index while its links still count.
+  head: () =>
+    seo({
+      title: 'Your plans · rmplnr',
+      description:
+        'Every room plan saved in this browser, ready to open, export, or share.',
+      noindex: true,
+    }),
 })
 
 function summary(project: Project, units: Units): string {

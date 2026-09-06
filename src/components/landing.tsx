@@ -5,6 +5,7 @@ import { ImportDialog } from '#/components/planner/import-dialog.tsx'
 import { PlanPreview } from '#/components/planner/plan-preview.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
+import { FAQ } from '#/lib/faq.ts'
 import { polygonArea } from '#/lib/planner/geometry.ts'
 import { createStarterPlan } from '#/lib/planner/starterPlan.ts'
 import { formatArea } from '#/lib/planner/units.ts'
@@ -47,7 +48,7 @@ export function Landing({
           </h1>
           <p className="text-muted-foreground mt-6 max-w-sm text-base leading-relaxed sm:text-lg">
             Draw your rooms, place your furniture, and find a layout that feels
-            right. A simple 2D planner for your space.
+            right. A free 2D room planner for floor plans and furniture layouts.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button onClick={onStart} className="h-11 gap-2 px-5 text-sm">
@@ -126,7 +127,7 @@ export function Landing({
       >
         <div>
           <h2 className="text-base font-medium tracking-tight">
-            Start with your space
+            Draw your space to scale
           </h2>
           <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
             Draw rooms to your measurements. Add doors and windows, with
@@ -135,20 +136,47 @@ export function Landing({
         </div>
         <div>
           <h2 className="text-base font-medium tracking-tight">
-            Find a fit before you lift
+            Arrange furniture, check clearances
           </h2>
           <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
-            Arrange furniture, check clearances, and try another layout. Move
-            things around until they work.
+            Put furniture in at its real size and see what the walkways have
+            left. Move things around until the layout works.
           </p>
         </div>
         <div>
           <h2 className="text-base font-medium tracking-tight">
-            Keep your plans yours
+            Your floor plans stay yours
           </h2>
           <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
             Plans save in this browser. Export whenever you like, or choose
             which plans to sync with GitHub.
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="faq-title" className="border-t py-10 sm:py-12">
+        <h2 id="faq-title" className="text-base font-medium tracking-tight">
+          Questions
+        </h2>
+        <dl className="mt-8 grid gap-8 sm:gap-10 md:grid-cols-2 md:gap-x-16">
+          {FAQ.map((entry) => (
+            <div key={entry.question}>
+              <dt className="text-sm font-medium tracking-tight">
+                {entry.question}
+              </dt>
+              <dd className="text-muted-foreground mt-3 text-sm leading-relaxed">
+                {entry.answer}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-12 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <Button onClick={onStart} className="h-11 gap-2 px-5 text-sm">
+            Start a plan
+            <IconArrowRight aria-hidden="true" data-icon="inline-end" />
+          </Button>
+          <p className="text-muted-foreground text-sm">
+            Nothing to install, nothing to sign up for.
           </p>
         </div>
       </section>
