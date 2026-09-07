@@ -55,7 +55,11 @@ export function snapTargets(rooms: Array<Room>, exclude?: string): Targets {
   for (const room of rooms) {
     // An attached closet travels with its host room, so it is part of the
     // moving shape rather than a line the host should snap back onto.
-    if (room.id === exclude || room.attachment?.roomId === exclude) continue
+    if (
+      exclude !== undefined &&
+      (room.id === exclude || room.attachment?.roomId === exclude)
+    )
+      continue
     for (let i = 0; i < wallCount(room); i++) {
       const a = room.points[i]
       const b = room.points[(i + 1) % room.points.length]

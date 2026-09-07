@@ -36,6 +36,8 @@ import {
   nearestOpenEnd,
   straightPoint,
 } from '#/lib/planner/drawing.ts'
+import { snapDrawingPoint } from '#/lib/planner/drawingSnap.ts'
+import type { DrawingSnap } from '#/lib/planner/drawingSnap.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
 import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
@@ -271,6 +273,8 @@ export function Canvas() {
   const underlayUrl = useBlobUrl(underlay?.blob ?? null)
 
   const [cursor, setCursor] = useState<Point | null>(null)
+  const [drawingSnap, setDrawingSnap] = useState<DrawingSnap | null>(null)
+  const drawingGuides = useRef<Array<Guide>>([])
   const [panning, setPanning] = useState(false)
   /** The lines the thing being dragged has locked onto, while it is dragged. */
   const [guides, setGuides] = useState<Array<Guide>>([])
@@ -326,6 +330,23 @@ export function Canvas() {
     }
   }
 
+  const settleDrawing = (point: Point): Point => {
+    const state = plannerStore.state
+    const result = snapDrawingPoint({
+      point,
+      rooms: state.rooms,
+      anchor: draftPoints(state.rooms, state.draft).at(-1),
+      straight: state.straightWalls,
+      reach: SNAP_REACH_PX / state.viewport.scale,
+      step: activeSnapStep(state),
+      previous: drawingGuides.current,
+    })
+    drawingGuides.current = result.guides
+    setDrawingSnap(result)
+    setGuides(result.guides)
+    return result.point
+  }
+
   /**
    * How far a wall being pushed really goes, measured along its own normal:
    * onto a wall line already in the plan if one is within reach, and onto the
@@ -377,7 +398,11 @@ export function Canvas() {
 
   // The room tool leaves its guides up between clicks, which is what makes them
   // useful while a polygon is being traced. Putting the tool down clears them.
-  useEffect(() => setGuides([]), [tool])
+  useEffect(() => {
+    setGuides([])
+    setDrawingSnap(null)
+    drawingGuides.current = []
+  }, [tool, drawingAnchor?.x, drawingAnchor?.y, straightWalls])
 
   useEffect(() => {
     const el = svgRef.current
@@ -631,9 +656,9 @@ export function Canvas() {
         CLOSE_PX / state.viewport.scale,
       )
       if (end) actions.continueWalls(end.roomId, end.end)
-      else actions.addDraftPoint(settle(toWorld(event)))
+      else actions.addDraftPoint(settleDrawing(toWorld(event)))
     }
-    setCursor(settle(toWorld(event)))
+    setCursor(settleDrawing(toWorld(event)))
     begin({ mode: 'draw-wall', started }, event)
   }
 
@@ -641,16 +666,17 @@ export function Canvas() {
     const state = plannerStore.state
     const points = draftPoints(state.rooms, state.draft)
     if (!points.length) return
-    const world = toWorld(event)
+    const point = settleDrawing(toWorld(event))
     if (
       points.length >= 3 &&
-      distance(world, points[0]) <= CLOSE_PX / state.viewport.scale
+      closingIssue(points, state.straightWalls) === null &&
+      distance(point, points[0]) <= CLOSE_PX / state.viewport.scale
     ) {
       const result = actions.commitDraft()
       if (!result.ok) toast.error(formatMeasurementMessage(result.error, units))
       return
     }
-    const point = settle(world)
+    setCursor(point)
     const result = actions.addDraftPoint(
       state.straightWalls
         ? straightPoint(points[points.length - 1], point)
@@ -675,7 +701,7 @@ export function Canvas() {
 
   function onPointerMove(event: React.PointerEvent) {
     const state = plannerStore.state
-    if (state.tool === 'room') setCursor(settle(toWorld(event)))
+    if (state.tool === 'room') setCursor(settleDrawing(toWorld(event)))
     if (state.tool === 'opening' || state.tool === 'closet') {
       const eligibleRooms =
         state.tool === 'closet'
@@ -920,7 +946,7 @@ export function Canvas() {
     slopRef.current = null
     setDragMode(null)
     setPanning(false)
-    setGuides([])
+    if (plannerStore.state.tool !== 'room') setGuides([])
     if (svgRef.current?.hasPointerCapture(event.pointerId)) {
       svgRef.current.releasePointerCapture(event.pointerId)
     }
@@ -1307,6 +1333,8 @@ export function Canvas() {
       onPointerCancel={onPointerUp}
       onPointerLeave={() => {
         setCursor(null)
+        setDrawingSnap(null)
+        drawingGuides.current = []
         setGhost(null)
         setGuides([])
       }}
@@ -1489,6 +1517,28 @@ export function Canvas() {
         }
       />
       <SnapGuides guides={guides} viewport={viewport} />
+      {tool === 'room' && cursor && drawingSnap?.label && !nearFirst && (
+        <g className="pointer-events-none" aria-label={drawingSnap.label}>
+          <rect
+            x={worldToScreen(drawingSnap.point, viewport).x - 4}
+            y={worldToScreen(drawingSnap.point, viewport).y - 4}
+            width={8}
+            height={8}
+            className="fill-background stroke-snap"
+            strokeWidth={1.5}
+          />
+          <text
+            x={worldToScreen(drawingSnap.point, viewport).x + 12}
+            y={worldToScreen(drawingSnap.point, viewport).y + 16}
+            className="fill-foreground stroke-background text-[10px]"
+            strokeWidth={3}
+            strokeLinejoin="round"
+            paintOrder="stroke"
+          >
+            {drawingSnap.label}
+          </text>
+        </g>
+      )}
       <Clearances
         clearances={clearances}
         viewport={viewport}
