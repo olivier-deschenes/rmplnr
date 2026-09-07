@@ -437,6 +437,73 @@ export function freeEnclosures(
 }
 
 /**
+ * Whether a wall runs along a loop's boundary rather than merely touching it.
+ *
+ * What is asked for is an overlap with a length to it, not a point: a wall
+ * that only ends on this space's boundary — a stub walled onto the outside of
+ * it, or a run setting off elsewhere from one of its corners — is not one of
+ * the walls that close it in, and moving it leaves the space alone.
+ */
+function runsAlong(loop: Array<Point>, wall: Segment): boolean {
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i]
+    const b = loop[(i + 1) % loop.length]
+    const length = distance(a, b)
+    if (length === 0) continue
+    const along = (p: Point) =>
+      ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) /
+      (length * length)
+    const off = (p: Point, t: number) =>
+      distance(p, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+    const from = along(wall.a)
+    const to = along(wall.b)
+    if (off(wall.a, from) > WELD || off(wall.b, to) > WELD) continue
+    const overlap =
+      Math.min(1, Math.max(from, to)) - Math.max(0, Math.min(from, to))
+    if (overlap * length > WELD) return true
+  }
+  return false
+}
+
+/**
+ * The runs of wall that close a space in.
+ *
+ * A space has no walls of its own. Every wall around it was drawn as part of
+ * some room or run and belongs to that one, which is where it is edited — so
+ * this is the way back: the rooms with a wall lying along this space's
+ * boundary, which are the rooms that have to stand still for the space to keep
+ * its shape.
+ */
+export function enclosureWalls(
+  rooms: Array<Room>,
+  enclosure: Enclosure,
+): Array<Room> {
+  return rooms.filter((room) => {
+    for (let i = 0; i < wallCount(room); i++) {
+      const wall = roomWallAt(room, i)
+      if (wall && runsAlong(enclosure.points, wall)) return true
+    }
+    return false
+  })
+}
+
+/**
+ * Whether a space is held where it is.
+ *
+ * A space is held once every run that closes it in is locked, and not before:
+ * one wall still free to be dragged is enough to make a different space of it,
+ * so a space is only as held as its least held wall. A space no wall answers
+ * for is not held either — there is nothing there to hold.
+ */
+export function enclosureLocked(
+  rooms: Array<Room>,
+  enclosure: Enclosure,
+): boolean {
+  const walls = enclosureWalls(rooms, enclosure)
+  return walls.length > 0 && walls.every((room) => room.locked === true)
+}
+
+/**
  * How many rooms the plan has, and how much floor there is between them.
  *
  * Both halves of the plan are counted: the rooms drawn as rooms, off their own

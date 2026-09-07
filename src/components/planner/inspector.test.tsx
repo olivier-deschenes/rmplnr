@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { Inspector } from './inspector.tsx'
 
 import { plannerStore } from '#/lib/planner/store.ts'
+import { freeEnclosures } from '#/lib/planner/enclosures.ts'
 
 import type { Project } from '#/lib/planner/types.ts'
 
@@ -54,7 +55,6 @@ it('shows exact length and angle controls for a selected wall', () => {
   plannerStore.actions.updateRect({ x: 400, y: 300 })
   plannerStore.actions.commitRect()
   const room = plannerStore.state.rooms[0]
-  plannerStore.actions.setRoomLocked(room.id, false)
   plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
 
   const html = renderToStaticMarkup(<Inspector />)
@@ -75,18 +75,51 @@ it('offers a remove-wall action, held while the room is locked', () => {
   const room = plannerStore.state.rooms[0]
   plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
 
-  // A room lands locked, and a locked room does not give up its walls.
-  expect(renderToStaticMarkup(<Inspector />)).toMatch(
-    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
-  )
-
-  plannerStore.actions.setRoomLocked(room.id, false)
+  // A room lands unlocked, and gives up its walls until it is locked.
   const unlocked = renderToStaticMarkup(<Inspector />)
 
   expect(unlocked).toContain('Remove wall')
   expect(unlocked).not.toMatch(
     /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
   )
+
+  plannerStore.actions.setRoomLocked(room.id, true)
+
+  expect(renderToStaticMarkup(<Inspector />)).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
+  )
+})
+
+it('offers a padlock on the space a run of walls closes in', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+  // Out from the room's left wall, round, and back onto it higher up.
+  for (const point of [
+    { x: 0, y: 0 },
+    { x: -200, y: 0 },
+    { x: -200, y: 150 },
+    { x: 0, y: 150 },
+  ]) {
+    plannerStore.actions.addDraftPoint(point)
+  }
+  const { rooms, spaces } = plannerStore.state
+  const space = freeEnclosures(rooms, spaces)[0]
+  plannerStore.actions.select({ type: 'enclosure', id: space.key })
+
+  const unlocked = renderToStaticMarkup(<Inspector />)
+
+  expect(unlocked).toContain('These walls close in a room')
+  expect(unlocked).toContain('Locking it holds every run of walls around it')
+  expect(unlocked).toContain('Unlocked')
+  expect(unlocked).toContain('aria-pressed="false"')
+
+  plannerStore.actions.setEnclosureLocked(space.key, true)
+  const locked = renderToStaticMarkup(<Inspector />)
+
+  expect(locked).toContain('Locked')
+  expect(locked).toContain('aria-pressed="true"')
 })
 
 it('describes a removed wall and offers to restore it', () => {
@@ -95,7 +128,6 @@ it('describes a removed wall and offers to restore it', () => {
   plannerStore.actions.updateRect({ x: 400, y: 300 })
   plannerStore.actions.commitRect()
   const room = plannerStore.state.rooms[0]
-  plannerStore.actions.setRoomLocked(room.id, false)
   plannerStore.actions.removeWall(room.id, 0)
 
   const html = renderToStaticMarkup(<Inspector />)
@@ -110,6 +142,7 @@ it('offers room rotation controls and holds them while the room is locked', () =
   plannerStore.actions.beginRect({ x: 0, y: 0 })
   plannerStore.actions.updateRect({ x: 400, y: 300 })
   plannerStore.actions.commitRect()
+  plannerStore.actions.setRoomLocked(plannerStore.state.rooms[0].id, true)
 
   const html = renderToStaticMarkup(<Inspector />)
 
@@ -129,6 +162,7 @@ it('places a disabled width and height swap control between locked room fields',
   plannerStore.actions.beginRect({ x: 0, y: 0 })
   plannerStore.actions.updateRect({ x: 400, y: 300 })
   plannerStore.actions.commitRect()
+  plannerStore.actions.setRoomLocked(plannerStore.state.rooms[0].id, true)
 
   const html = renderToStaticMarkup(<Inspector />)
   const width = html.indexOf('Width cm')

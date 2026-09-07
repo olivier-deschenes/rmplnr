@@ -35,10 +35,11 @@ export const RoomSchema = z
     /**
      * A locked room keeps its shape and its place: it can still be selected and
      * renamed, and doors and closets can still be put in its walls, but nothing
-     * moves it, reshapes it, or deletes it until it is unlocked. New rooms are
-     * locked, so that the one just drawn is not dragged out of true by the next
-     * click. Missing from plans saved before rooms could be locked, which reads
-     * as unlocked.
+     * moves it, reshapes it, or deletes it until it is unlocked. A room is
+     * drawn unlocked and stays that way until the padlock is put on it, which
+     * is also how the spaces its walls close in are held: locking one of those
+     * locks every run around it. Missing from plans saved before rooms could be
+     * locked, which reads as unlocked.
      */
     locked: z.boolean().optional(),
   })

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 
 import {
   enclosureAt,
+  enclosureLocked,
+  enclosureWalls,
   enclosuresOf,
   freeEnclosures,
   wallLoops,
@@ -263,6 +265,54 @@ describe('enclosuresOf', () => {
     expect(freeEnclosures([closed, moved])[0].key).not.toBe(
       freeEnclosures([closed, open])[0].key,
     )
+  })
+})
+
+describe('the walls that close a space in', () => {
+  const closed = room('a', rect(0, 0, 400, 300))
+  // Out from the left wall, round, and back onto it higher up.
+  const open = room(
+    'b',
+    [
+      { x: 0, y: 0 },
+      { x: -200, y: 0 },
+      { x: -200, y: 150 },
+      { x: 0, y: 150 },
+    ],
+    false,
+  )
+  // Off the far corner of that run, heading away from the space entirely.
+  const stub = room(
+    'c',
+    [
+      { x: -200, y: 0 },
+      { x: -200, y: -100 },
+    ],
+    false,
+  )
+  const space = (rooms: Array<Room>) => freeEnclosures(rooms)[0]
+
+  it('names the run that drew each of its walls, and the room it closed onto', () => {
+    const rooms = [closed, open, stub]
+    expect(enclosureWalls(rooms, space(rooms)).map((r) => r.id)).toEqual([
+      'a',
+      'b',
+    ])
+  })
+
+  it('leaves out a wall that only touches a corner of it', () => {
+    const rooms = [closed, open, stub]
+    expect(enclosureWalls(rooms, space(rooms)).map((r) => r.id)).not.toContain(
+      'c',
+    )
+  })
+
+  it('is held only once every one of those runs is', () => {
+    const partly = [{ ...closed, locked: true }, open, stub]
+    expect(enclosureLocked(partly, space(partly))).toBe(false)
+
+    const held = [{ ...closed, locked: true }, { ...open, locked: true }, stub]
+    expect(enclosureLocked(held, space(held))).toBe(true)
   })
 })
 

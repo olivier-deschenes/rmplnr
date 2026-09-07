@@ -41,7 +41,7 @@ import {
   settleFurnitureDrop,
 } from './collision.ts'
 import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
-import { freeEnclosures } from './enclosures.ts'
+import { enclosureName, enclosureWalls, freeEnclosures } from './enclosures.ts'
 import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
@@ -286,14 +286,13 @@ function viewCentre(state: PlannerState): Point {
 
 /** Add a finished polygon as a room, select it, and hand the tool back. */
 function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
-  // A room lands locked: the shape has just been traced, and the very next
-  // click is far more likely to be aimed at something else than at dragging it
-  // somewhere new. The inspector's padlock lets it go again.
+  // A room lands unlocked: it has just been drawn, and what usually follows is
+  // putting it where it belongs. The inspector's padlock holds it once it is
+  // there.
   const room: Room = {
     id: newId(),
     name: `Room ${state.rooms.length + 1}`,
     points,
-    locked: true,
   }
   return {
     ...state,
@@ -1314,8 +1313,6 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             x: corner.x + rect.w,
             y: corner.y + rect.h,
           }),
-          // Imported rooms land locked, the same as a room just traced.
-          locked: true,
         } satisfies Room
       })
 
@@ -1790,6 +1787,45 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         ),
         rooms: s.rooms.map((candidate) =>
           candidate.id === id ? { ...candidate, locked } : candidate,
+        ),
+      }
+    })
+  },
+
+  /**
+   * Hold a space the walls close in where it is, or let it go again.
+   *
+   * A space has no outline of its own to hold, so what is held is the walls:
+   * the lock goes on to every run that closes the space in, and each of those
+   * runs is held whole, wherever else in the plan it goes. That is the only
+   * honest way to keep a space's shape, the space being nothing but what those
+   * runs leave between them — and it is the same padlock the reader would find
+   * by selecting any one of those walls' rooms.
+   */
+  setEnclosureLocked(key: string, locked: boolean) {
+    setState((s) => {
+      const enclosure = freeEnclosures(s.rooms, s.spaces).find(
+        (found) => found.key === key,
+      )
+      if (!enclosure) return s
+      const held = new Set(
+        enclosureWalls(s.rooms, enclosure).map((room) => room.id),
+      )
+      // Nothing to hold, or nothing that is not held already: either way this
+      // is not a change, and must not leave a step to undo.
+      const changed = s.rooms.some(
+        (room) => held.has(room.id) && (room.locked === true) !== locked,
+      )
+      if (!changed) return s
+      return {
+        ...s,
+        history: commit(
+          s,
+          null,
+          `${locked ? 'Locked' : 'Unlocked'} ${enclosureName(enclosure)}`,
+        ),
+        rooms: s.rooms.map((room) =>
+          held.has(room.id) ? { ...room, locked } : room,
         ),
       }
     })
@@ -2350,7 +2386,6 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
                   ? nextRoomName(s)
                   : room.name,
                 closed: undefined,
-                locked: true,
               }
             : room,
         ),

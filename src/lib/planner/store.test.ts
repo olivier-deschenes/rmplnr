@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize, placeCloset } from './closets.ts'
+import { freeEnclosures } from './enclosures.ts'
 import {
   polygonArea,
   polygonBounds,
@@ -304,9 +305,9 @@ describe('furniture catalogue', () => {
 
     const rooms = plannerStore.state.rooms
     expect(rooms.map((room) => room.name)).toEqual(['Living room', 'Kitchen'])
-    // Every imported room lands locked, and the two the response placed side
-    // by side stay side by side.
-    expect(rooms.every((room) => room.locked)).toBe(true)
+    // Every imported room lands unlocked, ready to be put where it belongs,
+    // and the two the response placed side by side stay side by side.
+    expect(rooms.some((room) => room.locked)).toBe(false)
     const [living, kitchen] = rooms.map((room) => polygonBounds(room.points))
     expect(living.w).toBe(450)
     expect(kitchen.x).toBe(living.x + living.w)
@@ -1247,13 +1248,13 @@ describe('locked rooms', () => {
     plannerStore.actions.openProject(PLAN_A)
   })
 
-  it('locks a room as it is drawn', () => {
+  it('leaves a room unlocked as it is drawn', () => {
     plannerStore.actions.beginRect({ x: 0, y: 0 })
     plannerStore.actions.updateRect({ x: 200, y: 100 })
     plannerStore.actions.commitRect()
 
     const drawn = plannerStore.state.rooms.at(-1)!
-    expect(drawn.locked).toBe(true)
+    expect(drawn.locked).not.toBe(true)
   })
 
   it('holds its outline and itself until it is unlocked', () => {
@@ -1283,6 +1284,106 @@ describe('locked rooms', () => {
     expect(plannerStore.state.rooms[0].points).toEqual(
       translatePolygon(before.points, 100, 50),
     )
+  })
+})
+
+describe('locked spaces the walls close in', () => {
+  const PLAN_WALLED = '44444444-4444-4444-8444-444444444444'
+
+  /** A drawn room, and a run out from its left wall and back onto it. */
+  function walledInSpace(): Project {
+    return {
+      id: PLAN_WALLED,
+      name: 'Walled in',
+      spaces: [],
+      furniture: [],
+      openings: [],
+      rooms: [
+        {
+          id: 'room-main',
+          name: 'Living',
+          points: [
+            { x: 0, y: 0 },
+            { x: 400, y: 0 },
+            { x: 400, y: 300 },
+            { x: 0, y: 300 },
+          ],
+        },
+        {
+          id: 'run-1',
+          name: 'Walls 1',
+          closed: false,
+          points: [
+            { x: 0, y: 0 },
+            { x: -200, y: 0 },
+            { x: -200, y: 150 },
+            { x: 0, y: 150 },
+          ],
+        },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [walledInSpace()],
+    })
+    plannerStore.actions.openProject(PLAN_WALLED)
+  })
+
+  const spaceKey = () =>
+    freeEnclosures(plannerStore.state.rooms, plannerStore.state.spaces)[0].key
+
+  it('holds every run that closes the space in, and lets them all go again', () => {
+    const key = spaceKey()
+
+    plannerStore.actions.setEnclosureLocked(key, true)
+
+    expect(plannerStore.state.rooms.map((room) => room.locked)).toEqual([
+      true,
+      true,
+    ])
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
+      'Locked Unnamed room',
+    )
+
+    // The space is still the same space: neither run would move.
+    plannerStore.actions.moveVertex('run-1', 1, { x: -300, y: 0 })
+    plannerStore.actions.moveVertex('room-main', 3, { x: 0, y: 400 })
+    expect(spaceKey()).toBe(key)
+
+    plannerStore.actions.setEnclosureLocked(key, false)
+
+    expect(plannerStore.state.rooms.some((room) => room.locked)).toBe(false)
+    plannerStore.actions.moveVertex('run-1', 1, { x: -300, y: 0 })
+    expect(spaceKey()).not.toBe(key)
+  })
+
+  it('names the space it holds in the history when the space has a name', () => {
+    const key = spaceKey()
+    plannerStore.actions.updateEnclosure(key, { name: 'Pantry' })
+
+    plannerStore.actions.setEnclosureLocked(spaceKey(), true)
+
+    expect(plannerStore.state.history.past.at(-1)?.text).toBe('Locked Pantry')
+  })
+
+  it('leaves the plan alone when the space is already held', () => {
+    plannerStore.actions.setEnclosureLocked(spaceKey(), true)
+    const before = plannerStore.state
+
+    plannerStore.actions.setEnclosureLocked(spaceKey(), true)
+
+    expect(plannerStore.state).toBe(before)
+  })
+
+  it('changes nothing for a key no space answers to any more', () => {
+    const before = plannerStore.state
+
+    plannerStore.actions.setEnclosureLocked('not a space', true)
+
+    expect(plannerStore.state).toBe(before)
   })
 })
 

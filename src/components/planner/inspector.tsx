@@ -37,7 +37,12 @@ import {
   SIDED_KINDS,
 } from '#/lib/planner/presets.ts'
 import { closetSize } from '#/lib/planner/closets.ts'
-import { freeEnclosures, planFloors } from '#/lib/planner/enclosures.ts'
+import {
+  enclosureLocked,
+  enclosureWalls,
+  freeEnclosures,
+  planFloors,
+} from '#/lib/planner/enclosures.ts'
 import { roomWallAt, wallCount } from '#/lib/planner/openings.ts'
 import { wallRemovalAt } from '#/lib/planner/walls.ts'
 import {
@@ -360,27 +365,72 @@ function SelectionActions({
 }
 
 /**
+ * The padlock on a space the walls close in.
+ *
+ * The space has no outline to hold, so the lock goes on to the runs that close
+ * it in — every one of them, since a space is only as held as its least held
+ * wall. It reads as locked once they all are, which is also what the reader
+ * sees on each of those runs' own padlocks.
+ */
+function EnclosureLockButton({
+  enclosure,
+  rooms,
+}: {
+  enclosure: Enclosure
+  rooms: Array<Room>
+}) {
+  const locked = enclosureLocked(rooms, enclosure)
+  const held = enclosureWalls(rooms, enclosure).length
+  return (
+    <Button
+      variant={locked ? 'secondary' : 'ghost'}
+      size="sm"
+      className="h-8 gap-1.5 px-2 text-xs"
+      aria-pressed={locked}
+      disabled={held === 0}
+      onClick={() =>
+        plannerStore.actions.setEnclosureLocked(enclosure.key, !locked)
+      }
+    >
+      {locked ? (
+        <IconLock className="size-3" />
+      ) : (
+        <IconLockOpen className="size-3" />
+      )}
+      {locked ? 'Locked' : 'Unlocked'}
+    </Button>
+  )
+}
+
+/**
  * A space the walls close in that was never drawn as a room of its own.
  *
- * It is a room, and the panel treats it as one: a name and a colour, and its
- * area read off the walls that close it. What it has not got is a shape of its
- * own to be resized, moved or locked — its walls belong to whatever runs they
- * were drawn as part of, and are edited there, by selecting one. Saying so is
- * the panel's other job.
+ * It is a room, and the panel treats it as one: a name, a colour, a padlock,
+ * and its area read off the walls that close it. What it has not got is a
+ * shape of its own to be resized or moved — its walls belong to whatever runs
+ * they were drawn as part of, and are edited there, by selecting one. Saying
+ * so is the panel's other job, and it is why the padlock here reaches those
+ * runs rather than anything of the space's own.
  */
 function EnclosurePanel({
   enclosure,
+  rooms,
   units,
 }: {
   enclosure: Enclosure
+  rooms: Array<Room>
   units: Units
 }) {
   const actions = plannerStore.actions
   const named = enclosure.space !== null
+  const locked = enclosureLocked(rooms, enclosure)
 
   return (
     <>
-      <SectionTitle>Room</SectionTitle>
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Room</SectionTitle>
+        <EnclosureLockButton enclosure={enclosure} rooms={rooms} />
+      </div>
       {!named && (
         <Alert>
           <AlertDescription>
@@ -411,6 +461,9 @@ function EnclosurePanel({
       <p className="text-muted-foreground text-[13px] leading-relaxed">
         This room is whatever its walls close in, so it has no outline of its
         own to move or resize. Select one of its walls to change it.
+        {locked
+          ? ' Locking it holds every run of walls around it, wherever else they go.'
+          : ' Locking it holds every run of walls around it, so none of them can be dragged out of place.'}
       </p>
       {named && (
         <Button
@@ -531,9 +584,8 @@ function ContinueWalls({ room }: { room: Room }) {
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
-  // A room is drawn locked, so the padlock is the first thing this panel has
-  // to say about it: everything below it that changes the outline is held
-  // until it is off.
+  // The padlock is the first thing this panel has to say about a room:
+  // everything below it that changes the outline is held while it is on.
   const locked = room.locked === true
   const rotate = (degrees: number) => {
     actions.rotateRoom(room.id, degrees)
@@ -1186,6 +1238,7 @@ export function Inspector({
           <EnclosurePanel
             key={`${enclosure.key}-${units}`}
             enclosure={enclosure}
+            rooms={rooms}
             units={units}
           />
         ) : item ? (
