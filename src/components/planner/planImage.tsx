@@ -2,16 +2,23 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 
 import {
+  EnclosureFloor,
   FurnitureShape,
   OpeningShape,
   RoomFloor,
   RoomWalls,
 } from './shapes.tsx'
 import { UnderlayImage } from './underlay.tsx'
-import { FurnitureLabels, RoomLabels, WallDimensions } from './overlay.tsx'
+import {
+  EnclosureLabels,
+  FurnitureLabels,
+  RoomLabels,
+  WallDimensions,
+} from './overlay.tsx'
 
 import { downloadFile, projectFileName } from '#/lib/planner/projectExport.ts'
 import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
+import { freeEnclosures } from '#/lib/planner/enclosures.ts'
 import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { wallPath } from '#/lib/planner/walls.ts'
@@ -139,6 +146,7 @@ function PlanImage({
     viewport,
     units,
   )
+  const enclosures = freeEnclosures(project.rooms, project.spaces)
 
   return (
     <svg
@@ -165,6 +173,13 @@ function PlanImage({
             onPointerDown={() => undefined}
           />
         ))}
+        {enclosures.map((enclosure) => (
+          <EnclosureFloor
+            key={enclosure.key}
+            enclosure={enclosure}
+            hint={false}
+          />
+        ))}
         {project.furniture.map((item) => (
           <FurnitureShape
             key={item.id}
@@ -186,6 +201,12 @@ function PlanImage({
       </g>
 
       <RoomLabels rooms={project.rooms} viewport={viewport} units={units} />
+      <EnclosureLabels
+        enclosures={enclosures}
+        viewport={viewport}
+        units={units}
+        hint={false}
+      />
       <FurnitureLabels labels={names} />
       <WallDimensions labels={dimensions} />
     </svg>

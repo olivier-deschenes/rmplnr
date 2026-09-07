@@ -10,6 +10,7 @@ import type {
   Room,
 } from '#/lib/planner/types.ts'
 import type { Span, Wall } from '#/lib/planner/openings.ts'
+import type { Enclosure } from '#/lib/planner/enclosures.ts'
 
 /** A wall never thins below this on screen, however far the plan is zoomed out. */
 const MIN_WALL_PX = 2
@@ -88,6 +89,58 @@ export function RoomFloor({
         style={wash(room.color, ROOM_WASH)}
         stroke="none"
       />
+    </g>
+  )
+}
+
+/**
+ * The floor of a space the walls close in that was never drawn as a room.
+ *
+ * Drawn exactly as a room's floor is, because it is one — a space walled in
+ * against a wall that was already there is a room, whatever order its walls
+ * happened to be drawn in. What is different is only what it does when nobody
+ * has named it yet: it is washed the faintest amount in the accent, which is
+ * the plan saying *there is a room here* to someone who has not noticed that
+ * their walls closed. Naming it settles it down into an ordinary floor.
+ */
+export function EnclosureFloor({
+  enclosure,
+  selected = false,
+  /** False on a plan being printed or exported, which has nobody to prompt. */
+  hint = true,
+  onPointerDown,
+}: {
+  enclosure: Enclosure
+  selected?: boolean
+  hint?: boolean
+  onPointerDown?: (event: React.PointerEvent) => void
+}) {
+  const points = enclosure.points.map((p) => `${p.x},${p.y}`).join(' ')
+  const color = enclosure.space?.color
+
+  return (
+    <g
+      className={onPointerDown && 'cursor-pointer'}
+      onPointerDown={onPointerDown}
+    >
+      <polygon
+        points={points}
+        className={selected ? 'fill-muted' : 'fill-background'}
+        stroke="none"
+      />
+      {color ? (
+        <polygon points={points} style={wash(color, ROOM_WASH)} stroke="none" />
+      ) : (
+        hint &&
+        !enclosure.space && (
+          <polygon
+            points={points}
+            className="fill-snap"
+            fillOpacity={0.08}
+            stroke="none"
+          />
+        )
+      )}
     </g>
   )
 }

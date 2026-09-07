@@ -4,6 +4,7 @@ import {
   RoomFloor,
   RoomWalls,
 } from './shapes.tsx'
+import { freeEnclosures } from '#/lib/planner/enclosures.ts'
 import { planBounds, polygonCentroid } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { formatLength } from '#/lib/planner/units.ts'
@@ -130,6 +131,21 @@ export function PlanPreview({
                   </text>
                 )
               })}
+          {!showFurniture &&
+            freeEnclosures(project.rooms, project.spaces)
+              .filter((enclosure) => enclosure.space)
+              .map((enclosure) => (
+                <text
+                  key={enclosure.key}
+                  x={tx + enclosure.centre.x * scale}
+                  y={ty + enclosure.centre.y * scale}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  className="fill-muted-foreground"
+                >
+                  {enclosure.space?.name}
+                </text>
+              ))}
         </g>
       )}
     </svg>

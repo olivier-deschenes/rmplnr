@@ -16,7 +16,7 @@ function plan(
   name: string,
   furniture: Array<Furniture> = [],
 ): Project {
-  return { id, name, rooms: [], furniture, openings: [] }
+  return { id, name, rooms: [], furniture, openings: [], spaces: [] }
 }
 
 /** The plans a merge came to, or the names it could not decide between. */

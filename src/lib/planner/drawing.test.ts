@@ -8,6 +8,7 @@ import {
   straightPoint,
 } from './drawing.ts'
 import { wallLabels } from './dimensions.ts'
+import { freeEnclosures } from './enclosures.ts'
 import { nearestWall, roomWallAt, wallCount } from './openings.ts'
 import { parseRmplnrFile, serializeProject } from './planSerialization.ts'
 import {
@@ -32,7 +33,14 @@ beforeEach(() => {
   actions.loadLibrary({
     version: 1,
     projects: [
-      { id: ID, name: 'Wall test', rooms: [], furniture: [], openings: [] },
+      {
+        id: ID,
+        name: 'Wall test',
+        rooms: [],
+        furniture: [],
+        openings: [],
+        spaces: [],
+      },
     ],
   })
   actions.openProject(ID)
@@ -80,10 +88,38 @@ describe('drawing walls', () => {
   it('stops after a single wall without closing or deleting it', () => {
     const room = draw(2)
     actions.cancelDraft()
-    expect(plannerStore.state.tool).toBe('select')
     expect(plannerStore.state.draft).toBeNull()
     expect(plannerStore.state.rooms).toEqual([room])
     expect(room.closed).toBe(false)
+  })
+
+  it('keeps the pen in hand, so the next click starts the next run', () => {
+    const room = draw(2)
+    actions.cancelDraft()
+    // Still the wall tool: walls go up all over a plan, in runs that have
+    // nothing to do with each other.
+    expect(plannerStore.state.tool).toBe('room')
+    actions.addDraftPoint({ x: 900, y: 900 })
+    actions.addDraftPoint({ x: 900, y: 1200 })
+    expect(plannerStore.state.rooms).toHaveLength(2)
+    expect(plannerStore.state.rooms[0]).toEqual(room)
+  })
+
+  it('lets a run of walls cross back over itself', () => {
+    actions.addDraftPoint({ x: 0, y: 0 })
+    actions.addDraftPoint({ x: 300, y: 0 })
+    actions.addDraftPoint({ x: 300, y: 300 })
+    // Back across the run's own first wall, which used to be refused and now
+    // encloses a room.
+    expect(actions.addDraftPoint({ x: 150, y: -150 })).toEqual({ ok: true })
+    expect(wallCount(plannerStore.state.rooms[0])).toBe(3)
+  })
+
+  it('still refuses a wall laid straight back over the one before it', () => {
+    actions.addDraftPoint({ x: 0, y: 0 })
+    actions.addDraftPoint({ x: 300, y: 0 })
+    const result = actions.addDraftPoint({ x: 100, y: 0 })
+    expect(result.ok).toBe(false)
   })
 
   it('keeps walls when switching tools and allows a separate run', () => {
@@ -282,5 +318,111 @@ describe('open walls throughout the plan', () => {
       nearestOpenEnd([{ ...room, closed: true }], points[0], 10),
     ).toBeNull()
     expect(closingIssue(points, true)).not.toBeNull()
+  })
+})
+
+describe('walls, rooms and the spaces between them', () => {
+  /** A closed 400x300 room at the origin, and nothing else. */
+  const HOST = [
+    { x: 0, y: 0 },
+    { x: 400, y: 0 },
+    { x: 400, y: 300 },
+    { x: 0, y: 300 },
+  ]
+
+  /** Three walls out from the host's left wall and back onto it. */
+  function walledOff() {
+    // A fresh library only lands on a project that is not already open.
+    actions.closeProject()
+    actions.loadLibrary({
+      version: 1,
+      projects: [
+        {
+          id: ID,
+          name: 'Wall test',
+          rooms: [{ id: 'host', name: 'Living', points: HOST }],
+          furniture: [],
+          openings: [],
+          spaces: [],
+        },
+      ],
+    })
+    actions.openProject(ID)
+    actions.setTool('room')
+    actions.addDraftPoint({ x: 0, y: 0 })
+    actions.addDraftPoint({ x: -200, y: 0 })
+    actions.addDraftPoint({ x: -200, y: 150 })
+    actions.addDraftPoint({ x: 0, y: 150 })
+    actions.cancelDraft()
+    return plannerStore.state.rooms[1]
+  }
+
+  it('calls a run of walls walls, and a closed one a room', () => {
+    draw(2)
+    expect(plannerStore.state.rooms[0].name).toBe('Walls 1')
+    draw(3)
+    expect(actions.commitDraft()).toEqual({ ok: true })
+    expect(plannerStore.state.rooms[0].name).toBe('Room 1')
+  })
+
+  it('keeps a name somebody chose when the run is closed', () => {
+    const room = draw(3)
+    actions.updateRoom(room.id, { name: 'Porch' })
+    expect(actions.commitDraft()).toEqual({ ok: true })
+    expect(plannerStore.state.rooms.map((r) => r.name)).toEqual(['Porch'])
+  })
+
+  it('reads a room out of walls run back onto a room already drawn', () => {
+    walledOff()
+    const [space] = freeEnclosures(plannerStore.state.rooms)
+    expect(space).toBeDefined()
+    expect(space.area).toBeCloseTo(200 * 150, 4)
+    expect(space.space).toBeNull()
+
+    // Naming it is what puts it on the plan, and it survives a round trip.
+    actions.updateEnclosure(space.key, { name: 'Pantry', color: '#123456' })
+    const named = freeEnclosures(
+      plannerStore.state.rooms,
+      plannerStore.state.spaces,
+    )[0]
+    expect(named.space?.name).toBe('Pantry')
+    expect(named.space?.color).toBe('#123456')
+
+    const project = currentProjects(plannerStore.state).find(
+      (p) => p.id === ID,
+    )!
+    expect(parseRmplnrFile(serializeProject(project))).toEqual({
+      kind: 'project',
+      project,
+    })
+  })
+
+  it('carries a name across a wall of the space being moved', () => {
+    const run = walledOff()
+    actions.updateEnclosure(freeEnclosures(plannerStore.state.rooms)[0].key, {
+      name: 'Pantry',
+    })
+    // Push the far wall out by half a metre; the name goes with the space.
+    actions.moveVertex(run.id, 1, { x: -250, y: 0 })
+    actions.moveVertex(run.id, 2, { x: -250, y: 150 })
+    const moved = freeEnclosures(
+      plannerStore.state.rooms,
+      plannerStore.state.spaces,
+    )[0]
+    expect(moved.space?.name).toBe('Pantry')
+    expect(moved.area).toBeCloseTo(250 * 150, 4)
+  })
+
+  it('takes the name back off a space without touching its walls', () => {
+    walledOff()
+    const key = freeEnclosures(plannerStore.state.rooms)[0].key
+    actions.updateEnclosure(key, { name: 'Pantry' })
+    expect(plannerStore.state.spaces).toHaveLength(1)
+
+    actions.select({ type: 'enclosure', id: key })
+    actions.deleteSelected()
+    expect(plannerStore.state.spaces).toEqual([])
+    // The walls that closed it are still standing, so the space still is.
+    expect(freeEnclosures(plannerStore.state.rooms)).toHaveLength(1)
   })
 })

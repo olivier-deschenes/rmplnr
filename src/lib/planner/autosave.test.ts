@@ -14,6 +14,7 @@ const NEVER = 60_000
 
 function plan(): Project {
   return {
+    spaces: [],
     id: PLAN,
     name: 'Flat',
     rooms: [],

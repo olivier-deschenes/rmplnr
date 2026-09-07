@@ -92,5 +92,6 @@ export function createStarterPlan(): Project {
       opening(bedroom, 'window', 1, 0.6, 120),
       opening(bathroom, 'window', 2, 0.5, 80),
     ],
+    spaces: [],
   }
 }

@@ -28,6 +28,7 @@ const PLAN_C = '33333333-3333-4333-8333-333333333333'
 
 function plan(id: string, name: string, roomName = 'Living'): Project {
   return {
+    spaces: [],
     id,
     name,
     rooms: [
@@ -83,6 +84,7 @@ function connectedRectangle(): Project {
   }
 
   return {
+    spaces: [],
     id: PLAN_C,
     name: 'Connected rooms',
     rooms: [room, neighbour, closet],
@@ -921,6 +923,7 @@ describe('exact wall dimensions', () => {
 
   it('rejects an irregular-room edit that cannot preserve its opening', () => {
     const project: Project = {
+      spaces: [],
       id: PLAN_C,
       name: 'Irregular room',
       rooms: [
@@ -975,6 +978,7 @@ describe('exact wall dimensions', () => {
 /** A room with a canted corner, a window on the wall beside it, and a neighbour. */
 function cantedRoom(): Project {
   return {
+    spaces: [],
     id: PLAN_C,
     name: 'Canted plan',
     rooms: [
@@ -1446,6 +1450,7 @@ describe('a room made bigger', () => {
 
   function opened(): Project {
     return {
+      spaces: [],
       id: PLAN_C,
       name: 'Openings',
       rooms: [{ id: 'room-1', name: 'Living', points: ROOM }],

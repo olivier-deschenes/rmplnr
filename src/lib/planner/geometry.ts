@@ -119,6 +119,41 @@ export function polygonCentroid(points: Array<Point>): Point {
 }
 
 /**
+ * A point that is certainly inside a polygon, and near the middle of it.
+ *
+ * The centroid is the natural place to write a name or to hang a marker, but a
+ * room bent round a corner can have its centroid out in the garden. Where that
+ * happens the point is pulled back onto the widest stretch of the polygon that
+ * the centroid's own line of latitude crosses — always indoors, and still as
+ * close to the middle as an L-shaped room allows.
+ */
+export function interiorPoint(points: Array<Point>): Point {
+  const centre = polygonCentroid(points)
+  if (pointInPolygon(centre, points)) return centre
+
+  // Every place the polygon's edges cross the line through the centroid, in
+  // order, so that the gaps between consecutive pairs are its inside.
+  const crossings: Array<number> = []
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]
+    const b = points[(i + 1) % points.length]
+    if (a.y > centre.y === b.y > centre.y) continue
+    crossings.push(a.x + ((b.x - a.x) * (centre.y - a.y)) / (b.y - a.y))
+  }
+  crossings.sort((one, other) => one - other)
+
+  let best: Point | null = null
+  let widest = 0
+  for (let i = 0; i + 1 < crossings.length; i += 2) {
+    const span = crossings[i + 1] - crossings[i]
+    if (span <= widest) continue
+    widest = span
+    best = { x: (crossings[i] + crossings[i + 1]) / 2, y: centre.y }
+  }
+  return best ?? centre
+}
+
+/**
  * Whether a point falls inside a polygon, by counting the crossings of a ray
  * cast out from it: an odd number of them means it set off indoors. Rooms bent
  * round a corner are read the same way as square ones, and so is a rotated
@@ -334,6 +369,42 @@ function shapeIssue(
   }
 
   return null
+}
+
+/**
+ * Why a run of walls being drawn cannot take the corner just clicked, or null
+ * when it can.
+ *
+ * This is deliberately far more permissive than `outlineIssue`, and the
+ * difference is the difference between a wall and a room. A room's outline has
+ * to stay a simple polygon, because an outline that crosses itself has no
+ * inside for the room to be. A run of walls is under no such obligation: it is
+ * walls, and walls may go anywhere and cross anything. A run drawn back across
+ * itself is not a mistake to be refused — it closes a space, and
+ * `enclosures.ts` will read a room out of it.
+ *
+ * What is left is only what no wall can be: one that is nowhere, one too short
+ * to draw, and one laid straight back down the wall it just came along, which
+ * is a double click rather than a wall.
+ */
+export function drawnWallIssue(points: Array<Point>): string | null {
+  if (points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
+    return 'Enter finite wall coordinates.'
+  }
+  for (let i = 0; i + 1 < points.length; i++) {
+    if (distance(points[i], points[i + 1]) < MIN_SIZE - GEOMETRY_EPSILON) {
+      return `Walls must be at least ${MIN_SIZE} cm long.`
+    }
+  }
+  if (points.length < 3) return null
+
+  const [previous, corner, next] = points.slice(-3)
+  if (Math.abs(turn(previous, corner, next)) > GEOMETRY_EPSILON) return null
+  const back = { x: previous.x - corner.x, y: previous.y - corner.y }
+  const on = { x: next.x - corner.x, y: next.y - corner.y }
+  return back.x * on.x + back.y * on.y > 0
+    ? 'That would lay a wall straight back over the one before it.'
+    : null
 }
 
 /**

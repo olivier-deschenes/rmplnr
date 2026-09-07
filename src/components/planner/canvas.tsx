@@ -1,5 +1,5 @@
 import { formatMeasurementMessage } from '#/lib/planner/units.ts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import { useHotkeys, useKeyHold } from '@tanstack/react-hotkeys'
 import { toast } from 'sonner'
@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Grid } from './grid.tsx'
 import { UnderlayImage, useBlobUrl } from './underlay.tsx'
 import {
+  EnclosureFloor,
   FurnitureShape,
   OpeningShape,
   OpeningTarget,
@@ -18,6 +19,7 @@ import {
   Clearances,
   DraftOverlay,
   FurnitureEditor,
+  EnclosureLabels,
   FurnitureLabels,
   NameEditor,
   OpeningEditor,
@@ -30,6 +32,7 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
+import { enclosureAt, freeEnclosures } from '#/lib/planner/enclosures.ts'
 import {
   closingIssue,
   draftPoints,
@@ -38,6 +41,7 @@ import {
 } from '#/lib/planner/drawing.ts'
 import { snapDrawingPoint } from '#/lib/planner/drawingSnap.ts'
 import type { DrawingSnap } from '#/lib/planner/drawingSnap.ts'
+import type { Enclosure } from '#/lib/planner/enclosures.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
 import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
@@ -132,6 +136,7 @@ const DRAG_SLOP_PX = 4
  */
 function nameableAt(
   rooms: Array<Room>,
+  enclosures: Array<Enclosure>,
   furniture: Array<Furniture>,
   world: Point,
   reach: number,
@@ -148,7 +153,10 @@ function nameableAt(
       return { type: 'room', id: rooms[i].id }
     }
   }
-  return null
+  // Last, because a space is whatever ground no room claimed: a click that
+  // fell in one fell nowhere else.
+  const enclosure = enclosureAt(enclosures, world)
+  return enclosure ? { type: 'enclosure', id: enclosure.key } : null
 }
 
 /**
@@ -160,12 +168,26 @@ function nameableAt(
  */
 function editedName(
   rooms: Array<Room>,
+  enclosures: Array<Enclosure>,
   furniture: Array<Furniture>,
   renaming: Rename,
   viewport: Viewport,
 ): { key: string; at: Point; name: string } | null {
   if (!renaming) return null
   const key = `${renaming.type}:${renaming.id}`
+  if (renaming.type === 'enclosure') {
+    const enclosure = enclosures.find((found) => found.key === renaming.id)
+    if (!enclosure) return null
+    const at = worldToScreen(enclosure.centre, viewport)
+    return {
+      key,
+      at: { x: at.x, y: at.y - NAME_LIFT },
+      // An empty field rather than the placeholder, so the first thing typed
+      // into a space nobody has named is the name, not an edit of the words
+      // standing in for one.
+      name: enclosure.space?.name ?? '',
+    }
+  }
   if (renaming.type === 'room') {
     const room = rooms.find((r) => r.id === renaming.id)
     if (!room) return null
@@ -252,6 +274,7 @@ export function Canvas() {
 
   const {
     rooms,
+    spaces,
     furniture: allFurniture,
     showFurniture,
     openings,
@@ -268,6 +291,16 @@ export function Canvas() {
     size,
   } = useSelector(plannerStore)
   const furniture = showFurniture ? allFurniture : []
+  /**
+   * The spaces the walls close in that were not drawn as rooms of their own.
+   * Worked out from the walls, so it is redone whenever a wall moves — and
+   * only then, since the store hands back new arrays rather than editing the
+   * ones it has.
+   */
+  const enclosures = useMemo(
+    () => freeEnclosures(rooms, spaces),
+    [rooms, spaces],
+  )
   const { underlay, positioning: positioningUnderlay } =
     useSelector(underlayStore)
   const underlayUrl = useBlobUrl(underlay?.blob ?? null)
@@ -1005,6 +1038,7 @@ export function Canvas() {
 
     const target = nameableAt(
       state.rooms,
+      freeEnclosures(state.rooms, state.spaces),
       state.showFurniture ? state.furniture : [],
       world,
       WALL_GRAB / 2 / state.viewport.scale,
@@ -1022,6 +1056,8 @@ export function Canvas() {
     const target = plannerStore.state.renaming
     if (!target) return
     if (target.type === 'room') actions.updateRoom(target.id, { name })
+    else if (target.type === 'enclosure')
+      actions.updateEnclosure(target.id, { name })
     else actions.updateFurniture(target.id, { name })
     // A rename is one step to undo, and the next one starts a step of its own.
     actions.sealHistory()
@@ -1309,7 +1345,7 @@ export function Canvas() {
 
   // Where the name being typed over stands on the page, if one is: read on
   // every render, so the field rides along with a pan or a zoom.
-  const rename = editedName(rooms, furniture, renaming, viewport)
+  const rename = editedName(rooms, enclosures, furniture, renaming, viewport)
 
   const cursorClass = panning
     ? 'cursor-grabbing'
@@ -1371,6 +1407,27 @@ export function Canvas() {
             room={room}
             selected={selection?.type === 'room' && room.id === selection.id}
             onPointerDown={(event) => onRoomPointerDown(room, event)}
+          />
+        ))}
+        {/*
+          And the floors of the spaces that were closed in without ever being
+          drawn as a room. They take no clicks off the rooms, standing as they
+          do on the ground no room claimed, so they can go down here beside
+          them — under the walls, like every other floor.
+        */}
+        {enclosures.map((enclosure) => (
+          <EnclosureFloor
+            key={enclosure.key}
+            enclosure={enclosure}
+            selected={
+              selection?.type === 'enclosure' && selection.id === enclosure.key
+            }
+            onPointerDown={(event) => {
+              if (event.button === 1 || spaceHeld) return beginPan(event)
+              if (event.button !== 0) return
+              event.stopPropagation()
+              actions.select({ type: 'enclosure', id: enclosure.key })
+            }}
           />
         ))}
         {rooms
@@ -1489,6 +1546,12 @@ export function Canvas() {
         viewport={viewport}
         units={units}
         renaming={renaming?.type === 'room' ? renaming.id : undefined}
+      />
+      <EnclosureLabels
+        enclosures={enclosures}
+        viewport={viewport}
+        units={units}
+        renaming={renaming?.type === 'enclosure' ? renaming.id : undefined}
       />
       <FurnitureLabels
         labels={names}

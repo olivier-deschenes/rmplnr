@@ -1,4 +1,5 @@
 import { OPENING_PRESETS } from './presets.ts'
+import { enclosureName, freeEnclosures } from './enclosures.ts'
 import { polygonBounds } from './geometry.ts'
 
 import type { Snapshot } from './history.ts'
@@ -27,6 +28,12 @@ export function selectionName(state: Snapshot): string {
   }
   if (selection.type === 'furniture') {
     return state.furniture.find((f) => f.id === selection.id)?.name ?? 'item'
+  }
+  if (selection.type === 'enclosure') {
+    const enclosure = freeEnclosures(state.rooms, state.spaces).find(
+      (found) => found.key === selection.id,
+    )
+    return enclosure ? enclosureName(enclosure).toLowerCase() : 'room'
   }
   if (selection.type === 'wall') {
     const room = state.rooms.find((candidate) => candidate.id === selection.id)

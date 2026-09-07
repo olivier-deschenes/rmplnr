@@ -28,6 +28,7 @@ const sha = (seed: string) => seed.repeat(40).slice(0, 40)
 
 function plan(id: string, name: string, roomName = 'Living'): Project {
   return {
+    spaces: [],
     id,
     name,
     rooms: [

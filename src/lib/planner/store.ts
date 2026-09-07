@@ -15,7 +15,7 @@ import {
   distance,
   fitViewport,
   planBounds,
-  outlineIssue,
+  drawnWallIssue,
   rectPolygon,
   rotatePolygon,
   screenToWorld,
@@ -41,6 +41,7 @@ import {
   settleFurnitureDrop,
 } from './collision.ts'
 import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
+import { freeEnclosures } from './enclosures.ts'
 import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
@@ -81,6 +82,7 @@ import type {
   Rename,
   Room,
   Selection,
+  Space,
   StyleBrush,
   Tool,
   Units,
@@ -138,6 +140,12 @@ export type PlannerState = {
   customFurniturePresets: Array<CustomFurniturePreset>
   /** Doors, windows and gaps, each attached to one wall of one room. */
   openings: Array<Opening>
+  /**
+   * Names and colours put on the spaces the walls close in that were not drawn
+   * as rooms of their own. The spaces themselves are not in here: they are
+   * worked out from the walls, by `enclosures.ts`, whenever they are wanted.
+   */
+  spaces: Array<Space>
   selection: Selection
   /** The name currently being typed over on the plan, if any. */
   renaming: Rename
@@ -186,6 +194,7 @@ const initialState: PlannerState = {
   furniture: [],
   customFurniturePresets: [],
   openings: [],
+  spaces: [],
   selection: null,
   renaming: null,
   clipboard: null,
@@ -695,6 +704,96 @@ function pasteOffset(state: PlannerState): number {
   return step === null ? PASTE_OFFSET : snapValue(PASTE_OFFSET, step)
 }
 
+/**
+ * The lowest `<word> n` nothing on the plan is already called.
+ *
+ * Counted up from one rather than off the length of anything, because the
+ * thing being named is sometimes already in the list it is being counted
+ * against and sometimes not, and a name that is right either way is worth more
+ * than one that never repeats a number.
+ */
+function freeName(state: PlannerState, word: string): string {
+  const taken = new Set([
+    ...state.rooms.map((room) => room.name),
+    ...state.spaces.map((space) => space.name),
+  ])
+  let n = 1
+  while (taken.has(`${word} ${n}`)) n += 1
+  return `${word} ${n}`
+}
+
+/**
+ * The next `Room n` free on the plan, counting the rooms that were drawn as
+ * rooms and the spaces that were only ever walled in.
+ */
+function nextRoomName(state: PlannerState): string {
+  return freeName(state, 'Room')
+}
+
+/**
+ * What a run of walls is called before it is anything else.
+ *
+ * A run of walls is not a room, and calling it one was the editor confusing
+ * how a room is usually entered with what a room is. It is walls: they may
+ * close a room, they may close three rooms with the walls already standing
+ * around them, or they may close nothing at all and simply be a wall. Which of
+ * those they turn out to be is read off the plan rather than off their name.
+ */
+function nextRunName(state: PlannerState): string {
+  return freeName(state, 'Walls')
+}
+
+/** Whether a name is one the editor gave a run rather than one anybody chose. */
+const AUTO_RUN_NAME = /^Walls \d+$/
+
+/**
+ * Put a name or a colour on one of the spaces the walls close in, adding the
+ * record that holds it if this is the first thing said about that space.
+ *
+ * The point the record is held against is refreshed to the middle of the space
+ * as it now stands, every time. That is what keeps a name on a space through a
+ * wall being dragged about: each edit re-anchors it where there is the most
+ * room to spare, rather than leaving it against wherever it was first put.
+ */
+function withSpace(
+  state: PlannerState,
+  key: string,
+  patch: { name?: string; color?: string | undefined },
+): PlannerState | null {
+  const enclosure = freeEnclosures(state.rooms, state.spaces).find(
+    (found) => found.key === key,
+  )
+  if (!enclosure) return null
+  const held = enclosure.space
+  const label = held
+    ? patch.name !== undefined
+      ? `Renamed ${held.name}`
+      : `Recoloured ${held.name}`
+    : patch.name !== undefined
+      ? `Named ${patch.name}`
+      : `Coloured ${nextRoomName(state)}`
+  const spaces = held
+    ? state.spaces.map((space) =>
+        space.id === held.id
+          ? { ...space, ...patch, seed: enclosure.centre }
+          : space,
+      )
+    : [
+        ...state.spaces,
+        {
+          id: newId(),
+          name: patch.name ?? nextRoomName(state),
+          ...(patch.color ? { color: patch.color } : {}),
+          seed: enclosure.centre,
+        },
+      ]
+  return {
+    ...state,
+    history: commit(state, patchLabel('space', key, patch), label),
+    spaces,
+  }
+}
+
 /** What the selection would be copied as, or null when nothing is selected. */
 function copyOf(state: PlannerState): Clipboard | null {
   const selection = state.selection
@@ -873,6 +972,7 @@ function libraryOf(state: PlannerState): Library {
             rooms: state.rooms,
             furniture: state.furniture,
             openings: state.openings,
+            spaces: state.spaces,
           }
         : p,
     ),
@@ -880,7 +980,7 @@ function libraryOf(state: PlannerState): Library {
 }
 
 /** A plan with nothing on it: what the editor shows when the URL names none. */
-const NO_PLAN = { rooms: [], furniture: [], openings: [] }
+const NO_PLAN = { rooms: [], furniture: [], openings: [], spaces: [] }
 
 /**
  * Open the project the URL names: its plan becomes the plan being edited,
@@ -903,6 +1003,7 @@ function opened(
     rooms: plan.rooms,
     furniture: plan.furniture,
     openings: plan.openings,
+    spaces: plan.spaces,
     selection: null,
     renaming: null,
     draft: null,
@@ -927,6 +1028,7 @@ function blankProject(taken: Array<string>): Project {
     rooms: [],
     furniture: [],
     openings: [],
+    spaces: [],
   }
 }
 
@@ -1086,7 +1188,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * than in the inspector's field for it. What is being renamed is selected in
    * the same move, so the panel is describing the thing under the cursor.
    */
-  beginRename(type: 'room' | 'furniture', id: string) {
+  beginRename(type: 'room' | 'furniture' | 'enclosure', id: string) {
     setState((s) => ({
       ...s,
       selection: { type, id },
@@ -1693,6 +1795,37 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /**
+   * Name, or recolour, one of the spaces the walls close in that was never
+   * drawn as a room of its own.
+   *
+   * The space is named by its key rather than by an id, because it has no id:
+   * it is worked out from the walls each time they change. A key that no
+   * longer answers to a space — because a wall moved between the click and
+   * this call — changes nothing, which is the right answer for a space that is
+   * no longer there.
+   */
+  updateEnclosure(key: string, patch: { name?: string; color?: string }) {
+    setState((s) => withSpace(s, key, patch) ?? s)
+  },
+
+  /** Take the name and the colour back off a space, leaving its walls alone. */
+  clearEnclosure(key: string) {
+    setState((s) => {
+      const enclosure = freeEnclosures(s.rooms, s.spaces).find(
+        (found) => found.key === key,
+      )
+      const held = enclosure?.space
+      if (!held) return s
+      return {
+        ...s,
+        history: commit(s, null, `Cleared ${held.name}`),
+        spaces: s.spaces.filter((space) => space.id !== held.id),
+        renaming: null,
+      }
+    })
+  },
+
   moveVertex(roomId: string, index: number, point: Point) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
@@ -1879,6 +2012,21 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       // room the wall belongs to: the selection is the wall, and the room is
       // still reachable by holding the room itself.
       if (type === 'wall') return withoutWall(s, id, s.selection.index).state
+      // Nothing on the plan belongs to a space but its name: the walls that
+      // close it in were drawn as part of something else, and stay. So delete
+      // clears the name, and the space itself goes on being a space.
+      if (type === 'enclosure') {
+        const held = freeEnclosures(s.rooms, s.spaces).find(
+          (found) => found.key === id,
+        )?.space
+        if (!held) return { ...s, selection: null, renaming: null }
+        return {
+          ...s,
+          history: commit(s, null, `Cleared ${held.name}`),
+          spaces: s.spaces.filter((space) => space.id !== held.id),
+          renaming: null,
+        }
+      }
       const removedRooms = new Set<string>()
       if (type === 'room') {
         // A locked room is held against deletion too, and holds the closets
@@ -1932,7 +2080,9 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
-      if (type === 'wall') return s
+      // A space is where its walls are; an arrow key on one would have to
+      // choose which of them to push, and there is no answer to that.
+      if (type === 'wall' || type === 'enclosure') return s
       const history = commit(
         s,
         `nudge:${type}:${id}`,
@@ -2027,7 +2177,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const target = s.straightWalls ? straightPoint(last, point) : point
       if (distance(last, target) < MIN_SIZE) return s
       const next = [...points, target]
-      const error = outlineIssue(next, next, false)
+      const error = drawnWallIssue(next)
       if (error) {
         outcome = { ok: false, error }
         return s
@@ -2036,7 +2186,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       if ('start' in drawing) {
         const room: Room = {
           id: newId(),
-          name: `Room ${s.rooms.length + 1}`,
+          name: nextRunName(s),
           points: next,
           closed: false,
           locked: false,
@@ -2162,8 +2312,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /**
+   * Put the pen down, keeping the walls already drawn — and keeping the pen.
+   *
+   * A run of walls is one run, not one drawing: walls go up all over a plan,
+   * in runs that have nothing to do with each other, and having to reach for
+   * the tool again between every two of them is the tool arguing with what it
+   * is for. So the next click starts the next run wherever it lands, and it is
+   * Escape a second time that hands the pen back.
+   */
   cancelDraft() {
-    setState((s) => ({ ...s, draft: null, tool: 'select' }))
+    setState((s) => ({ ...s, draft: null }))
   },
 
   /** Closing is explicit. Stopping drawing never invents another wall. */
@@ -2181,8 +2340,19 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       return {
         ...s,
         history: commit(s, null, 'Closed a room'),
+        // Closed, the run is a room, and takes a room's name — unless somebody
+        // had already given it one of their own, which stands.
         rooms: s.rooms.map((room) =>
-          room.id === id ? { ...room, closed: undefined, locked: true } : room,
+          room.id === id
+            ? {
+                ...room,
+                name: AUTO_RUN_NAME.test(room.name)
+                  ? nextRoomName(s)
+                  : room.name,
+                closed: undefined,
+                locked: true,
+              }
+            : room,
         ),
         draft: null,
         tool: 'select',
@@ -2579,6 +2749,7 @@ function loadStoredPlan(storage: PlannerStorage): Project | null {
     rooms,
     furniture,
     openings: attached(rooms, openings),
+    spaces: parsed.data.spaces,
   }
 }
 
@@ -2673,6 +2844,7 @@ function persistedOf(state: PlannerState): Persisted {
     state.rooms,
     state.furniture,
     state.openings,
+    state.spaces,
     state.units,
     state.collide,
     state.customFurniturePresets,

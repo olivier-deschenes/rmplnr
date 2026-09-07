@@ -1,4 +1,11 @@
-import type { Furniture, Opening, Room, Selection, WallDraft } from './types.ts'
+import type {
+  Furniture,
+  Opening,
+  Room,
+  Selection,
+  Space,
+  WallDraft,
+} from './types.ts'
 
 /** How many steps back the editor keeps before the oldest one drops off. */
 export const HISTORY_LIMIT = 100
@@ -21,6 +28,7 @@ export type Snapshot = {
   rooms: Array<Room>
   furniture: Array<Furniture>
   openings: Array<Opening>
+  spaces: Array<Space>
   draft: WallDraft | null
   selection: Selection
 }
@@ -56,6 +64,7 @@ export function snapshotOf(state: Snapshot): Snapshot {
     rooms: state.rooms,
     furniture: state.furniture,
     openings: state.openings,
+    spaces: state.spaces,
     draft: state.draft,
     selection: state.selection,
   }

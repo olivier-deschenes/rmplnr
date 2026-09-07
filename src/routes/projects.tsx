@@ -23,7 +23,7 @@ import {
   CardDescription,
 } from '#/components/ui/card.tsx'
 import { Input } from '#/components/ui/input.tsx'
-import { polygonArea } from '#/lib/planner/geometry.ts'
+import { planFloors } from '#/lib/planner/enclosures.ts'
 import { downloadLibraryBackup } from '#/lib/planner/projectExport.ts'
 import { plannerStore, restoreLibrary } from '#/lib/planner/store.ts'
 import { createStarterPlan } from '#/lib/planner/starterPlan.ts'
@@ -51,14 +51,16 @@ function summary(project: Project, units: Units): string {
     return furniture.length === 0
       ? 'Empty plan'
       : `${furniture.length} furniture item${furniture.length === 1 ? '' : 's'}`
-  const complete = rooms.filter((room) => room.closed !== false)
-  const openWalls = rooms
+  // Counted off what the walls close in rather than off which runs were drawn
+  // shut, so a room walled in against a neighbour's wall counts as the room it
+  // is — and the walls left over, that close nothing, count as walls.
+  const floors = planFloors(rooms, project.spaces)
+  const loose = rooms
     .filter((room) => room.closed === false)
     .reduce((sum, room) => sum + room.points.length - 1, 0)
-  if (!complete.length)
-    return `${openWalls} wall${openWalls === 1 ? '' : 's'} · In progress`
-  const area = complete.reduce((sum, room) => sum + polygonArea(room.points), 0)
-  return `${complete.length} room${complete.length === 1 ? '' : 's'} · ${formatArea(area, units, 1)}${openWalls ? ' · Walls in progress' : ''}`
+  if (!floors.count)
+    return `${loose} wall${loose === 1 ? '' : 's'} · In progress`
+  return `${floors.count} room${floors.count === 1 ? '' : 's'} · ${formatArea(floors.area, units, 1)}${loose ? ' · Walls in progress' : ''}`
 }
 
 function Projects() {
@@ -80,9 +82,13 @@ function Projects() {
   const needle = query.trim().toLocaleLowerCase()
   const shown = projects
     .filter((project) =>
-      [project.name, ...project.rooms.map((room) => room.name)].some((name) =>
-        name.toLocaleLowerCase().includes(needle),
-      ),
+      [
+        project.name,
+        ...project.rooms.map((room) => room.name),
+        // A room that was walled in rather than drawn is a room to search by
+        // too; its name is the only place it is written down.
+        ...project.spaces.map((space) => space.name),
+      ].some((name) => name.toLocaleLowerCase().includes(needle)),
     )
     .reverse()
 

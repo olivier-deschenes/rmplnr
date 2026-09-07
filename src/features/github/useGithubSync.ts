@@ -163,15 +163,16 @@ function usePlannerProjects(): Project[] {
   const rooms = useSelector(plannerStore, (s) => s.rooms)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
+  const spaces = useSelector(plannerStore, (s) => s.spaces)
 
   return useMemo(
     () =>
       projects.map((project) =>
         project.id === projectId
-          ? { ...project, rooms, furniture, openings }
+          ? { ...project, rooms, furniture, openings, spaces }
           : project,
       ),
-    [projects, projectId, rooms, furniture, openings],
+    [projects, projectId, rooms, furniture, openings, spaces],
   )
 }
 

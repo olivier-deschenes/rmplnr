@@ -13,6 +13,7 @@ const PLAN = '11111111-1111-4111-8111-111111111111'
 
 function plan(populated = false): Project {
   return {
+    spaces: [],
     id: PLAN,
     name: 'Plan 1',
     rooms: populated
@@ -58,7 +59,7 @@ it('offers the three useful ways to start an empty plan', () => {
 
 it('follows a polygon from its first corner through finishing it', () => {
   plannerStore.actions.setTool('room')
-  expect(guidance()).toContain('Click a starting point')
+  expect(guidance()).toContain('Click anywhere to start a run')
 
   plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
   expect(guidance()).toContain('Click the endpoint')

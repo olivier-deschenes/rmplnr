@@ -37,6 +37,7 @@ import {
   SIDED_KINDS,
 } from '#/lib/planner/presets.ts'
 import { closetSize } from '#/lib/planner/closets.ts'
+import { freeEnclosures, planFloors } from '#/lib/planner/enclosures.ts'
 import { roomWallAt, wallCount } from '#/lib/planner/openings.ts'
 import { wallRemovalAt } from '#/lib/planner/walls.ts'
 import {
@@ -72,6 +73,7 @@ import type {
   Units,
 } from '#/lib/planner/types.ts'
 import type { PlanNameEdit } from '#/lib/planner/planName.ts'
+import type { Enclosure } from '#/lib/planner/enclosures.ts'
 
 /**
  * Numeric field that holds a local draft while typing, so clearing "150" down
@@ -354,6 +356,72 @@ function SelectionActions({
         Delete
       </Button>
     </div>
+  )
+}
+
+/**
+ * A space the walls close in that was never drawn as a room of its own.
+ *
+ * It is a room, and the panel treats it as one: a name and a colour, and its
+ * area read off the walls that close it. What it has not got is a shape of its
+ * own to be resized, moved or locked — its walls belong to whatever runs they
+ * were drawn as part of, and are edited there, by selecting one. Saying so is
+ * the panel's other job.
+ */
+function EnclosurePanel({
+  enclosure,
+  units,
+}: {
+  enclosure: Enclosure
+  units: Units
+}) {
+  const actions = plannerStore.actions
+  const named = enclosure.space !== null
+
+  return (
+    <>
+      <SectionTitle>Room</SectionTitle>
+      {!named && (
+        <Alert>
+          <AlertDescription>
+            These walls close in a room. Give it a name and it joins the plan.
+          </AlertDescription>
+        </Alert>
+      )}
+      <NameField
+        value={enclosure.space?.name ?? ''}
+        onChange={(name) => actions.updateEnclosure(enclosure.key, { name })}
+      />
+      <ColorField
+        value={enclosure.space?.color}
+        onChange={(color) =>
+          actions.updateEnclosure(enclosure.key, { color: color ?? undefined })
+        }
+      />
+      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
+        <dt>Area</dt>
+        <dd className="text-foreground text-right tabular-nums">
+          {formatArea(enclosure.area, units, 2)}
+        </dd>
+        <dt>Walls</dt>
+        <dd className="text-foreground text-right tabular-nums">
+          {enclosure.points.length}
+        </dd>
+      </dl>
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
+        This room is whatever its walls close in, so it has no outline of its
+        own to move or resize. Select one of its walls to change it.
+      </p>
+      {named && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => actions.clearEnclosure(enclosure.key)}
+        >
+          Clear name and colour
+        </Button>
+      )}
+    </>
   )
 }
 
@@ -977,16 +1045,14 @@ function OpeningPanel({
 
 function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
   const rooms = useSelector(plannerStore, (s) => s.rooms)
+  const spaces = useSelector(plannerStore, (s) => s.spaces)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
   const name = useSelector(
     plannerStore,
     (s) => s.projects.find((p) => p.id === s.projectId)?.name ?? '',
   )
-  const total = rooms.reduce(
-    (sum, r) => sum + (r.closed === false ? 0 : polygonArea(r.points)),
-    0,
-  )
+  const floors = planFloors(rooms, spaces)
 
   return (
     <>
@@ -1004,11 +1070,11 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Floor area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {formatArea(total, units, 2)}
+          {formatArea(floors.area, units, 2)}
         </dd>
         <dt>Rooms</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {rooms.filter((room) => room.closed !== false).length}
+          {floors.count}
         </dd>
         <dt>Furniture</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -1035,9 +1101,17 @@ export function Inspector({
 }) {
   const selection = useSelector(plannerStore, (s) => s.selection)
   const rooms = useSelector(plannerStore, (s) => s.rooms)
+  const spaces = useSelector(plannerStore, (s) => s.spaces)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
   const units = useSelector(plannerStore, (s) => s.units)
+
+  const enclosure =
+    selection?.type === 'enclosure'
+      ? freeEnclosures(rooms, spaces).find(
+          (found) => found.key === selection.id,
+        )
+      : undefined
 
   const room =
     selection?.type === 'room'
@@ -1108,6 +1182,12 @@ export function Inspector({
           />
         ) : room ? (
           <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
+        ) : enclosure ? (
+          <EnclosurePanel
+            key={`${enclosure.key}-${units}`}
+            enclosure={enclosure}
+            units={units}
+          />
         ) : item ? (
           <FurniturePanel
             key={`${item.id}-${units}`}

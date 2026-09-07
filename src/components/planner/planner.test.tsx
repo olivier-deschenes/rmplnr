@@ -15,6 +15,7 @@ import type { Project } from '#/lib/planner/types.ts'
 const PLAN = '11111111-1111-4111-8111-111111111111'
 
 const project: Project = {
+  spaces: [],
   id: PLAN,
   name: 'Plan 1',
   rooms: [],

@@ -10,7 +10,14 @@ import type { Project } from '#/lib/planner/types.ts'
 const PLAN = '11111111-1111-4111-8111-111111111111'
 
 function plan(): Project {
-  return { id: PLAN, name: 'Plan 1', rooms: [], furniture: [], openings: [] }
+  return {
+    id: PLAN,
+    name: 'Plan 1',
+    rooms: [],
+    furniture: [],
+    openings: [],
+    spaces: [],
+  }
 }
 
 beforeEach(() => {

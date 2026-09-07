@@ -30,15 +30,26 @@ function same(a: unknown, b: unknown): boolean {
   )
 }
 
-/** What a plan is, drawing and all — everything two tabs could disagree over. */
-type Drawing = Pick<Project, 'rooms' | 'furniture' | 'openings'>
+/**
+ * What a plan is, drawing and all — everything two tabs could disagree over.
+ *
+ * `spaces` is optional because a plan written down before walls alone could
+ * enclose a room has none, and comparing it against one that does must say
+ * they are the same plan rather than fail to typecheck against history.
+ */
+type Drawing = Pick<Project, 'rooms' | 'furniture' | 'openings'> & {
+  spaces?: Project['spaces']
+}
 
 /** Whether two plans hold the same drawing. Their names are not part of it. */
 export function samePlan(a: Drawing, b: Drawing): boolean {
   return (
     same(a.rooms, b.rooms) &&
     same(a.furniture, b.furniture) &&
-    same(a.openings, b.openings)
+    same(a.openings, b.openings) &&
+    // What the rooms the walls close in are called is part of the drawing too,
+    // and the only part of it that lives nowhere else.
+    same(a.spaces ?? [], b.spaces ?? [])
   )
 }
 

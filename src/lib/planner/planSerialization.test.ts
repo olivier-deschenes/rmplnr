@@ -19,6 +19,7 @@ const PLAN_ID = '11111111-1111-4111-8111-111111111111'
 
 function plan(overrides: Partial<Project> = {}): Project {
   return {
+    spaces: [],
     id: PLAN_ID,
     name: 'Flat',
     rooms: [
@@ -73,6 +74,7 @@ describe('serializeProject', () => {
 
   it('writes the same bytes however the plan object was built', () => {
     const reordered: Project = {
+      spaces: plan().spaces,
       openings: plan().openings,
       furniture: plan().furniture,
       rooms: plan().rooms,

@@ -2,6 +2,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 
 import {
+  EnclosureFloor,
   FurnitureShape,
   OpeningShape,
   RoomFloor,
@@ -9,11 +10,17 @@ import {
 } from './shapes.tsx'
 import { UnderlayImage } from './underlay.tsx'
 import { blobDataUrl, inlineSvgStyles } from './planImage.tsx'
-import { FurnitureLabels, RoomLabels, WallDimensions } from './overlay.tsx'
+import {
+  EnclosureLabels,
+  FurnitureLabels,
+  RoomLabels,
+  WallDimensions,
+} from './overlay.tsx'
 
 import { downloadFile, projectFileName } from '#/lib/planner/projectExport.ts'
 import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
-import { planBounds, polygonArea } from '#/lib/planner/geometry.ts'
+import { freeEnclosures, planFloors } from '#/lib/planner/enclosures.ts'
+import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { wallPath } from '#/lib/planner/walls.ts'
 import {
@@ -150,11 +157,7 @@ function TitleBlock({
   const top = page.height - SHEET_MARGIN - TITLE_BLOCK_HEIGHT
   const left = SHEET_MARGIN
   const right = page.width - SHEET_MARGIN
-  const area = project.rooms.reduce(
-    (total, room) =>
-      total + (room.closed === false ? 0 : polygonArea(room.points)),
-    0,
-  )
+  const floors = planFloors(project.rooms, project.spaces)
   const printedOn = new Date().toLocaleDateString()
 
   return (
@@ -172,11 +175,8 @@ function TitleBlock({
         {project.name}
       </text>
       <text x={left} y={top + 26} fontSize={7} fill="#555">
-        {project.rooms.filter((room) => room.closed !== false).length} room
-        {project.rooms.filter((room) => room.closed !== false).length === 1
-          ? ''
-          : 's'}{' '}
-        · {formatArea(area, units)} · {project.furniture.length} item
+        {floors.count} room{floors.count === 1 ? '' : 's'} ·{' '}
+        {formatArea(floors.area, units)} · {project.furniture.length} item
         {project.furniture.length === 1 ? '' : 's'}
       </text>
 
@@ -300,6 +300,13 @@ export function PlanSheet({
               onPointerDown={() => undefined}
             />
           ))}
+          {freeEnclosures(project.rooms, project.spaces).map((enclosure) => (
+            <EnclosureFloor
+              key={enclosure.key}
+              enclosure={enclosure}
+              hint={false}
+            />
+          ))}
           {project.furniture.map((item) => (
             <FurnitureShape
               key={item.id}
@@ -321,6 +328,12 @@ export function PlanSheet({
         </g>
 
         <RoomLabels rooms={project.rooms} viewport={viewport} units={units} />
+        <EnclosureLabels
+          enclosures={freeEnclosures(project.rooms, project.spaces)}
+          viewport={viewport}
+          units={units}
+          hint={false}
+        />
         <FurnitureLabels labels={names} />
         <WallDimensions labels={dimensions} />
       </g>

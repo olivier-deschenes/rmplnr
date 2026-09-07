@@ -77,7 +77,7 @@ export function instructionFor(
       return {
         title: 'Draw walls',
         detail:
-          'Click a starting point or drag to draw a wall. Click an open end to continue it.',
+          'Click anywhere to start a run, or click an open end to continue one. Walls that close a space make a room of it.',
       }
     }
     if (draftPoints(state.rooms, state.draft).length < 2) {
@@ -90,7 +90,7 @@ export function instructionFor(
     return {
       title: 'Draw the next wall',
       detail:
-        'Click the next endpoint. Enter or Esc stops and keeps your walls. Click the starting point to close the room.',
+        'Click the next endpoint. Enter or Esc stops and keeps your walls, ready for the next run. Run back onto any wall, or onto the starting point, to close a room.',
     }
   }
 

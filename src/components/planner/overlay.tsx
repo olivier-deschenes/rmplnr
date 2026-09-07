@@ -37,6 +37,7 @@ import type {
 } from '#/lib/planner/types.ts'
 import type { Box, NameLabel, WallLabel } from '#/lib/planner/dimensions.ts'
 import type { Clearance } from '#/lib/planner/clearances.ts'
+import type { Enclosure } from '#/lib/planner/enclosures.ts'
 import type { Guide } from '#/lib/planner/snapping.ts'
 import type { Span, Wall } from '#/lib/planner/openings.ts'
 
@@ -307,6 +308,73 @@ export function RoomLabels({
             </g>
           )
         })}
+    </g>
+  )
+}
+
+/**
+ * The same, for the spaces the walls close in that were never drawn as rooms.
+ *
+ * A space nobody has named yet says so, in the accent and in the words a
+ * reader can act on. That line is doing a job the plan cannot do any other
+ * way: the walls have closed, the editor knows it, and until the reader is
+ * told, the only difference between a room and a space is which order somebody
+ * happened to draw four walls in.
+ */
+export function EnclosureLabels({
+  enclosures,
+  viewport,
+  units,
+  /** The space whose name is being typed over, and so is not written here. */
+  renaming,
+  /** False on a plan being printed or exported, which has nobody to prompt. */
+  hint = true,
+}: {
+  enclosures: Array<Enclosure>
+  viewport: Viewport
+  units: Units
+  renaming?: string
+  hint?: boolean
+}) {
+  return (
+    <g className="pointer-events-none">
+      {enclosures.map((enclosure) => {
+        const at = worldToScreen(enclosure.centre, viewport)
+        const named = enclosure.space !== null
+        return (
+          <g key={enclosure.key} textAnchor="middle">
+            {enclosure.key !== renaming && (named || hint) && (
+              <text
+                x={at.x}
+                y={at.y}
+                className={
+                  named
+                    ? 'fill-foreground text-[11px] font-medium'
+                    : 'fill-snap text-[11px] font-medium'
+                }
+              >
+                {enclosure.space?.name ?? 'Unnamed room'}
+              </text>
+            )}
+            <text
+              x={at.x}
+              y={at.y + 14}
+              className="fill-muted-foreground text-[10px]"
+            >
+              {formatArea(enclosure.area, units)}
+            </text>
+            {hint && !named && enclosure.key !== renaming && (
+              <text
+                x={at.x}
+                y={at.y + 27}
+                className="fill-muted-foreground text-[9px]"
+              >
+                double-click to name
+              </text>
+            )}
+          </g>
+        )
+      })}
     </g>
   )
 }

@@ -13,6 +13,7 @@ import type {
   Project,
   ProjectRecord,
   Room,
+  Space,
 } from './types.ts'
 
 export type ParsedRmplnrFile =
@@ -59,6 +60,15 @@ function toCanonicalRoom(room: Room): Room {
   }
 }
 
+function toCanonicalSpace(space: Space): Space {
+  return {
+    id: space.id,
+    name: space.name,
+    ...(space.color ? { color: space.color } : {}),
+    seed: { x: space.seed.x, y: space.seed.y },
+  }
+}
+
 function toCanonicalFurniture(item: Furniture): Furniture {
   return {
     id: item.id,
@@ -99,6 +109,7 @@ export function toProjectRecord(project: Project): ProjectRecord {
     rooms: project.rooms.map(toCanonicalRoom),
     furniture: project.furniture.map(toCanonicalFurniture),
     openings: project.openings.map(toCanonicalOpening),
+    spaces: project.spaces.map(toCanonicalSpace),
   })
 }
 
@@ -110,6 +121,7 @@ export function fromProjectRecord(record: ProjectRecord): Project {
     rooms: record.rooms,
     furniture: record.furniture,
     openings: record.openings,
+    spaces: record.spaces,
   }
 }
 

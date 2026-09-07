@@ -47,6 +47,29 @@ export const RoomSchema = z
     path: ['points'],
   })
 
+/**
+ * A name and a colour put on one of the spaces the walls close in.
+ *
+ * There is no id here for the space itself, because a space does not have one
+ * to hold: it is worked out from the walls every time they change, and moving
+ * a wall by a centimetre replaces every space that wall touches. What is held
+ * instead is a point that was inside the space when the name was put on it —
+ * and a point stays put while the walls move around it. `enclosures.ts` reads
+ * the name back onto whichever space now contains the point.
+ *
+ * Rooms traced right round and closed carry their own name and colour, in the
+ * room. This is for every other space: the ones walled in against a wall that
+ * was already there, which nobody drew as a room because there was no room
+ * left to draw.
+ */
+export const SpaceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: ColorSchema.optional(),
+  /** A point that was inside this space when it was named. */
+  seed: PointSchema,
+})
+
 export const FurnitureKindSchema = z.enum([
   'table',
   'sofa',
@@ -135,6 +158,8 @@ export const PlanSchema = z.object({
   furniture: z.array(FurnitureSchema),
   /** Missing from plans saved before walls could be broken into. */
   openings: z.array(OpeningSchema).default([]),
+  /** Missing from plans saved before walls alone could enclose a room. */
+  spaces: z.array(SpaceSchema).default([]),
 })
 
 /**
@@ -201,6 +226,8 @@ export const ProjectRecordSchema = z.object({
   rooms: z.array(RoomSchema),
   furniture: z.array(FurnitureSchema),
   openings: z.array(OpeningSchema),
+  /** Missing from files written before walls alone could enclose a room. */
+  spaces: z.array(SpaceSchema).default([]),
 })
 
 export const LIBRARY_BACKUP_SCHEMA_VERSION = 1 as const
@@ -256,6 +283,7 @@ export type WallDraft =
   { start: Point } | { roomId: string; end: 'start' | 'end' }
 export type ClosetAttachment = z.infer<typeof ClosetAttachmentSchema>
 export type Room = z.infer<typeof RoomSchema>
+export type Space = z.infer<typeof SpaceSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
 export type CustomFurniturePreset = z.infer<typeof CustomFurniturePresetSchema>
@@ -278,6 +306,16 @@ export type Selection =
       id: string
     }
   | {
+      /**
+       * One of the spaces the walls close in that was never drawn as a room of
+       * its own. Its `id` is the space's key from `enclosures.ts`, which is
+       * made out of its corners — so moving one of its walls drops the
+       * selection, there being nothing left that was selected.
+       */
+      type: 'enclosure'
+      id: string
+    }
+  | {
       /** A room edge, running from `points[index]` to the next corner. */
       type: 'wall'
       /** The room that owns the edge. */
@@ -291,7 +329,10 @@ export type Selection =
  * name of their own are in here: an opening is called after its kind, and has
  * nothing to rename.
  */
-export type Rename = { type: 'room' | 'furniture'; id: string } | null
+export type Rename = {
+  type: 'room' | 'furniture' | 'enclosure'
+  id: string
+} | null
 
 /**
  * What a copy took: something lifted whole out of the plan, along with
