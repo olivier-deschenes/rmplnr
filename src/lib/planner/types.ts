@@ -233,7 +233,13 @@ export const LibraryBackupRecordSchema = z
     })
   })
 
-export const UnitsSchema = z.enum(['metric', 'imperial'])
+// Keep the original values so existing preferences retain their display format.
+export const UnitsSchema = z.enum([
+  'metric',
+  'metric-mixed',
+  'imperial-inches',
+  'imperial',
+])
 
 /** Editor preferences, stored apart from the plan they are viewed through. */
 export const PrefsSchema = z.object({

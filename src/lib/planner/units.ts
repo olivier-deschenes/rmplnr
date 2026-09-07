@@ -2,88 +2,142 @@ import { squareMetres } from './geometry.ts'
 
 import type { Units } from './types.ts'
 
-/**
- * Everything in the plan is stored in centimetres. Unit systems only change how
- * those numbers are shown and how coarsely the pointer snaps, so switching one
- * on never rewrites the plan.
- */
+/** All plan geometry stays in centimetres, regardless of the selected format. */
 export const CM_PER_INCH = 2.54
 export const CM_PER_FOOT = 30.48
 const CM2_PER_SQ_FOOT = CM_PER_FOOT * CM_PER_FOOT
-const INCHES_PER_FOOT = 12
 
-export const UNITS: Array<Units> = ['metric', 'imperial']
+export const UNITS: Array<Units> = [
+  'metric',
+  'metric-mixed',
+  'imperial-inches',
+  'imperial',
+]
 
-/** Pointer snap step: a round unit in each system. */
+export function isMetric(units: Units): boolean {
+  return units === 'metric' || units === 'metric-mixed'
+}
+
+export function isMixed(units: Units): boolean {
+  return units === 'metric-mixed' || units === 'imperial'
+}
+
+/** The format never changes pointer snapping or grid spacing within a system. */
 export const SNAP_STEP: Record<Units, number> = {
   metric: 10,
+  'metric-mixed': 10,
+  'imperial-inches': CM_PER_INCH,
   imperial: CM_PER_INCH,
 }
 
-/** Grid spacing in centimetres: 10 cm / 1 m, against 1 in / 1 ft. */
 export const GRID: Record<Units, { minor: number; major: number }> = {
   metric: { minor: 10, major: 100 },
+  'metric-mixed': { minor: 10, major: 100 },
+  'imperial-inches': { minor: CM_PER_INCH, major: CM_PER_FOOT },
   imperial: { minor: CM_PER_INCH, major: CM_PER_FOOT },
 }
 
 export const UNIT_LABEL: Record<Units, string> = {
-  metric: 'Metric',
-  imperial: 'Imperial',
+  metric: 'Centimetres only',
+  'metric-mixed': 'Metres + centimetres',
+  'imperial-inches': 'Inches only',
+  imperial: 'Feet + inches',
 }
 
-/** What each system measures in, for the menu's secondary text. */
 export const UNIT_HINT: Record<Units, string> = {
-  metric: 'cm · m²',
-  imperial: 'in · ft²',
+  metric: 'cm',
+  'metric-mixed': 'm + cm',
+  'imperial-inches': 'in',
+  imperial: 'ft + in',
 }
 
-// --- inspector fields -------------------------------------------------------
-
-/** Suffix for the raw numbers the inspector's fields take. */
 export function lengthUnit(units: Units): string {
-  return units === 'metric' ? 'cm' : 'in'
+  return UNIT_HINT[units]
 }
 
-/** Centimetres in whatever unit the inspector's number fields work in. */
+/** Convert the smaller unit (cm or inches), including in mixed formats. */
 export function toLength(cm: number, units: Units): number {
-  return units === 'metric' ? cm : cm / CM_PER_INCH
+  return isMetric(units) ? cm : cm / CM_PER_INCH
 }
 
 export function fromLength(value: number, units: Units): number {
-  return units === 'metric' ? value : value * CM_PER_INCH
+  return isMetric(units) ? value : value * CM_PER_INCH
 }
 
-/** Decimals a field needs before rounding starts eating a snap step. */
-export function lengthPrecision(units: Units): number {
-  return units === 'metric' ? 0 : 2
+/** Round once before splitting, so a remainder never reads 12 in or 100 cm. */
+export function formatLengthInput(cm: number, units: Units): string {
+  const value = Number(toLength(cm, units).toFixed(2))
+  if (!isMixed(units)) return String(value)
+  const base = isMetric(units) ? 100 : 12
+  const total = Math.abs(value)
+  const major = Math.floor(total / base)
+  const minor = Number((total - major * base).toFixed(2))
+  const sign = value < 0 ? '-' : ''
+  return isMetric(units)
+    ? `${sign}${major} m ${minor} cm`
+    : `${sign}${major} ft ${minor} in`
 }
 
-// --- canvas labels ----------------------------------------------------------
+/** Accept a plain number in the smaller unit, or explicit mixed units. */
+export function parseLengthInput(input: string, units: Units): number | null {
+  const text = input
+    .trim()
+    .toLowerCase()
+    .replace(/[′’]/g, "'")
+    .replace(/[″“”]/g, '"')
+  if (!text) return null
+  const decimal = '(?:\\d+(?:\\.\\d*)?|\\.\\d+)'
+  const plain = new RegExp(`^[+-]?${decimal}$`)
+  let value: number
+  if (plain.test(text)) {
+    value = Number(text)
+  } else {
+    const major = isMetric(units) ? 'm' : "(?:ft|')"
+    const minor = isMetric(units) ? 'cm' : '(?:in|")'
+    const pattern = isMixed(units)
+      ? new RegExp(
+          `^([+-]?)\\s*(?:(${decimal})\\s*${major}\\s*(?:(${decimal})\\s*(?:${minor})?)?|(${decimal})\\s*${minor})$`,
+        )
+      : new RegExp(`^([+-]?)\\s*(${decimal})\\s*${minor}$`)
+    const match = text.match(pattern)
+    if (!match) return null
+    value = isMixed(units)
+      ? Number(match.at(2) ?? 0) * (isMetric(units) ? 100 : 12) +
+        Number(match.at(3) ?? match.at(4) ?? 0)
+      : Number(match[2])
+    if (match[1] === '-') value = -value
+  }
+  const cm = fromLength(value, units)
+  return Number.isFinite(cm) ? cm : null
+}
 
-/** A single span, sized for a canvas label: `140 cm`, or `4' 7"`. */
 export function formatLength(cm: number, units: Units): string {
-  if (units === 'metric') return `${Math.round(cm)} cm`
-  const inches = Math.round(cm / CM_PER_INCH)
-  const feet = Math.floor(inches / INCHES_PER_FOOT)
-  const rest = inches - feet * INCHES_PER_FOOT
-  if (feet === 0) return `${rest}"`
-  return rest === 0 ? `${feet}'` : `${feet}' ${rest}"`
+  const value = formatLengthInput(cm, units)
+  return isMixed(units) ? value : `${value} ${lengthUnit(units)}`
 }
 
-/** The `w × h` readout under a selected item, with one shared unit in metric. */
 export function formatSize(w: number, h: number, units: Units): string {
-  return units === 'metric'
-    ? `${Math.round(w)} × ${Math.round(h)} cm`
-    : `${formatLength(w, units)} × ${formatLength(h, units)}`
+  return isMixed(units)
+    ? `${formatLength(w, units)} × ${formatLength(h, units)}`
+    : `${formatLengthInput(w, units)} × ${formatLength(h, units)}`
 }
 
 export function formatArea(areaCm2: number, units: Units, digits = 1): string {
-  return units === 'metric'
+  return isMetric(units)
     ? `${squareMetres(areaCm2).toFixed(digits)} m²`
     : `${(areaCm2 / CM2_PER_SQ_FOOT).toFixed(digits)} ft²`
 }
 
-/** Label for the snap switch, which names the step it lands on. */
 export function formatSnapStep(units: Units): string {
-  return units === 'metric' ? `${SNAP_STEP.metric} cm` : '1 in'
+  return formatLength(SNAP_STEP[units], units)
+}
+
+/** Geometry validation uses canonical cm; user-facing messages use the preference. */
+export function formatMeasurementMessage(
+  message: string,
+  units: Units,
+): string {
+  return message.replace(/(-?\d[\d,]*(?:\.\d+)?) cm\b/g, (_, value: string) =>
+    formatLength(Number(value.replaceAll(',', '')), units),
+  )
 }

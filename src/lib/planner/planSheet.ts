@@ -1,4 +1,4 @@
-import { CM_PER_FOOT, CM_PER_INCH } from './units.ts'
+import { CM_PER_FOOT, CM_PER_INCH, formatLength, isMetric } from './units.ts'
 
 import type { Rect, Units, Viewport } from './types.ts'
 
@@ -124,7 +124,13 @@ const IMPERIAL_SCALES: Array<DrawingScale> = [
 ]
 
 export function drawingScales(units: Units): Array<DrawingScale> {
-  return units === 'metric' ? METRIC_SCALES : IMPERIAL_SCALES
+  if (isMetric(units)) return METRIC_SCALES
+  return units === 'imperial-inches'
+    ? IMPERIAL_SCALES.map(({ ratio }) => ({
+        ratio,
+        label: `1 in = ${ratio} in`,
+      }))
+    : IMPERIAL_SCALES
 }
 
 /** How a ratio reads once it is on the sheet, including odd fitted ones. */
@@ -209,7 +215,7 @@ const BAR_MAX = 140
  * tells the truth about itself even though the printed ratio no longer does.
  */
 export function scaleBar(ratio: number, units: Units): ScaleBar {
-  const steps = units === 'metric' ? METRIC_BAR_STEPS : IMPERIAL_BAR_STEPS
+  const steps = isMetric(units) ? METRIC_BAR_STEPS : IMPERIAL_BAR_STEPS
   const perCm = pointsPerCm(ratio)
 
   const fitting = steps.filter((step) => step * perCm <= BAR_MAX)
@@ -219,21 +225,11 @@ export function scaleBar(ratio: number, units: Units): ScaleBar {
       : (steps[0] ?? 100)
 
   const length = centimetres * perCm
-  return { centimetres, length, label: barLabel(centimetres, units) }
-}
-
-function barLabel(centimetres: number, units: Units): string {
-  if (units === 'metric') {
-    return centimetres >= 100 ? `${centimetres / 100} m` : `${centimetres} cm`
-  }
-  const feet = Math.round(centimetres / CM_PER_FOOT)
-  return `${feet} ft`
+  return { centimetres, length, label: formatLength(centimetres, units) }
 }
 
 /** The plan distance one printed inch stands for, for the title block. */
 export function inchesLabel(ratio: number, units: Units): string {
   const cm = ratio * CM_PER_INCH
-  return units === 'metric'
-    ? `1 in ≈ ${(cm / 100).toFixed(2)} m`
-    : `1 in = ${(cm / CM_PER_FOOT).toFixed(2)} ft`
+  return `1 in ≈ ${formatLength(cm, units)}`
 }

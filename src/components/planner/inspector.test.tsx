@@ -14,6 +14,7 @@ function plan(): Project {
 }
 
 beforeEach(() => {
+  plannerStore.actions.setUnits('metric')
   plannerStore.actions.closeProject()
   plannerStore.actions.loadLibrary({ version: 1, projects: [plan()] })
 })
@@ -137,7 +138,7 @@ it('places a disabled width and height swap control between locked room fields',
 
 it('edits catalogue footprints in imperial units and can save a custom preset', () => {
   plannerStore.actions.openProject(PLAN)
-  plannerStore.actions.setUnits('imperial')
+  plannerStore.actions.setUnits('imperial-inches')
   plannerStore.actions.addFurniture('bed')
 
   const html = renderToStaticMarkup(<Inspector />)
@@ -174,3 +175,20 @@ it('offers the style brush on furniture, and says what it is doing once picked u
     'Escape puts the brush down.',
   )
 })
+
+for (const [units, label, width, depth] of [
+  ['imperial', 'ft + in', '4 ft 11.06 in', '6 ft 6.74 in'],
+  ['metric-mixed', 'm + cm', '1 m 50 cm', '2 m 0 cm'],
+] as const) {
+  it(`uses ${label} in every furniture measurement input`, () => {
+    plannerStore.actions.openProject(PLAN)
+    plannerStore.actions.setUnits(units)
+    plannerStore.actions.addFurniture('bed')
+    const html = renderToStaticMarkup(<Inspector />)
+    for (const name of ['Width', 'Depth', 'X', 'Y']) {
+      expect(html).toContain(`${name} ${label}`)
+    }
+    expect(html).toContain(`value="${width}"`)
+    expect(html).toContain(`value="${depth}"`)
+  })
+}

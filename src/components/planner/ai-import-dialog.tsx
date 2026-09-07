@@ -35,7 +35,7 @@ import {
 } from '#/lib/planner/aiPlan.ts'
 import { FURNITURE_PRESETS } from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
-import { formatSize } from '#/lib/planner/units.ts'
+import { formatMeasurementMessage, formatSize } from '#/lib/planner/units.ts'
 
 import type { AIPlanImport } from '#/lib/planner/aiPlan.ts'
 import type { Units } from '#/lib/planner/types.ts'
@@ -266,7 +266,9 @@ export function AIImportForm({
             <Alert id={`${responseId}-error`} variant="destructive">
               <IconAlertTriangle />
               <AlertTitle>Cannot add this response</AlertTitle>
-              <AlertDescription>{visibleError}</AlertDescription>
+              <AlertDescription>
+                {formatMeasurementMessage(visibleError, units)}
+              </AlertDescription>
             </Alert>
           ) : null}
 

@@ -49,10 +49,11 @@ import {
 import {
   formatArea,
   formatLength,
-  fromLength,
-  lengthPrecision,
+  formatLengthInput,
+  formatMeasurementMessage,
+  isMixed,
+  parseLengthInput,
   lengthUnit,
-  toLength,
 } from '#/lib/planner/units.ts'
 import { MIN_SIZE } from '#/lib/planner/types.ts'
 import {
@@ -82,6 +83,7 @@ function NumberField({
   onCommit,
   min,
   precision = 0,
+  units,
   disabled = false,
 }: {
   label: string
@@ -89,6 +91,7 @@ function NumberField({
   onCommit: (next: number) => string | null | void
   min?: number
   precision?: number
+  units?: Units
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -97,9 +100,15 @@ function NumberField({
 
   const commit = () => {
     if (draft === null) return
-    const parsed = Number.parseFloat(draft)
-    if (!Number.isFinite(parsed)) {
-      setError('Enter a number.')
+    const parsed = units
+      ? parseLengthInput(draft, units)
+      : Number.parseFloat(draft)
+    if (parsed === null || !Number.isFinite(parsed)) {
+      setError(
+        units
+          ? `Enter a length, e.g. ${formatLength(150, units)}.`
+          : 'Enter a number.',
+      )
       return
     }
 
@@ -121,9 +130,15 @@ function NumberField({
       <span className="text-muted-foreground text-xs">{label}</span>
       <Input
         id={id}
-        type="number"
+        type={units && isMixed(units) ? 'text' : 'number'}
+        step="any"
         disabled={disabled}
-        value={draft ?? String(Number(value.toFixed(precision)))}
+        value={
+          draft ??
+          (units
+            ? formatLengthInput(value, units)
+            : String(Number(value.toFixed(precision))))
+        }
         aria-invalid={error !== null}
         aria-describedby={error ? `${id}-error` : undefined}
         onChange={(event) => {
@@ -174,11 +189,11 @@ function LengthField({
   return (
     <NumberField
       label={`${label} ${lengthUnit(units)}`}
-      value={toLength(cm, units)}
-      min={min === undefined ? undefined : toLength(min, units)}
-      precision={lengthPrecision(units)}
+      value={cm}
+      min={min}
+      units={units}
       disabled={disabled}
-      onCommit={(next) => onCommit(fromLength(next, units))}
+      onCommit={onCommit}
     />
   )
 }
@@ -588,13 +603,13 @@ function WallPanel({
   const locked = room.locked === true
   const change = (patch: { length?: number; angle?: number }) => {
     const result = plannerStore.actions.setWallDimensions(room.id, index, patch)
-    return result.ok ? null : result.error
+    return result.ok ? null : formatMeasurementMessage(result.error, units)
   }
   const remove = () => {
     const result = plannerStore.actions.removeWall(room.id, index)
     // A wall that goes takes this panel with it: the room is what is left to
     // hold, so there is nothing here to clear the message off.
-    setRemoval(result.ok ? null : result.error)
+    setRemoval(result.ok ? null : formatMeasurementMessage(result.error, units))
   }
 
   return (

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
 import { plannerStore, saveNow, startAutosave } from './store.ts'
 import { PrefsSchema } from './types.ts'
+import { UNITS } from './units.ts'
 
 import type { PlannerStorage } from './store.ts'
 import type { Project } from './types.ts'
@@ -132,6 +133,23 @@ describe('autosave', () => {
       collide: true,
     })
   })
+
+  for (const units of UNITS) {
+    it(`saves ${units} as a preference without changing plan geometry`, () => {
+      const storage = memoryStorage()
+      const lifecycle = open(storage)
+      plannerStore.actions.addFurniture('bed')
+      lifecycle.dispatchEvent(new Event('pagehide'))
+      const before = storage.getItem('rmplnr.projects.v1')
+      plannerStore.actions.setUnits(units)
+      lifecycle.dispatchEvent(new Event('pagehide'))
+      const prefs = PrefsSchema.parse(
+        JSON.parse(storage.getItem('rmplnr.prefs.v1')!),
+      )
+      expect(prefs.units).toBe(units)
+      expect(storage.getItem('rmplnr.projects.v1')).toBe(before)
+    })
+  }
 
   it('persists custom furniture presets with editor preferences', () => {
     const storage = memoryStorage()

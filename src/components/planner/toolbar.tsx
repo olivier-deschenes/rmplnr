@@ -674,7 +674,7 @@ function OptionsMenu({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
           <IconSettings />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="lg:hidden">Drawing</DropdownMenuLabel>
         <DropdownMenuCheckboxItem
           className="min-h-11 sm:hidden"

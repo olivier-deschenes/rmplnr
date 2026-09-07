@@ -55,10 +55,10 @@ import {
   prepareImageFile,
 } from '#/lib/planner/underlayImport.ts'
 import {
-  fromLength,
-  lengthPrecision,
+  formatLengthInput,
+  isMixed,
+  parseLengthInput,
   lengthUnit,
-  toLength,
 } from '#/lib/planner/units.ts'
 
 import type { ChangeEvent, PointerEvent as ReactPointerEvent } from 'react'
@@ -97,12 +97,14 @@ function PositionField({ axis, value }: { axis: 'x' | 'y'; value: number }) {
   const id = `underlay-position-${axis}`
 
   const commit = (input: HTMLInputElement) => {
-    const next = Number(input.value)
-    if (!Number.isFinite(next)) {
-      input.value = toLength(value, units).toFixed(lengthPrecision(units))
+    if (input.value === formatLengthInput(value, units)) return
+    const next = parseLengthInput(input.value, units)
+    if (next === null) {
+      input.value = formatLengthInput(value, units)
       return
     }
-    underlayStore.actions.update({ [axis]: fromLength(next, units) })
+    input.value = formatLengthInput(next, units)
+    underlayStore.actions.update({ [axis]: next })
   }
 
   return (
@@ -112,18 +114,20 @@ function PositionField({ axis, value }: { axis: 'x' | 'y'; value: number }) {
         <Input
           key={`${units}:${value}`}
           id={id}
-          type="number"
-          step={units === 'metric' ? 1 : 0.25}
-          defaultValue={toLength(value, units).toFixed(lengthPrecision(units))}
-          className="pr-9 tabular-nums"
+          type={isMixed(units) ? 'text' : 'number'}
+          step="any"
+          defaultValue={formatLengthInput(value, units)}
+          className={isMixed(units) ? 'tabular-nums' : 'pr-9 tabular-nums'}
           onBlur={(event) => commit(event.currentTarget)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
           }}
         />
-        <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-2 grid place-items-center">
-          {lengthUnit(units)}
-        </span>
+        {!isMixed(units) && (
+          <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-2 grid place-items-center">
+            {lengthUnit(units)}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -217,6 +221,12 @@ export function UnderlayDialog({
   const [asset, setAsset] = useState<PreparedUnderlayAsset | null>(null)
   const [points, setPoints] = useState<Array<Point>>([])
   const [knownDistance, setKnownDistance] = useState('')
+  const [distanceUnits, setDistanceUnits] = useState(units)
+  if (distanceUnits !== units) {
+    const cm = parseLengthInput(knownDistance, distanceUnits)
+    setKnownDistance(cm === null ? '' : formatLengthInput(cm, units))
+    setDistanceUnits(units)
+  }
   const [page, setPage] = useState(1)
   const [pageCount, setPageCount] = useState(0)
   const [reading, setReading] = useState(false)
@@ -359,7 +369,7 @@ export function UnderlayDialog({
       asset.pixelHeight,
       points[0],
       points[1],
-      fromLength(Number(knownDistance), units),
+      parseLengthInput(knownDistance, units) ?? NaN,
     )
     if (!result.ok) {
       setError(result.error)
@@ -527,11 +537,11 @@ export function UnderlayDialog({
                 </Label>
                 <Input
                   id="underlay-known-distance"
-                  type="number"
+                  type={isMixed(units) ? 'text' : 'number'}
                   min="0"
-                  step={units === 'metric' ? 1 : 0.25}
+                  step="any"
                   value={knownDistance}
-                  placeholder={units === 'metric' ? 'e.g. 300' : 'e.g. 120'}
+                  placeholder={`e.g. ${formatLengthInput(304.8, units)}`}
                   aria-invalid={error ? true : undefined}
                   onChange={(event) => {
                     setKnownDistance(event.target.value)

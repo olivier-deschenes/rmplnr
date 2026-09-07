@@ -1,3 +1,4 @@
+import { formatMeasurementMessage } from '#/lib/planner/units.ts'
 import { useEffect, useRef, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import { useHotkeys, useKeyHold } from '@tanstack/react-hotkeys'
@@ -496,7 +497,8 @@ export function Canvas() {
             return
           }
           const result = actions.removeWall(held.id, held.index)
-          if (!result.ok) toast.error(result.error)
+          if (!result.ok)
+            toast.error(formatMeasurementMessage(result.error, units))
         },
       })),
       // Space is held rather than struck, and `useKeyHold` below is what reads
@@ -645,7 +647,7 @@ export function Canvas() {
       distance(world, points[0]) <= CLOSE_PX / state.viewport.scale
     ) {
       const result = actions.commitDraft()
-      if (!result.ok) toast.error(result.error)
+      if (!result.ok) toast.error(formatMeasurementMessage(result.error, units))
       return
     }
     const point = settle(world)
@@ -654,7 +656,7 @@ export function Canvas() {
         ? straightPoint(points[points.length - 1], point)
         : point,
     )
-    if (!result.ok) toast.error(result.error)
+    if (!result.ok) toast.error(formatMeasurementMessage(result.error, units))
   }
 
   /**

@@ -135,11 +135,15 @@ describe('scaleBar', () => {
   })
 
   it('counts in feet for imperial plans', () => {
-    expect(scaleBar(48, 'imperial').label).toMatch(/ft$/)
+    expect(scaleBar(48, 'imperial').label).toBe('5 ft 0 in')
+    expect(scaleBar(48, 'imperial-inches').label).toBe('60 in')
+    expect(formatScale(48, 'imperial-inches')).toBe('1 in = 48 in')
   })
 
-  it('writes metres once the bar is a metre or longer', () => {
-    expect(scaleBar(100, 'metric').label).toMatch(/ m$/)
+  it('keeps the selected metric format even for long scale bars', () => {
+    expect(scaleBar(100, 'metric').label).toBe('200 cm')
+    expect(scaleBar(100, 'metric-mixed').label).toBe('2 m 0 cm')
+    expect(drawingScales('metric-mixed')).toEqual(drawingScales('metric'))
   })
 })
 
