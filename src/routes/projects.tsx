@@ -51,8 +51,14 @@ function summary(project: Project, units: Units): string {
     return furniture.length === 0
       ? 'Empty plan'
       : `${furniture.length} furniture item${furniture.length === 1 ? '' : 's'}`
-  const area = rooms.reduce((sum, room) => sum + polygonArea(room.points), 0)
-  return `${rooms.length} room${rooms.length === 1 ? '' : 's'} · ${formatArea(area, units, 1)}`
+  const complete = rooms.filter((room) => room.closed !== false)
+  const openWalls = rooms
+    .filter((room) => room.closed === false)
+    .reduce((sum, room) => sum + room.points.length - 1, 0)
+  if (!complete.length)
+    return `${openWalls} wall${openWalls === 1 ? '' : 's'} · In progress`
+  const area = complete.reduce((sum, room) => sum + polygonArea(room.points), 0)
+  return `${complete.length} room${complete.length === 1 ? '' : 's'} · ${formatArea(area, units, 1)}${openWalls ? ' · Walls in progress' : ''}`
 }
 
 function Projects() {

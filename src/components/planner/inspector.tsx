@@ -37,7 +37,7 @@ import {
   SIDED_KINDS,
 } from '#/lib/planner/presets.ts'
 import { closetSize } from '#/lib/planner/closets.ts'
-import { wallAt } from '#/lib/planner/openings.ts'
+import { roomWallAt, wallCount } from '#/lib/planner/openings.ts'
 import { wallRemovalAt } from '#/lib/planner/walls.ts'
 import {
   angleBetween,
@@ -416,6 +416,35 @@ function RoomLockButton({ room }: { room: Room }) {
   )
 }
 
+function ContinueWalls({ room }: { room: Room }) {
+  if (room.closed !== false) return null
+  return (
+    <div className="grid gap-2">
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
+        Continue drawing from either end.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={room.locked}
+          onClick={() => plannerStore.actions.continueWalls(room.id, 'start')}
+        >
+          Continue from start
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={room.locked}
+          onClick={() => plannerStore.actions.continueWalls(room.id, 'end')}
+        >
+          Continue from end
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
@@ -433,6 +462,26 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
     })
     actions.sealHistory()
   }
+
+  if (room.closed === false)
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <SectionTitle>Open walls</SectionTitle>
+          <RoomLockButton room={room} />
+        </div>
+        <NameField
+          value={room.name}
+          onChange={(name) => actions.updateRoom(room.id, { name })}
+        />
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
+          Select a wall or its measurement to change its length and angle. Drag
+          a corner to reshape it.
+        </p>
+        <ContinueWalls room={room} />
+        <SelectionActions deletable={!locked} />
+      </>
+    )
 
   return (
     <>
@@ -534,7 +583,7 @@ function WallPanel({
   // Why a wall could not be taken out is about the wall rather than about
   // anything typed, so it is held here rather than under a field.
   const [removal, setRemoval] = useState<string | null>(null)
-  const wall = wallAt(room.points, index)
+  const wall = roomWallAt(room, index)
   if (!wall) return null
   const locked = room.locked === true
   const change = (patch: { length?: number; angle?: number }) => {
@@ -552,10 +601,11 @@ function WallPanel({
     <>
       <div className="flex items-center justify-between gap-2">
         <SectionTitle>
-          Wall {index + 1} of {room.points.length}
+          Wall {index + 1} of {wallCount(room)}
         </SectionTitle>
         <RoomLockButton room={room} />
       </div>
+      <ContinueWalls room={room} />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
           label="Length"
@@ -602,8 +652,10 @@ function WallPanel({
       </dl>
       <p className="text-muted-foreground text-[13px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
-        clockwise. Removing a wall leaves the room area intact and turns this
-        entire edge into an open passage.
+        clockwise.{' '}
+        {room.closed === false
+          ? 'You can resize a wall now and keep drawing from the updated endpoint.'
+          : 'Removing a wall leaves the room area intact and turns this entire edge into an open passage.'}
       </p>
     </>
   )
@@ -793,7 +845,7 @@ function OpeningPanel({
   const actions = plannerStore.actions
   const update = (patch: Partial<Opening>) =>
     actions.updateOpening(opening.id, patch)
-  const wall = wallAt(room.points, opening.wall)
+  const wall = roomWallAt(room, opening.wall)
   if (!wall) return null
 
   if (opening.wallRemoval) {
@@ -808,7 +860,7 @@ function OpeningPanel({
           <dd className="text-foreground truncate text-right">{room.name}</dd>
           <dt>Wall</dt>
           <dd className="text-foreground text-right tabular-nums">
-            {opening.wall + 1} of {room.points.length}
+            {opening.wall + 1} of {wallCount(room)}
           </dd>
           <dt>Opening</dt>
           <dd className="text-foreground text-right tabular-nums">
@@ -896,7 +948,7 @@ function OpeningPanel({
         <dd className="text-foreground truncate text-right">{room.name}</dd>
         <dt>Wall</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {opening.wall + 1} of {room.points.length}
+          {opening.wall + 1} of {wallCount(room)}
         </dd>
         <dt>Wall length</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -916,7 +968,10 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
     plannerStore,
     (s) => s.projects.find((p) => p.id === s.projectId)?.name ?? '',
   )
-  const total = rooms.reduce((sum, r) => sum + polygonArea(r.points), 0)
+  const total = rooms.reduce(
+    (sum, r) => sum + (r.closed === false ? 0 : polygonArea(r.points)),
+    0,
+  )
 
   return (
     <>
@@ -938,7 +993,7 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
         </dd>
         <dt>Rooms</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {rooms.length}
+          {rooms.filter((room) => room.closed !== false).length}
         </dd>
         <dt>Furniture</dt>
         <dd className="text-foreground text-right tabular-nums">

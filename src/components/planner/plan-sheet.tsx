@@ -151,7 +151,8 @@ function TitleBlock({
   const left = SHEET_MARGIN
   const right = page.width - SHEET_MARGIN
   const area = project.rooms.reduce(
-    (total, room) => total + polygonArea(room.points),
+    (total, room) =>
+      total + (room.closed === false ? 0 : polygonArea(room.points)),
     0,
   )
   const printedOn = new Date().toLocaleDateString()
@@ -171,8 +172,11 @@ function TitleBlock({
         {project.name}
       </text>
       <text x={left} y={top + 26} fontSize={7} fill="#555">
-        {project.rooms.length} room{project.rooms.length === 1 ? '' : 's'} ·{' '}
-        {formatArea(area, units)} · {project.furniture.length} item
+        {project.rooms.filter((room) => room.closed !== false).length} room
+        {project.rooms.filter((room) => room.closed !== false).length === 1
+          ? ''
+          : 's'}{' '}
+        · {formatArea(area, units)} · {project.furniture.length} item
         {project.furniture.length === 1 ? '' : 's'}
       </text>
 

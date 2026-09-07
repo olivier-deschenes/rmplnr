@@ -4,7 +4,7 @@ import {
   normalizeAngle,
   polygonBounds,
 } from './geometry.ts'
-import { wallAt, wallSegments } from './openings.ts'
+import { roomWallAt, wallSegments } from './openings.ts'
 import { WALL_THICKNESS, wallGaps } from './walls.ts'
 
 import type { Furniture, Opening, Point, Rect, Room } from './types.ts'
@@ -168,7 +168,7 @@ function wallBlockers(
   const blockers: Array<Blocker> = []
   for (const room of rooms) {
     for (let i = 0; i < room.points.length; i++) {
-      const wall = wallAt(room.points, i)
+      const wall = roomWallAt(room, i)
       if (!wall) continue
       for (const [a, b] of wallSegments(
         wall,

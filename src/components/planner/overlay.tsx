@@ -17,7 +17,12 @@ import {
   textWidth,
   uprightAngle,
 } from '#/lib/planner/dimensions.ts'
-import { openingEnds, wallAt, wallSegments } from '#/lib/planner/openings.ts'
+import {
+  openingEnds,
+  roomWallAt,
+  wallCount,
+  wallSegments,
+} from '#/lib/planner/openings.ts'
 import { HANDLES, HANDLE_DIR } from '#/lib/planner/types.ts'
 
 import type {
@@ -277,29 +282,31 @@ export function RoomLabels({
 }) {
   return (
     <g className="pointer-events-none">
-      {rooms.map((room) => {
-        const at = worldToScreen(polygonCentroid(room.points), viewport)
-        return (
-          <g key={room.id} textAnchor="middle">
-            {room.id !== renaming && (
+      {rooms
+        .filter((room) => room.closed !== false)
+        .map((room) => {
+          const at = worldToScreen(polygonCentroid(room.points), viewport)
+          return (
+            <g key={room.id} textAnchor="middle">
+              {room.id !== renaming && (
+                <text
+                  x={at.x}
+                  y={at.y}
+                  className="fill-foreground text-[11px] font-medium"
+                >
+                  {room.name}
+                </text>
+              )}
               <text
                 x={at.x}
-                y={at.y}
-                className="fill-foreground text-[11px] font-medium"
+                y={at.y + 14}
+                className="fill-muted-foreground text-[10px]"
               >
-                {room.name}
+                {formatArea(polygonArea(room.points), units)}
               </text>
-            )}
-            <text
-              x={at.x}
-              y={at.y + 14}
-              className="fill-muted-foreground text-[10px]"
-            >
-              {formatArea(polygonArea(room.points), units)}
-            </text>
-          </g>
-        )
-      })}
+            </g>
+          )
+        })}
     </g>
   )
 }
@@ -554,10 +561,12 @@ export function RoomEditor({
   onRotateDown: (event: React.PointerEvent) => void
 }) {
   const topY = Math.min(...room.points.map((point) => point.y))
-  const topWall = room.points.findIndex((point, index) => {
-    const next = room.points[(index + 1) % room.points.length]
-    return Math.abs(point.y - topY) < 1e-6 && Math.abs(next.y - topY) < 1e-6
-  })
+  const topWall = room.points
+    .slice(0, wallCount(room))
+    .findIndex((point, index) => {
+      const next = room.points[(index + 1) % room.points.length]
+      return Math.abs(point.y - topY) < 1e-6 && Math.abs(next.y - topY) < 1e-6
+    })
   const topPoint =
     topWall >= 0
       ? {
@@ -570,9 +579,9 @@ export function RoomEditor({
       : room.points.find((point) => Math.abs(point.y - topY) < 1e-6)!
   const top = worldToScreen(topPoint, viewport)
   const rotateHandle = { x: top.x, y: top.y - ROTATE_OFFSET }
-  const walls = room.points.map((point, i) => {
+  const walls = room.points.slice(0, wallCount(room)).map((point, i) => {
     const next = room.points[(i + 1) % room.points.length]
-    const frame = wallAt(room.points, i)
+    const frame = roomWallAt(room, i)
     const a = worldToScreen(point, viewport)
     const b = worldToScreen(next, viewport)
     // The wall as it is actually built: the stretches either side of every
@@ -912,7 +921,7 @@ export function RectPreview({
   )
 }
 
-/** The polygon being traced, with a rubber-band edge to the cursor. */
+/** The next wall preview and the corners of the active run. */
 export function DraftOverlay({
   draft,
   cursor,
@@ -939,15 +948,7 @@ export function DraftOverlay({
 
   return (
     <g className="pointer-events-none">
-      {points.length > 1 && (
-        <polyline
-          points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-          fill="none"
-          className="stroke-foreground"
-          strokeWidth={2}
-        />
-      )}
-      {tip && (
+      {tip && length > 0 && (
         <>
           <line
             x1={last.x}

@@ -5,6 +5,7 @@ import {
   heldT,
   pointOnWall,
   projectT,
+  roomWallAt,
   wallAt,
   wallDistance,
 } from './openings.ts'
@@ -25,8 +26,8 @@ export type ClosetPlacement = {
 /** The width and depth carried by a closet's rectangular outline. */
 export function closetSize(room: Room): { width: number; depth: number } {
   return {
-    width: wallAt(room.points, 0)?.length ?? MIN_SIZE,
-    depth: wallAt(room.points, 1)?.length ?? MIN_SIZE,
+    width: roomWallAt(room, 0)?.length ?? MIN_SIZE,
+    depth: roomWallAt(room, 1)?.length ?? MIN_SIZE,
   }
 }
 
@@ -80,7 +81,7 @@ export function reflowClosets(rooms: Array<Room>): Array<Room> {
     const host = rooms.find(
       (candidate) => candidate.id === room.attachment?.roomId,
     )
-    const wall = host && wallAt(host.points, room.attachment.wall)
+    const wall = host && roomWallAt(host, room.attachment.wall)
     if (!wall) return room
     const size = closetSize(room)
     const placed = placeCloset(wall, room.attachment, size.width, size.depth)
@@ -106,7 +107,7 @@ export function heldClosets(
     if (!attachment || !was) return room
     const host = rooms.find((candidate) => candidate.id === attachment.roomId)
     const previous = wallAt(was, attachment.wall)
-    const now = host && wallAt(host.points, attachment.wall)
+    const now = host && roomWallAt(host, attachment.wall)
     if (!previous || !now) return room
     const t = clampT(
       heldT(previous, now, attachment.t),
@@ -129,17 +130,18 @@ export function reattachClosets(
   hostId: string,
   before: Array<Point>,
   after: Array<Point>,
+  closed = true,
 ): Array<Room> {
   return rooms.map((room) => {
     const attachment = room.attachment
     if (room.kind !== 'closet' || attachment?.roomId !== hostId) return room
-    const previous = wallAt(before, attachment.wall)
+    const previous = wallAt(before, attachment.wall, closed)
     if (!previous) return room
     const centre = pointOnWall(previous, attachment.t)
 
     let best: { wall: number; frame: Wall; distance: number } | null = null
     for (let wall = 0; wall < after.length; wall++) {
-      const frame = wallAt(after, wall)
+      const frame = wallAt(after, wall, closed)
       if (!frame) continue
       const distance = wallDistance(frame, centre)
       if (!best || distance < best.distance) best = { wall, frame, distance }

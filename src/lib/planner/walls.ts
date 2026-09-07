@@ -5,6 +5,7 @@ import {
   openingSpan,
   outlinePath,
   projectAlong,
+  roomWallAt,
   wallAt,
 } from './openings.ts'
 import { closetSize, heldClosets, reflowClosets } from './closets.ts'
@@ -87,14 +88,14 @@ export function sharedWalls(
   index: number,
 ): Array<Share> {
   const room = rooms.find((r) => r.id === roomId)
-  const frame = room ? wallAt(room.points, index) : null
+  const frame = room ? roomWallAt(room, index) : null
   if (!room || !frame) return []
 
   const shares: Array<Share> = []
   for (const other of rooms) {
     if (other.id === roomId) continue
     for (let i = 0; i < other.points.length; i++) {
-      const face = wallAt(other.points, i)
+      const face = roomWallAt(other, i)
       if (!face) continue
       const span = sharedSpan(frame, face)
       if (span) shares.push({ roomId: other.id, wall: i, frame: face, span })
@@ -111,14 +112,14 @@ export function wallRemovalAt(
   index: number,
 ): Opening | undefined {
   const room = rooms.find((candidate) => candidate.id === roomId)
-  const frame = room && wallAt(room.points, index)
+  const frame = room && roomWallAt(room, index)
   if (!frame) return undefined
 
   return openings.find((opening) => {
     if (!opening.wallRemoval) return false
     if (opening.roomId === roomId && opening.wall === index) return true
     const owner = rooms.find((candidate) => candidate.id === opening.roomId)
-    const source = owner && wallAt(owner.points, opening.wall)
+    const source = owner && roomWallAt(owner, opening.wall)
     const shared = source && sharedSpan(frame, source)
     return Boolean(
       shared && Math.abs(shared[0]) < 1e-9 && Math.abs(shared[1] - 1) < 1e-9,
@@ -211,11 +212,16 @@ export function editConnectedWall(
     return { ok: false, error: `Unlock ${room.name} to edit its walls.` }
   }
 
-  const from = wallAt(room.points, index)
+  const from = roomWallAt(room, index)
   if (!from) return { ok: false, error: 'This wall no longer exists.' }
-  const geometry = editWallGeometry(room.points, index, change)
+  const geometry = editWallGeometry(
+    room.points,
+    index,
+    change,
+    room.closed !== false,
+  )
   if (!geometry.ok) return geometry
-  const to = wallAt(geometry.points, index)
+  const to = wallAt(geometry.points, index, room.closed !== false)
   if (!to) return { ok: false, error: 'That change would remove the wall.' }
 
   const directShares = sharedWalls(rooms, roomId, index).filter(
@@ -251,7 +257,7 @@ export function editConnectedWall(
   for (const [id, points] of changed) {
     const before = rooms.find((candidate) => candidate.id === id)
     if (!before) continue
-    const issue = outlineIssue(before.points, points)
+    const issue = outlineIssue(before.points, points, before.closed !== false)
     if (issue) return { ok: false, error: issue }
   }
 
@@ -271,7 +277,7 @@ export function editConnectedWall(
     const host = movedRooms.find(
       (candidate) => candidate.id === attachment.roomId,
     )
-    const hostWall = host && wallAt(host.points, attachment.wall)
+    const hostWall = host && roomWallAt(host, attachment.wall)
     if (!host || !hostWall) {
       return {
         ok: false,
@@ -305,7 +311,7 @@ export function editConnectedWall(
     const owner = flowedRooms.find(
       (candidate) => candidate.id === opening.roomId,
     )
-    const wall = owner && wallAt(owner.points, opening.wall)
+    const wall = owner && roomWallAt(owner, opening.wall)
     if (!owner || !wall) {
       return {
         ok: false,
@@ -377,7 +383,7 @@ export function removeRoomWall(
   if (room.locked) {
     return { ok: false, error: `Unlock ${room.name} to remove its walls.` }
   }
-  if (!wallAt(room.points, index)) {
+  if (!roomWallAt(room, index)) {
     return { ok: false, error: 'This wall no longer exists.' }
   }
 
@@ -432,7 +438,7 @@ export function wallGaps(
   index: number,
 ): Array<Span> {
   const room = rooms.find((r) => r.id === roomId)
-  const frame = room ? wallAt(room.points, index) : null
+  const frame = room ? roomWallAt(room, index) : null
   if (!room || !frame) return []
 
   const gaps: Array<Span> = []
@@ -446,8 +452,8 @@ export function wallGaps(
     if (!attachment) continue
     if (closet.id === roomId && index === 0) continue
     const host = rooms.find((candidate) => candidate.id === attachment.roomId)
-    const hostWall = host && wallAt(host.points, attachment.wall)
-    const front = wallAt(closet.points, 0)
+    const hostWall = host && roomWallAt(host, attachment.wall)
+    const front = roomWallAt(closet, 0)
     if (!hostWall || !front) continue
     const isHostWall = roomId === attachment.roomId && index === attachment.wall
     if (!isHostWall && !sharedSpan(frame, hostWall)) continue
@@ -483,5 +489,6 @@ export function wallPath(
   return outlinePath(
     room.points,
     room.points.map((_, i) => wallGaps(rooms, openings, room.id, i)),
+    room.closed !== false,
   )
 }

@@ -44,6 +44,7 @@ function toCanonicalRoom(room: Room): Room {
     name: room.name,
     ...(room.color ? { color: room.color } : {}),
     points: room.points.map((point) => ({ x: point.x, y: point.y })),
+    ...(room.closed === false ? { closed: false } : {}),
     ...(room.kind ? { kind: room.kind } : {}),
     ...(room.attachment
       ? {

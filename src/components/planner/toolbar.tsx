@@ -163,8 +163,8 @@ const DRAW_TOOLS: Array<{
   {
     tool: 'room',
     icon: IconVectorTriangle,
-    label: 'Draw a room corner by corner',
-    name: 'Outline',
+    label: 'Draw walls, pause, and continue',
+    name: 'Walls',
   },
 ]
 

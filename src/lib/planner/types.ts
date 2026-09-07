@@ -21,24 +21,31 @@ export const ClosetAttachmentSchema = z.object({
   t: z.number().min(0).max(1),
 })
 
-export const RoomSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  color: ColorSchema.optional(),
-  points: z.array(PointSchema).min(3),
-  /** Ordinary rooms omit this; closets carry their wall attachment below. */
-  kind: z.literal('closet').optional(),
-  attachment: ClosetAttachmentSchema.optional(),
-  /**
-   * A locked room keeps its shape and its place: it can still be selected and
-   * renamed, and doors and closets can still be put in its walls, but nothing
-   * moves it, reshapes it, or deletes it until it is unlocked. New rooms are
-   * locked, so that the one just drawn is not dragged out of true by the next
-   * click. Missing from plans saved before rooms could be locked, which reads
-   * as unlocked.
-   */
-  locked: z.boolean().optional(),
-})
+export const RoomSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    color: ColorSchema.optional(),
+    points: z.array(PointSchema).min(2),
+    /** False while walls are still open. Older rooms are closed by default. */
+    closed: z.boolean().optional(),
+    /** Ordinary rooms omit this; closets carry their wall attachment below. */
+    kind: z.literal('closet').optional(),
+    attachment: ClosetAttachmentSchema.optional(),
+    /**
+     * A locked room keeps its shape and its place: it can still be selected and
+     * renamed, and doors and closets can still be put in its walls, but nothing
+     * moves it, reshapes it, or deletes it until it is unlocked. New rooms are
+     * locked, so that the one just drawn is not dragged out of true by the next
+     * click. Missing from plans saved before rooms could be locked, which reads
+     * as unlocked.
+     */
+    locked: z.boolean().optional(),
+  })
+  .refine((room) => room.closed === false || room.points.length >= 3, {
+    message: 'A closed room needs at least three corners.',
+    path: ['points'],
+  })
 
 export const FurnitureKindSchema = z.enum([
   'table',
@@ -239,6 +246,8 @@ export const PrefsSchema = z.object({
 })
 
 export type Point = z.infer<typeof PointSchema>
+export type WallDraft =
+  { start: Point } | { roomId: string; end: 'start' | 'end' }
 export type ClosetAttachment = z.infer<typeof ClosetAttachmentSchema>
 export type Room = z.infer<typeof RoomSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>

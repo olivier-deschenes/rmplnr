@@ -262,11 +262,12 @@ function signedDoubleArea(points: Array<Point>): number {
 export function outlineIssue(
   before: Array<Point>,
   after: Array<Point>,
+  closed = true,
 ): string | null {
-  if (before.length !== after.length || after.length < 3) {
+  if (before.length !== after.length || after.length < (closed ? 3 : 2)) {
     return 'That wall no longer belongs to a complete room.'
   }
-  return shapeIssue(before, after)
+  return shapeIssue(before, after, closed)
 }
 
 /**
@@ -274,8 +275,20 @@ export function outlineIssue(
  * whether what is left is a room at all. Taking a wall out ends with one corner
  * fewer than it started with, and has every one of these ways to go wrong.
  */
-function shapeIssue(before: Array<Point>, after: Array<Point>): string | null {
-  for (let i = 0; i < after.length; i++) {
+function shapeIssue(
+  before: Array<Point>,
+  after: Array<Point>,
+  closed = true,
+): string | null {
+  if (
+    after.some(
+      (point) => !Number.isFinite(point.x) || !Number.isFinite(point.y),
+    )
+  ) {
+    return 'Enter finite wall coordinates.'
+  }
+  const count = after.length - (closed ? 0 : 1)
+  for (let i = 0; i < count; i++) {
     const next = (i + 1) % after.length
     if (distance(after[i], after[next]) < MIN_SIZE - GEOMETRY_EPSILON) {
       return `That change would make an adjoining wall shorter than ${MIN_SIZE} cm.`
@@ -285,17 +298,18 @@ function shapeIssue(before: Array<Point>, after: Array<Point>): string | null {
   const beforeArea = signedDoubleArea(before)
   const afterArea = signedDoubleArea(after)
   if (
-    Math.abs(afterArea) <= GEOMETRY_EPSILON ||
-    Math.sign(afterArea) !== Math.sign(beforeArea)
+    closed &&
+    (Math.abs(afterArea) <= GEOMETRY_EPSILON ||
+      Math.sign(afterArea) !== Math.sign(beforeArea))
   ) {
     return 'That change would flatten or turn the room inside out.'
   }
 
-  for (let i = 0; i < after.length; i++) {
+  for (let i = 0; i < count; i++) {
     const a = after[i]
     const b = after[(i + 1) % after.length]
-    for (let j = i + 1; j < after.length; j++) {
-      const adjacent = j === i + 1 || (i === 0 && j === after.length - 1)
+    for (let j = i + 1; j < count; j++) {
+      const adjacent = j === i + 1 || (closed && i === 0 && j === count - 1)
       if (adjacent) continue
       const c = after[j]
       const d = after[(j + 1) % after.length]
@@ -307,7 +321,7 @@ function shapeIssue(before: Array<Point>, after: Array<Point>): string | null {
 
   // Adjacent collinear walls may meet at their corner, but may not double back
   // over one another from it.
-  for (let i = 0; i < after.length; i++) {
+  for (let i = closed ? 0 : 1; i < count; i++) {
     const previous = after[(i - 1 + after.length) % after.length]
     const corner = after[i]
     const next = after[(i + 1) % after.length]
@@ -331,8 +345,9 @@ export function editWallGeometry(
   points: Array<Point>,
   index: number,
   change: WallGeometryChange,
+  closed = true,
 ): WallGeometryResult {
-  if (index < 0 || index >= points.length) {
+  if (index < 0 || index >= points.length - (closed ? 0 : 1)) {
     return { ok: false, error: 'This wall no longer exists.' }
   }
 
@@ -355,7 +370,7 @@ export function editWallGeometry(
     y: start.y + Math.sin(radians) * length,
   }
   const next = points.map((point, i) => (i === endIndex ? nextEnd : point))
-  const issue = outlineIssue(points, next)
+  const issue = outlineIssue(points, next, closed)
   return issue ? { ok: false, error: issue } : { ok: true, points: next }
 }
 
@@ -575,7 +590,24 @@ export function slideWall(
   points: Array<Point>,
   index: number,
   by: number,
+  closed = true,
 ): Array<Point> {
+  if (!closed) {
+    if (index < 0 || index + 1 >= points.length) return points
+    const a = points[index]
+    const b = points[index + 1]
+    const length = distance(a, b)
+    if (length === 0) return points
+    const moved = points.map((point, i) =>
+      i === index || i === index + 1
+        ? {
+            x: point.x + ((b.y - a.y) / length) * by,
+            y: point.y - ((b.x - a.x) / length) * by,
+          }
+        : point,
+    )
+    return outlineIssue(points, moved, false) ? points : moved
+  }
   const wanted = pushed(points, index, by)
   if (!wanted) return points
   if (standing(points, wanted, index)) return wanted

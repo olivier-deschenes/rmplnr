@@ -5,7 +5,7 @@ import {
   polygonCentroid,
   worldToScreen,
 } from './geometry.ts'
-import { openingEnds, openingWall } from './openings.ts'
+import { openingEnds, openingWall, wallCount } from './openings.ts'
 import { formatArea, formatLength } from './units.ts'
 import { HINGED_KINDS } from './presets.ts'
 import { WALL_THICKNESS } from './walls.ts'
@@ -233,7 +233,9 @@ export function roomLabelBoxes(
   vp: Viewport,
   units: Units,
 ): Array<Box> {
-  return rooms.map((room) => roomLabelBox(room, vp, units))
+  return rooms
+    .filter((room) => room.closed !== false)
+    .map((room) => roomLabelBox(room, vp, units))
 }
 
 /**
@@ -317,7 +319,9 @@ export function furnitureNames(
   vp: Viewport,
   units: Units,
 ): Array<NameLabel> {
-  const taken = rooms.map((room) => roomLabelBox(room, vp, units))
+  const taken = rooms
+    .filter((room) => room.closed !== false)
+    .map((room) => roomLabelBox(room, vp, units))
   const labels: Array<NameLabel> = []
 
   for (const item of furniture) {
@@ -461,7 +465,9 @@ export function wallLabels(
   // join the list as they are placed, so they clear each other as well.
   const taken: Array<Box> = [
     ...furniture.map((item) => furnitureBox(item, viewport)),
-    ...rooms.map((room) => roomLabelBox(room, viewport, units)),
+    ...rooms
+      .filter((room) => room.closed !== false)
+      .map((room) => roomLabelBox(room, viewport, units)),
     ...openings.flatMap((opening) => {
       const box = openingBox(opening, rooms, viewport)
       return box ? [box] : []
@@ -475,10 +481,10 @@ export function wallLabels(
   const numbered: Array<{ mid: Point; length: number }> = []
 
   for (const room of rooms) {
-    const sign = outwardSign(room.points)
+    const sign = room.closed === false ? 1 : outwardSign(room.points)
     const screen = room.points.map((p) => worldToScreen(p, viewport))
 
-    for (let i = 0; i < room.points.length; i++) {
+    for (let i = 0; i < wallCount(room); i++) {
       const next = (i + 1) % room.points.length
       const a = screen[i]
       const b = screen[next]

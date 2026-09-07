@@ -1,3 +1,4 @@
+import { wallCount } from './openings.ts'
 import type { Point, Room } from './types.ts'
 
 /**
@@ -55,7 +56,7 @@ export function snapTargets(rooms: Array<Room>, exclude?: string): Targets {
     // An attached closet travels with its host room, so it is part of the
     // moving shape rather than a line the host should snap back onto.
     if (room.id === exclude || room.attachment?.roomId === exclude) continue
-    for (let i = 0; i < room.points.length; i++) {
+    for (let i = 0; i < wallCount(room); i++) {
       const a = room.points[i]
       const b = room.points[(i + 1) % room.points.length]
       add(xs, a.x, a.y, b.y)

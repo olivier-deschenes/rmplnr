@@ -52,20 +52,20 @@ it('offers the three useful ways to start an empty plan', () => {
 
   expect(html).toContain('data-canvas-empty-state="true"')
   expect(html).toContain('Rectangle room')
-  expect(html).toContain('Custom outline')
+  expect(html).toContain('Draw walls')
   expect(html).toContain('Import plan')
 })
 
 it('follows a polygon from its first corner through finishing it', () => {
   plannerStore.actions.setTool('room')
-  expect(guidance()).toContain('Click to place the first corner')
+  expect(guidance()).toContain('Click a starting point')
 
   plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
-  expect(guidance()).toContain('Click to place the next corner')
+  expect(guidance()).toContain('Click the endpoint')
 
   plannerStore.actions.addDraftPoint({ x: 400, y: 0 })
   plannerStore.actions.addDraftPoint({ x: 400, y: 300 })
-  expect(guidance()).toContain('press Enter to finish')
+  expect(guidance()).toContain('Enter or Esc stops and keeps your walls')
 
   plannerStore.actions.commitDraft()
   const finished = guidance()
@@ -87,20 +87,18 @@ it('offers touch controls and enables finishing only after three corners', () =>
   plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
 
   const started = guidance()
-  expect(started).toContain('aria-label="Undo last corner"')
-  expect(started).toMatch(
-    /<button[^>]*aria-label="Finish outline"[^>]*disabled=""/,
-  )
+  expect(started).toContain('aria-label="Undo last wall"')
+  expect(started).toMatch(/<button[^>]*aria-label="Close room"[^>]*disabled=""/)
 
   plannerStore.actions.addDraftPoint({ x: 400, y: 0 })
   plannerStore.actions.addDraftPoint({ x: 400, y: 300 })
 
   const ready = guidance()
-  expect(ready).toContain('aria-label="Finish outline"')
+  expect(ready).toContain('aria-label="Close room"')
   expect(ready).not.toMatch(
-    /<button[^>]*aria-label="Finish outline"[^>]*disabled=""/,
+    /<button[^>]*aria-label="Close room"[^>]*disabled=""/,
   )
-  expect(ready).toContain('>Cancel</button>')
+  expect(ready).toContain('>Stop drawing</button>')
 })
 
 it('offers a Done button while placing openings', () => {
@@ -126,7 +124,7 @@ it('lists drawing, finishing, cancellation, and panning shortcuts', () => {
   )
 
   expect(labels).toContain('Rectangle room')
-  expect(labels).toContain('Finish outline')
+  expect(labels).toContain('Stop drawing walls')
   expect(labels).toContain('Cancel current action')
   expect(labels).toContain('Pan from anywhere')
 })

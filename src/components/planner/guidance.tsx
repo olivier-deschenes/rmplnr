@@ -12,6 +12,8 @@ import { ImportDialog } from './import-dialog.tsx'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert.tsx'
 import { Button } from '#/components/ui/button.tsx'
+import { Label } from '#/components/ui/label.tsx'
+import { Switch } from '#/components/ui/switch.tsx'
 import {
   Card,
   CardContent,
@@ -22,6 +24,7 @@ import {
 
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
+import { closingIssue, draftPoints } from '#/lib/planner/drawing.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
 
 import type { PlannerState } from '#/lib/planner/store.ts'
@@ -40,7 +43,7 @@ function ToolGuidance({
     <div className="pointer-events-none absolute inset-x-4 top-4 z-10 flex justify-center">
       <Alert
         role="status"
-        className="flex w-auto max-w-2xl flex-col gap-3 rounded-md bg-background px-4 py-3 shadow-none sm:flex-row sm:items-center sm:gap-5"
+        className="flex w-auto max-w-2xl flex-col gap-3 rounded-md bg-background px-4 py-3 shadow-none"
         data-canvas-tool-guidance
       >
         <div className="min-w-0 space-y-1">
@@ -59,7 +62,7 @@ function ToolGuidance({
 
 /** The instruction that follows a drawing tool until it is put away. */
 export function instructionFor(
-  state: Pick<PlannerState, 'tool' | 'draft' | 'openingKind'>,
+  state: Pick<PlannerState, 'tool' | 'draft' | 'openingKind' | 'rooms'>,
 ): ToolGuide | null {
   if (state.tool === 'rect') {
     return {
@@ -72,22 +75,22 @@ export function instructionFor(
   if (state.tool === 'room') {
     if (!state.draft) {
       return {
-        title: 'Custom outline',
+        title: 'Draw walls',
         detail:
-          'Click to place the first corner. Hold Space and drag to pan; press Esc to cancel.',
+          'Click a starting point or drag to draw a wall. Click an open end to continue it.',
       }
     }
-    if (state.draft.length < 3) {
+    if (draftPoints(state.rooms, state.draft).length < 2) {
       return {
-        title: 'Custom outline',
+        title: 'Draw the first wall',
         detail:
-          'Click to place the next corner. Backspace removes the last corner; Esc cancels.',
+          'Click the endpoint or drag to draw your wall. Enter or Esc puts the pen down.',
       }
     }
     return {
-      title: 'Finish the outline',
+      title: 'Draw the next wall',
       detail:
-        'Click the first corner or press Enter to finish. Backspace removes the last corner; Esc cancels.',
+        'Click the next endpoint. Enter or Esc stops and keeps your walls. Click the starting point to close the room.',
     }
   }
 
@@ -125,6 +128,8 @@ export function CanvasGuidance({
       current.openings.length === 0,
     tool: current.tool,
     draft: current.draft,
+    rooms: current.rooms,
+    straightWalls: current.straightWalls,
     openingKind: current.openingKind,
   }))
   const background = useSelector(underlayStore, (current) => ({
@@ -176,7 +181,7 @@ export function CanvasGuidance({
           className={GUIDE_BUTTON}
           onClick={() => plannerStore.actions.setTool('room')}
         >
-          Custom outline
+          Draw walls
         </Button>
       </ToolGuidance>
     )
@@ -218,7 +223,7 @@ export function CanvasGuidance({
                 onClick={() => plannerStore.actions.setTool('room')}
               >
                 <IconVectorTriangle />
-                Custom outline
+                Draw walls
               </Button>
               <Button
                 variant="outline"
@@ -244,39 +249,63 @@ export function CanvasGuidance({
 
   return (
     <ToolGuidance {...guide}>
+      {state.tool === 'room' && (
+        <div className="pointer-events-auto mr-2 flex min-h-9 items-center gap-2 max-sm:min-h-11">
+          <Switch
+            id="straight-walls"
+            checked={state.straightWalls}
+            onCheckedChange={plannerStore.actions.setStraightWalls}
+            aria-describedby="straight-walls-description"
+          />
+          <Label htmlFor="straight-walls" className="cursor-pointer text-xs">
+            Straight lines
+          </Label>
+          <span id="straight-walls-description" className="sr-only">
+            Draw horizontal and vertical walls only.
+          </span>
+        </div>
+      )}
       {state.tool === 'room' && state.draft && (
         <>
           <Button
             variant="outline"
             size="sm"
             className={GUIDE_BUTTON}
-            aria-label="Undo last corner"
+            aria-label="Undo last wall"
             onClick={() => plannerStore.actions.popDraftPoint()}
           >
             <IconArrowBackUp />
-            Undo corner
+            Undo wall
           </Button>
           <Button
             size="sm"
             className={GUIDE_BUTTON}
-            aria-label="Finish outline"
-            disabled={state.draft.length < 3}
+            variant="outline"
+            aria-label="Close room"
+            disabled={
+              closingIssue(
+                draftPoints(state.rooms, state.draft),
+                state.straightWalls,
+              ) !== null
+            }
             onClick={() => plannerStore.actions.commitDraft()}
           >
             <IconCheck />
-            Finish
+            Close room
           </Button>
         </>
       )}
       <Button
-        variant="outline"
+        variant={state.tool === 'room' ? 'default' : 'outline'}
         size="sm"
         className={GUIDE_BUTTON}
         onClick={() => plannerStore.actions.setTool('select')}
       >
-        {state.tool === 'opening' || state.tool === 'closet'
-          ? 'Done'
-          : 'Cancel'}
+        {state.tool === 'room'
+          ? 'Stop drawing'
+          : state.tool === 'opening' || state.tool === 'closet'
+            ? 'Done'
+            : 'Cancel'}
       </Button>
     </ToolGuidance>
   )

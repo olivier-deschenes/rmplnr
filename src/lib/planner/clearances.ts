@@ -6,6 +6,7 @@ import {
   fittedWidth,
   openingWall,
   pointOnWall,
+  roomWallAt,
   wallAt,
 } from './openings.ts'
 import { wallGaps } from './walls.ts'
@@ -256,7 +257,7 @@ export function closetClearances(
   const attachment = closet.attachment
   if (!attachment) return []
   const host = rooms.find((room) => room.id === attachment.roomId)
-  const wall = host && wallAt(host.points, attachment.wall)
+  const wall = host && roomWallAt(host, attachment.wall)
   if (!wall) return []
 
   const width = fittedWidth(closetSize(closet).width, wall.length)

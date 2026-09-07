@@ -1,6 +1,7 @@
 import { createStore } from '@tanstack/store'
 
 import { DEFAULT_ROOM, FURNITURE_PRESETS } from './presets.ts'
+import { closingIssue, draftPoints, straightPoint } from './drawing.ts'
 import {
   DEFAULT_CLOSET,
   closetSize,
@@ -11,8 +12,10 @@ import {
 } from './closets.ts'
 import {
   clampScale,
+  distance,
   fitViewport,
   planBounds,
+  outlineIssue,
   rectPolygon,
   rotatePolygon,
   screenToWorld,
@@ -29,7 +32,7 @@ import {
   openingSpan,
   openingWall,
   reattachOpenings,
-  wallAt,
+  roomWallAt,
 } from './openings.ts'
 import {
   blockersFor,
@@ -82,6 +85,7 @@ import type {
   Tool,
   Units,
   Viewport,
+  WallDraft,
 } from './types.ts'
 
 /**
@@ -145,6 +149,7 @@ export type PlannerState = {
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
   snap: boolean
+  straightWalls: boolean
   /** Whether furniture is held out of the walls and out of each other. */
   collide: boolean
   /** Canvas visibility only; furniture stays in the plan. */
@@ -152,8 +157,8 @@ export type PlannerState = {
   /** Display only: the plan itself is always stored in centimetres. */
   units: Units
   viewport: Viewport
-  /** Vertices of the polygon currently being drawn, if any. */
-  draft: Array<Point> | null
+  /** The first mark or the saved wall end currently being extended. */
+  draft: WallDraft | null
   /** Corners of the rectangle room currently being dragged out, if any. */
   rect: RectDraft | null
   /** Canvas size in pixels, kept in sync by a ResizeObserver. */
@@ -188,6 +193,7 @@ const initialState: PlannerState = {
   tool: 'select',
   openingKind: 'door',
   snap: true,
+  straightWalls: false,
   collide: true,
   showFurniture: true,
   units: 'metric',
@@ -306,12 +312,14 @@ function reshaped(
     room.id,
     room.points,
     points,
+    room.closed !== false,
   )
   const openings = reattachOpenings(
     state.openings,
     room.id,
     room.points,
     points,
+    room.closed !== false,
   )
   return {
     ...state,
@@ -340,7 +348,71 @@ function withoutWall(
   if (room.locked) {
     return { state, error: `Unlock ${room.name} to remove its walls.` }
   }
-  const frame = wallAt(room.points, index)
+  if (room.closed === false) {
+    if (!roomWallAt(room, index))
+      return { state, error: 'This wall no longer exists.' }
+    // Removing a middle wall leaves two independent, resumable runs.
+    const parts = [
+      room.points.slice(0, index + 1),
+      room.points.slice(index + 1),
+    ]
+      .map((points, part) => ({ points, offset: part === 0 ? 0 : index + 1 }))
+      .filter((part) => part.points.length >= 2)
+      .map((part, i) => ({
+        ...part,
+        room: { ...room, id: i === 0 ? room.id : newId(), points: part.points },
+      }))
+    const movedAttachment = (wall: number) =>
+      parts.find(
+        (part) =>
+          wall >= part.offset && wall < part.offset + part.points.length - 1,
+      )
+    const removedClosets = new Set(
+      state.rooms
+        .filter(
+          (r) => r.attachment?.roomId === roomId && r.attachment.wall === index,
+        )
+        .map((r) => r.id),
+    )
+    const rooms = state.rooms
+      .filter((r) => r.id !== roomId && !removedClosets.has(r.id))
+      .map((r) => {
+        if (r.attachment?.roomId !== roomId) return r
+        const part = movedAttachment(r.attachment.wall)
+        return part
+          ? {
+              ...r,
+              attachment: {
+                ...r.attachment,
+                roomId: part.room.id,
+                wall: r.attachment.wall - part.offset,
+              },
+            }
+          : r
+      })
+    const openings = state.openings
+      .filter((o) => !removedClosets.has(o.roomId))
+      .flatMap((o) => {
+        if (o.roomId !== roomId) return [o]
+        const part = movedAttachment(o.wall)
+        return part
+          ? [{ ...o, roomId: part.room.id, wall: o.wall - part.offset }]
+          : []
+      })
+    return {
+      state: {
+        ...state,
+        history: commit(state, null, 'Removed a wall'),
+        rooms: [...rooms, ...parts.map((part) => part.room)],
+        openings,
+        draft: null,
+        tool: 'select',
+        selection: parts.length ? { type: 'room', id: parts[0].room.id } : null,
+      },
+      error: null,
+    }
+  }
+  const frame = roomWallAt(room, index)
   if (!frame) return { state, error: 'This wall no longer exists.' }
   if (wallRemovalAt(state.rooms, state.openings, roomId, index)) {
     return { state, error: 'This wall has already been removed.' }
@@ -726,7 +798,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
   const source = clipboard.opening
   if (source.wallRemoval) return state
   const room = state.rooms.find((r) => r.id === source.roomId)
-  const wall = room && wallAt(room.points, source.wall)
+  const wall = room && roomWallAt(room, source.wall)
   if (!room || !wall) return state
   const width = fittedWidth(source.width, wall.length)
   // One width along the wall, or back the other way when the original is
@@ -922,6 +994,10 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
 
   toggleSnap() {
     setState((s) => ({ ...s, snap: !s.snap }))
+  },
+
+  setStraightWalls(straightWalls: boolean) {
+    setState((s) => ({ ...s, straightWalls }))
   },
 
   toggleCollide() {
@@ -1246,7 +1322,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     const host = state.rooms.find(
       (room) => room.id === roomId && room.kind !== 'closet',
     )
-    const frame = host && wallAt(host.points, wall)
+    const frame = host && roomWallAt(host, wall)
     if (!host || !frame) return
 
     const id = newId()
@@ -1266,7 +1342,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       points: placement.points,
       attachment: placement.attachment,
     }
-    const opening = openingInWall(wallAt(closet.points, 0)!, {
+    const opening = openingInWall(roomWallAt(closet, 0)!, {
       id: newId(),
       kind: 'sliding-door',
       roomId: id,
@@ -1296,7 +1372,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const attachment = closet?.attachment
       const host =
         attachment && s.rooms.find((room) => room.id === attachment.roomId)
-      const frame = host && wallAt(host.points, attachment.wall)
+      const frame = host && roomWallAt(host, attachment.wall)
       if (!closet || !attachment || !frame) return s
 
       const current = closetSize(closet)
@@ -1358,7 +1434,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     const state = get()
     const room = state.rooms.find((r) => r.id === roomId)
     if (!room) return
-    const frame = wallAt(room.points, wall)
+    const frame = roomWallAt(room, wall)
     if (!frame) return
     // A door or window cannot hang in an edge that has no wall left.
     if (wallRemovalAt(state.rooms, state.openings, roomId, wall)) return
@@ -1735,7 +1811,12 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   deleteVertex(roomId: string, index: number) {
     setState((s) => {
       const room = s.rooms.find((r) => r.id === roomId)
-      if (!room || room.locked || room.points.length <= 3) return s
+      if (
+        !room ||
+        room.locked ||
+        room.points.length <= (room.closed === false ? 2 : 3)
+      )
+        return s
       return reshaped(
         {
           ...s,
@@ -1885,7 +1966,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           const host = s.rooms.find(
             (candidate) => candidate.id === attachment.roomId,
           )
-          const wall = host && wallAt(host.points, attachment.wall)
+          const wall = host && roomWallAt(host, attachment.wall)
           if (!wall) return s
           const along = dx * wall.tangent.x + dy * wall.tangent.y
           const size = closetSize(room)
@@ -1933,51 +2014,182 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
-  addDraftPoint(point: Point) {
-    setState((s) => ({
-      ...s,
-      history: commit(s, null, 'Placed a corner'),
-      draft: [...(s.draft ?? []), point],
-    }))
+  addDraftPoint(point: Point): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
+    setState((s) => {
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return s
+      const points = draftPoints(s.rooms, s.draft)
+      if (points.length === 0) {
+        return { ...s, draft: { start: point }, selection: null }
+      }
+      // A double-click or a tap on the active end must not create a tiny wall.
+      const last = points[points.length - 1]
+      const target = s.straightWalls ? straightPoint(last, point) : point
+      if (distance(last, target) < MIN_SIZE) return s
+      const next = [...points, target]
+      const error = outlineIssue(next, next, false)
+      if (error) {
+        outcome = { ok: false, error }
+        return s
+      }
+      const drawing = s.draft!
+      if ('start' in drawing) {
+        const room: Room = {
+          id: newId(),
+          name: `Room ${s.rooms.length + 1}`,
+          points: next,
+          closed: false,
+          locked: false,
+        }
+        return {
+          ...s,
+          history: commit(s, null, 'Drew a wall'),
+          rooms: [...s.rooms, room],
+          draft: { roomId: room.id, end: 'end' },
+          selection: { type: 'wall', id: room.id, index: 0 },
+        }
+      }
+      const prepend = drawing.end === 'start'
+      return {
+        ...s,
+        history: commit(s, null, 'Drew a wall'),
+        rooms: s.rooms.map((room) => {
+          if (room.id === drawing.roomId)
+            return { ...room, points: prepend ? [...next].reverse() : next }
+          if (prepend && room.attachment?.roomId === drawing.roomId) {
+            return {
+              ...room,
+              attachment: {
+                ...room.attachment,
+                wall: room.attachment.wall + 1,
+              },
+            }
+          }
+          return room
+        }),
+        openings: prepend
+          ? s.openings.map((opening) =>
+              opening.roomId === drawing.roomId
+                ? { ...opening, wall: opening.wall + 1 }
+                : opening,
+            )
+          : s.openings,
+        selection: {
+          type: 'wall',
+          id: drawing.roomId,
+          index: prepend ? 0 : next.length - 2,
+        },
+      }
+    })
+    return outcome
+  },
+
+  continueWalls(roomId: string, end: 'start' | 'end' = 'end') {
+    setState((s) => {
+      const room = s.rooms.find((candidate) => candidate.id === roomId)
+      if (!room || room.closed !== false || room.locked) return s
+      return {
+        ...s,
+        tool: 'room',
+        draft: { roomId, end },
+        rect: null,
+        renaming: null,
+        brush: null,
+        selection: {
+          type: 'wall',
+          id: roomId,
+          index: end === 'start' ? 0 : room.points.length - 2,
+        },
+      }
+    })
   },
 
   popDraftPoint() {
     setState((s) => {
-      if (!s.draft) return s
-      const draft = s.draft.slice(0, -1)
+      const drawing = s.draft
+      if (!drawing) return s
+      if ('start' in drawing) return { ...s, draft: null }
+      const room = s.rooms.find((candidate) => candidate.id === drawing.roomId)
+      if (!room || room.locked) return s
+      const prepend = drawing.end === 'start'
+      const points = prepend ? room.points.slice(1) : room.points.slice(0, -1)
+      const removed = prepend ? 0 : room.points.length - 2
+      const removedRooms = new Set(
+        s.rooms
+          .filter(
+            (r) =>
+              r.attachment?.roomId === room.id && r.attachment.wall === removed,
+          )
+          .map((r) => r.id),
+      )
+      if (points.length < 2) removedRooms.add(room.id)
       return {
         ...s,
-        history: commit(s, null, 'Removed a corner'),
-        draft: draft.length === 0 ? null : draft,
+        history: commit(s, null, 'Undid a wall'),
+        rooms: s.rooms
+          .filter((r) => !removedRooms.has(r.id))
+          .map((r) => {
+            if (r.id === room.id) return { ...r, points }
+            if (prepend && r.attachment?.roomId === room.id) {
+              return {
+                ...r,
+                attachment: { ...r.attachment, wall: r.attachment.wall - 1 },
+              }
+            }
+            return r
+          }),
+        openings: s.openings
+          .filter(
+            (opening) =>
+              !removedRooms.has(opening.roomId) &&
+              !(opening.roomId === room.id && opening.wall === removed),
+          )
+          .map((opening) =>
+            prepend && opening.roomId === room.id
+              ? { ...opening, wall: opening.wall - 1 }
+              : opening,
+          ),
+        draft: points.length < 2 ? { start: points[0] } : drawing,
+        selection:
+          points.length < 2
+            ? null
+            : {
+                type: 'wall',
+                id: room.id,
+                index: prepend ? 0 : points.length - 2,
+              },
       }
     })
   },
 
   cancelDraft() {
-    setState((s) =>
-      s.draft === null
-        ? s
-        : {
-            ...s,
-            history: commit(s, null, 'Discarded the outline'),
-            draft: null,
-          },
-    )
+    setState((s) => ({ ...s, draft: null, tool: 'select' }))
   },
 
-  /** Close the in-progress polygon into a room. Needs at least 3 vertices. */
-  commitDraft() {
+  /** Closing is explicit. Stopping drawing never invents another wall. */
+  commitDraft(): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
     setState((s) => {
       if (!s.draft) return s
-      if (s.draft.length < 3) {
-        return {
-          ...s,
-          history: commit(s, null, 'Discarded the outline'),
-          draft: null,
-        }
+      const error = closingIssue(draftPoints(s.rooms, s.draft), s.straightWalls)
+      if (error) {
+        outcome = { ok: false, error }
+        return s
       }
-      return withRoom(s, s.draft)
+      if ('start' in s.draft) return s
+      const id = s.draft.roomId
+      return {
+        ...s,
+        history: commit(s, null, 'Closed a room'),
+        rooms: s.rooms.map((room) =>
+          room.id === id ? { ...room, closed: undefined, locked: true } : room,
+        ),
+        draft: null,
+        tool: 'select',
+        selection: { type: 'room', id },
+      }
     })
+    return outcome
   },
 
   beginRect(point: Point) {
@@ -2345,7 +2557,7 @@ function attached(
 ): Array<Opening> {
   return openings.filter((o) => {
     const room = rooms.find((r) => r.id === o.roomId)
-    return room !== undefined && o.wall < room.points.length
+    return room !== undefined && roomWallAt(room, o.wall) !== null
   })
 }
 

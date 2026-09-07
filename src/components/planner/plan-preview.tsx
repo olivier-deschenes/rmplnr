@@ -113,21 +113,23 @@ export function PlanPreview({
             {formatLength(bounds.h, units)}
           </text>
           {!showFurniture &&
-            project.rooms.map((room) => {
-              const centre = polygonCentroid(room.points)
-              return (
-                <text
-                  key={room.id}
-                  x={tx + centre.x * scale}
-                  y={ty + centre.y * scale}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="fill-muted-foreground"
-                >
-                  {room.name}
-                </text>
-              )
-            })}
+            project.rooms
+              .filter((room) => room.closed !== false)
+              .map((room) => {
+                const centre = polygonCentroid(room.points)
+                return (
+                  <text
+                    key={room.id}
+                    x={tx + centre.x * scale}
+                    y={ty + centre.y * scale}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="fill-muted-foreground"
+                  >
+                    {room.name}
+                  </text>
+                )
+              })}
         </g>
       )}
     </svg>

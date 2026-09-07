@@ -28,7 +28,7 @@ export const SHORTCUT_GROUPS: Array<ShortcutGroup> = [
     shortcuts: [
       { label: 'Select', hotkey: TOOL_KEYS.select },
       { label: 'Rectangle room', hotkey: TOOL_KEYS.rect },
-      { label: 'Custom outline', hotkey: TOOL_KEYS.room },
+      { label: 'Draw walls', hotkey: TOOL_KEYS.room },
       { label: 'Door', hotkey: OPENING_KEYS.door },
       { label: 'Window', hotkey: OPENING_KEYS.window },
       { label: 'Opening', hotkey: OPENING_KEYS.opening },
@@ -46,7 +46,7 @@ export const SHORTCUT_GROUPS: Array<ShortcutGroup> = [
         label: 'Delete, remove held wall, or remove last corner',
         hotkey: EDIT_KEYS.remove,
       },
-      { label: 'Finish outline', hotkey: EDIT_KEYS.commit },
+      { label: 'Stop drawing walls', hotkey: EDIT_KEYS.commit },
       { label: 'Cancel current action', hotkey: EDIT_KEYS.cancel },
     ],
   },

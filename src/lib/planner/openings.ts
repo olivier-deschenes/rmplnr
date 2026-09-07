@@ -31,14 +31,18 @@ type OpeningPlacement = Pick<Opening, 'id' | 'kind' | 'roomId' | 'wall' | 't'> &
   Partial<Pick<Opening, 'width' | 'hinge' | 'swing' | 'wallRemoval'>>
 
 /** The wall running from `points[index]` to the point after it. */
-export function wallAt(points: Array<Point>, index: number): Wall | null {
-  if (index < 0 || index >= points.length) return null
+export function wallAt(
+  points: Array<Point>,
+  index: number,
+  closed = true,
+): Wall | null {
+  if (index < 0 || index >= points.length - (closed ? 0 : 1)) return null
   const a = points[index]
   const b = points[(index + 1) % points.length]
   const length = distance(a, b)
   if (length === 0) return null
   const tangent = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
-  const sign = outwardSign(points)
+  const sign = closed ? outwardSign(points) : 1
   return {
     a,
     b,
@@ -48,10 +52,18 @@ export function wallAt(points: Array<Point>, index: number): Wall | null {
   }
 }
 
+export function wallCount(room: Room): number {
+  return room.points.length - (room.closed === false ? 1 : 0)
+}
+
+export function roomWallAt(room: Room, index: number): Wall | null {
+  return wallAt(room.points, index, room.closed !== false)
+}
+
 /** The wall an opening hangs on, or null once its room or corner has gone. */
 export function openingWall(rooms: Array<Room>, opening: Opening): Wall | null {
   const room = rooms.find((r) => r.id === opening.roomId)
-  return room ? wallAt(room.points, opening.wall) : null
+  return room ? roomWallAt(room, opening.wall) : null
 }
 
 /** A wall only holds so much: a wider opening is trimmed down to fit it. */
@@ -157,7 +169,7 @@ export function nearestWall(
   let best: { roomId: string; wall: number; t: number; d: number } | null = null
   for (const room of rooms) {
     for (let i = 0; i < room.points.length; i++) {
-      const wall = wallAt(room.points, i)
+      const wall = roomWallAt(room, i)
       if (!wall) continue
       const d = wallDistance(wall, p)
       if (d <= reach && (!best || d < best.d)) {
@@ -182,16 +194,17 @@ export function reattachOpenings(
   roomId: string,
   before: Array<Point>,
   after: Array<Point>,
+  closed = true,
 ): Array<Opening> {
   return openings.map((opening) => {
     if (opening.roomId !== roomId) return opening
-    const was = wallAt(before, opening.wall)
+    const was = wallAt(before, opening.wall, closed)
     if (!was) return opening
     const { centre } = openingEnds(was, opening)
 
     let best: { index: number; wall: Wall; d: number } | null = null
     for (let i = 0; i < after.length; i++) {
-      const wall = wallAt(after, i)
+      const wall = wallAt(after, i, closed)
       if (!wall) continue
       const d = wallDistance(wall, centre)
       if (!best || d < best.d) best = { index: i, wall, d }
@@ -293,12 +306,13 @@ function samePoint(a: Point, b: Point): boolean {
 export function outlinePath(
   points: Array<Point>,
   gaps: Array<Array<Span>>,
+  closed = true,
 ): string {
   const lines: Array<Array<Point>> = []
   let run: Array<Point> | null = null
 
   for (let i = 0; i < points.length; i++) {
-    const wall = wallAt(points, i)
+    const wall = wallAt(points, i, closed)
     if (!wall) continue
     for (const [a, b] of wallSegments(wall, gaps[i] ?? [])) {
       if (run && samePoint(run[run.length - 1], a)) run.push(b)
@@ -315,7 +329,7 @@ export function outlinePath(
   // came back round past the last corner is the front of it.
   const first = lines[0]
   const last = lines[lines.length - 1]
-  const loops = samePoint(last[last.length - 1], first[0])
+  const loops = closed && samePoint(last[last.length - 1], first[0])
   // Whether the pen ever came up, which has to be settled before the two ends
   // are joined below: that join leaves one run behind either way, so asking
   // afterwards cannot tell a room with nothing cut into it from one whose
@@ -329,11 +343,11 @@ export function outlinePath(
 
   return lines
     .map((line, index) => {
-      const closed = whole && index === 0
-      const draw = closed ? line.slice(0, -1) : line
+      const loop = whole && index === 0
+      const draw = loop ? line.slice(0, -1) : line
       return (
         draw.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') +
-        (closed ? ' Z' : '')
+        (loop ? ' Z' : '')
       )
     })
     .join(' ')

@@ -1,4 +1,4 @@
-import { openingEnds, pointOnWall, wallAt } from '#/lib/planner/openings.ts'
+import { openingEnds, pointOnWall, roomWallAt } from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
 import type { CSSProperties, ReactElement } from 'react'
@@ -63,6 +63,7 @@ export function RoomFloor({
   selected: boolean
   onPointerDown: (event: React.PointerEvent) => void
 }) {
+  if (room.closed === false) return null
   const points = room.points.map((p) => `${p.x},${p.y}`).join(' ')
 
   if (!room.color) {
@@ -133,7 +134,7 @@ export function SharedWalls({
   return (
     <g className="pointer-events-none">
       {spans.map(({ wall, span }, i) => {
-        const frame = wallAt(room.points, wall)
+        const frame = roomWallAt(room, wall)
         if (!frame) return null
         const a = pointOnWall(frame, span[0])
         const b = pointOnWall(frame, span[1])
