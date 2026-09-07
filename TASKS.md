@@ -272,7 +272,7 @@ bun run cf-types:check
 - Plans can be managed without opening the editor.
 - Accidental deletion can be recovered.
 
-### 12. [ ] Add SVG and printable PDF export
+### 12. [x] Add SVG and printable PDF export
 
 **Priority:** P1  
 **Dependencies:** Task 2

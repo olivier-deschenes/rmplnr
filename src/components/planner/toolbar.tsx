@@ -28,6 +28,7 @@ import {
   IconPointer,
   IconPhoto,
   IconPhotoScan,
+  IconPrinter,
   IconRectangle,
   IconSettings,
   IconShare,
@@ -40,6 +41,7 @@ import {
 
 import { AIImportDialog } from './ai-import-dialog.tsx'
 import { ImportDialog } from './import-dialog.tsx'
+import { PrintDialog } from './print-dialog.tsx'
 import { FurnitureCatalogue } from './furniture-catalogue.tsx'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 import { UnderlayDialog } from './underlay-dialog.tsx'
@@ -99,7 +101,7 @@ import type { TablerIcon } from '@tabler/icons-react'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type { SaveFailure } from '#/lib/planner/store.ts'
-import type { OpeningKind, Tool, Units } from '#/lib/planner/types.ts'
+import type { OpeningKind, Project, Tool, Units } from '#/lib/planner/types.ts'
 
 /**
  * Fill the active tool solid black; the default muted grey reads as disabled.
@@ -449,13 +451,27 @@ function currentProject() {
   )
 }
 
+/**
+ * The plan as the editor shows it: furniture hidden on the canvas stays out of
+ * the drawing, names and all. Only the drawn exports go through here — the JSON
+ * file and the library backup are the plan itself, not a picture of it, and
+ * must keep every piece whatever the canvas is currently showing.
+ */
+function drawnProject(): Project | null {
+  const project = currentProject()
+  if (!project) return null
+  return plannerStore.state.showFurniture
+    ? project
+    : { ...project, furniture: [] }
+}
+
 function downloadJson() {
   const project = currentProject()
   if (project) downloadProjectJson(project)
 }
 
 async function downloadPng(includeUnderlay = false) {
-  const project = currentProject()
+  const project = drawnProject()
   if (!project) return
 
   try {
@@ -512,6 +528,9 @@ function FileMenu({
   const [importing, setImporting] = useState(false)
   const [addingWithAI, setAddingWithAI] = useState(false)
   const [underlayOpen, setUnderlayOpen] = useState(false)
+  // The open plan is read when the sheet dialog opens, not while rendering:
+  // `currentProject` reads the store directly, and render is memoized.
+  const [printing, setPrinting] = useState<Project | null>(null)
   const { underlay, status, failure, positioning } = useSelector(underlayStore)
   const failed = status === 'error'
 
@@ -602,6 +621,10 @@ function FileMenu({
               PNG with underlay
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem onSelect={() => setPrinting(drawnProject())}>
+            <IconPrinter />
+            PDF / print to scale
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={downloadJson}>
             <IconJson />
             JSON file
@@ -620,6 +643,13 @@ function FileMenu({
       />
       <AIImportDialog open={addingWithAI} onOpenChange={setAddingWithAI} />
       <UnderlayDialog open={underlayOpen} onOpenChange={setUnderlayOpen} />
+      <PrintDialog
+        project={printing}
+        open={printing !== null}
+        onOpenChange={(next) => {
+          if (!next) setPrinting(null)
+        }}
+      />
     </>
   )
 }

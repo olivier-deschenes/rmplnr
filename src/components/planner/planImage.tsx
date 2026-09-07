@@ -192,7 +192,15 @@ function PlanImage({
   )
 }
 
-function inlineSvgStyles(source: SVGSVGElement, clone: SVGSVGElement): void {
+/**
+ * Copy the styles the document computed onto a detached clone. Serialized SVG
+ * leaves its stylesheet behind, so every painted property has to travel as an
+ * attribute or the export comes out unstyled.
+ */
+export function inlineSvgStyles(
+  source: SVGSVGElement,
+  clone: SVGSVGElement,
+): void {
   const sourceElements = [source, ...source.querySelectorAll('*')]
   const cloneElements = [clone, ...clone.querySelectorAll('*')]
 
@@ -236,7 +244,7 @@ async function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-function blobDataUrl(blob: Blob): Promise<string> {
+export function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () =>

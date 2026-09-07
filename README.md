@@ -48,9 +48,12 @@ bun run cf-types:check
 
 - Plans and editor preferences are saved in browser `localStorage`. Geometry is
   stored in centimetres; metric and imperial units only change how it is shown.
-- Single-plan JSON and PNG exports are downloaded directly by the browser.
+- Single-plan JSON, PNG and SVG exports are downloaded directly by the browser.
   JSON plans can be previewed and imported again. A full-library backup keeps
   every plan ID and can replace the browser's whole local library after review.
+- Printing goes through a paper-sized sheet drawn at a stated scale, with a
+  title block and a scale bar, and is handed to the browser's own print
+  pipeline as vector artwork. "Save as PDF" at 100% measures true.
 - The AI furniture helper opens a service you choose with generic research and
   formatting instructions. It sends no plan data; the product details you give
   that service follow its own privacy terms, and pasted results are checked and

@@ -31,7 +31,7 @@ selection, and a touch-friendly way to select several items. Move or duplicate
 a dining set or desk setup while preserving spacing, collision behavior, and
 one-step undo. Include basic edge alignment.
 
-## 5. [ ] Medium: Export plans that print to scale
+## 5. [x] Medium: Export plans that print to scale
 
 Exports currently offer PNG and JSON. Add SVG download and printable PDF with
 paper size, orientation, drawing scale, and dimension visibility. Reuse the

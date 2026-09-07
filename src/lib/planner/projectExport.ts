@@ -10,7 +10,7 @@ const JSON_TYPE = 'application/json'
 /** A plan name made safe to use as a friendly filename on every platform. */
 export function projectFileName(
   project: Project,
-  extension: 'json' | 'png',
+  extension: 'json' | 'png' | 'svg' | 'pdf',
 ): string {
   const stem = project.name
     .trim()
