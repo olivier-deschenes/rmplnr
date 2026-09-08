@@ -128,12 +128,53 @@ function connectedRectangle(): Project {
 
 beforeEach(() => {
   plannerStore.actions.closeProject()
+  // The pointer tool outlives a plan being closed, so it is put back by hand:
+  // a test that reaches for `edit` must not leave it there for the next one.
+  plannerStore.actions.setTool('move')
   plannerStore.actions.setCollide(true)
   plannerStore.actions.setUnits('metric')
   plannerStore.actions.setCustomFurniturePresets([])
   plannerStore.actions.loadLibrary({
     version: 1,
     projects: [plan(PLAN_A, 'Flat'), plan(PLAN_B, 'House')],
+  })
+})
+
+describe('the pointer tools', () => {
+  beforeEach(() => plannerStore.actions.openProject(PLAN_A))
+
+  it('starts on move, so nothing is resized by a slip of the hand', () => {
+    expect(plannerStore.state.tool).toBe('move')
+  })
+
+  it('hands a drawing tool back to whichever pointer tool was in hand', () => {
+    plannerStore.actions.setTool('edit')
+    plannerStore.actions.setTool('room')
+    expect(plannerStore.state.pointerTool).toBe('edit')
+
+    plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
+    plannerStore.actions.addDraftPoint({ x: 400, y: 0 })
+    plannerStore.actions.addDraftPoint({ x: 400, y: 300 })
+    plannerStore.actions.commitDraft()
+
+    expect(plannerStore.state.tool).toBe('edit')
+  })
+
+  it('puts a drawing tool down without disturbing the pointer it comes back to', () => {
+    plannerStore.actions.setTool('room')
+    plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
+
+    plannerStore.actions.putToolDown()
+
+    expect(plannerStore.state.tool).toBe('move')
+    expect(plannerStore.state.draft).toBeNull()
+  })
+
+  it('remembers the pointer tool across a plan being opened', () => {
+    plannerStore.actions.setTool('edit')
+    plannerStore.actions.openProject(PLAN_B)
+
+    expect(plannerStore.state.tool).toBe('edit')
   })
 })
 
@@ -146,7 +187,7 @@ describe('furniture catalogue', () => {
     plannerStore.actions.addDraftPoint({ x: 180, y: 20 })
     plannerStore.actions.addFurniture('desk')
 
-    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.tool).toBe('move')
     expect(plannerStore.state.draft).toBeNull()
     expect(plannerStore.state.rect).toBeNull()
     expect(plannerStore.state.selection?.type).toBe('furniture')
@@ -164,7 +205,7 @@ describe('furniture catalogue', () => {
     plannerStore.actions.addCustomFurniture(presetId)
 
     expect(plannerStore.state.draft).toBeNull()
-    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.tool).toBe('move')
     expect(plannerStore.state.furniture).toHaveLength(2)
   })
 
@@ -323,7 +364,7 @@ describe('furniture catalogue', () => {
       type: 'furniture',
       id: furniture[1].id,
     })
-    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.tool).toBe('move')
     expect(plannerStore.state.history.past.at(-1)?.text).toBe(
       'Added 2 rooms and 2 pieces of furniture',
     )
@@ -1399,12 +1440,13 @@ describe('the style brush', () => {
     expect(colorOf(source)).toBeUndefined()
   })
 
-  it('comes back to the select tool, and is put down by reaching for another', () => {
+  it('comes back to the pointer tool, and is put down by reaching for another', () => {
     const [source] = pair()
+    plannerStore.actions.setTool('edit')
     plannerStore.actions.setTool('room')
 
     plannerStore.actions.pickUpStyle(source)
-    expect(plannerStore.state.tool).toBe('select')
+    expect(plannerStore.state.tool).toBe('edit')
 
     plannerStore.actions.setTool('rect')
     expect(plannerStore.state.brush).toBeNull()

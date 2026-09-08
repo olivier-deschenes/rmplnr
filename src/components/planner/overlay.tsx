@@ -763,7 +763,12 @@ export function RoomEditor({
   )
 }
 
-/** Rotated bounding box, eight resize handles, and a rotate handle on a stem. */
+/**
+ * A selected item: its rotated bounding box and its size on a plate, and —
+ * under the edit tool — the eight resize handles and the rotate handle on its
+ * stem. Under the move tool the handlers are not passed and the handles are
+ * not drawn, so there is nothing there to catch by mistake.
+ */
 export function FurnitureEditor({
   item,
   viewport,
@@ -777,8 +782,8 @@ export function FurnitureEditor({
   units: Units
   /** Boxes the size readout backs away from: what the plan already says. */
   avoid: Array<Box>
-  onHandleDown: (handle: Handle, event: React.PointerEvent) => void
-  onRotateDown: (event: React.PointerEvent) => void
+  onHandleDown?: (handle: Handle, event: React.PointerEvent) => void
+  onRotateDown?: (event: React.PointerEvent) => void
 }) {
   const screenAt = (handle: Handle) =>
     worldToScreen(handlePosition(item, handle), viewport)
@@ -817,30 +822,35 @@ export function FurnitureEditor({
         className="stroke-foreground pointer-events-none"
         strokeWidth={1}
       />
-      <line
-        x1={topMid.x}
-        y1={topMid.y}
-        x2={stem.x}
-        y2={stem.y}
-        className="stroke-foreground pointer-events-none"
-        strokeWidth={1}
-      />
-      <circle
-        cx={stem.x}
-        cy={stem.y}
-        r={5}
-        className="fill-background stroke-foreground cursor-grab"
-        strokeWidth={1.5}
-        onPointerDown={onRotateDown}
-      />
-      {HANDLES.map((handle) => (
-        <Square
-          key={handle}
-          at={screenAt(handle)}
-          className={resizeCursor(HANDLE_DIR[handle], item.rotation)}
-          onPointerDown={(event) => onHandleDown(handle, event)}
-        />
-      ))}
+      {onRotateDown && (
+        <>
+          <line
+            x1={topMid.x}
+            y1={topMid.y}
+            x2={stem.x}
+            y2={stem.y}
+            className="stroke-foreground pointer-events-none"
+            strokeWidth={1}
+          />
+          <circle
+            cx={stem.x}
+            cy={stem.y}
+            r={5}
+            className="fill-background stroke-foreground cursor-grab"
+            strokeWidth={1.5}
+            onPointerDown={onRotateDown}
+          />
+        </>
+      )}
+      {onHandleDown &&
+        HANDLES.map((handle) => (
+          <Square
+            key={handle}
+            at={screenAt(handle)}
+            className={resizeCursor(HANDLE_DIR[handle], item.rotation)}
+            onPointerDown={(event) => onHandleDown(handle, event)}
+          />
+        ))}
       {readout && (
         <g className="pointer-events-none">
           <Plate box={readout.box} text={formatSize(item.w, item.h, units)} />
@@ -851,11 +861,12 @@ export function FurnitureEditor({
 }
 
 /**
- * A selected opening: a handle on each jamb, which widen it from that end, and
- * its clear width on a plate beside it.
+ * A selected opening: its clear width on a plate beside it, and — under the
+ * edit tool — a handle on each jamb, which widen it from that end.
  *
  * The opening itself is dragged by its own band on the canvas, so there is no
- * handle for that here — an opening can only ever run along its wall.
+ * handle for that here — an opening can only ever run along its wall — which
+ * is why it still slides along its wall under the move tool.
  */
 export function OpeningEditor({
   opening,
@@ -871,7 +882,7 @@ export function OpeningEditor({
   units: Units
   /** Boxes the width readout backs away from: what the plan already says. */
   avoid: Array<Box>
-  onEndDown: (end: 'start' | 'end', event: React.PointerEvent) => void
+  onEndDown?: (end: 'start' | 'end', event: React.PointerEvent) => void
 }) {
   const { start, end, centre, width } = openingEnds(wall, opening)
   const angle = (Math.atan2(wall.tangent.y, wall.tangent.x) * 180) / Math.PI
@@ -912,14 +923,15 @@ export function OpeningEditor({
         className="stroke-foreground pointer-events-none"
         strokeWidth={1}
       />
-      {(['start', 'end'] as const).map((which) => (
-        <Square
-          key={which}
-          at={jambs[which]}
-          className={resizeCursor({ x: 1, y: 0 }, angle)}
-          onPointerDown={(event) => onEndDown(which, event)}
-        />
-      ))}
+      {onEndDown &&
+        (['start', 'end'] as const).map((which) => (
+          <Square
+            key={which}
+            at={jambs[which]}
+            className={resizeCursor({ x: 1, y: 0 }, angle)}
+            onPointerDown={(event) => onEndDown(which, event)}
+          />
+        ))}
       {readout && (
         <g className="pointer-events-none">
           <Plate box={readout.box} text={text} />

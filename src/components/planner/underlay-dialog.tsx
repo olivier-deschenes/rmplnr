@@ -413,7 +413,7 @@ export function UnderlayDialog({
   }
 
   const positionOnCanvas = () => {
-    plannerStore.actions.setTool('select')
+    plannerStore.actions.putToolDown()
     plannerStore.actions.select(null)
     underlayStore.actions.setPositioning(true)
     changeOpen(false)

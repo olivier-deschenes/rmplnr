@@ -30,6 +30,7 @@ import {
   IconPhotoScan,
   IconPrinter,
   IconRectangle,
+  IconResize,
   IconSettings,
   IconShare,
   IconSparkles,
@@ -141,7 +142,10 @@ function Hint({
   )
 }
 
-/** The ways to put a room down, in the order the bar offers them. */
+/**
+ * What the pointer can be, in the order the bar offers them: the two that take
+ * hold of what is already drawn, and then the two that draw.
+ */
 const DRAW_TOOLS: Array<{
   tool: DrawTool
   icon: TablerIcon
@@ -149,10 +153,16 @@ const DRAW_TOOLS: Array<{
   name: string
 }> = [
   {
-    tool: 'select',
+    tool: 'move',
     icon: IconPointer,
-    label: 'Select and move',
-    name: 'Select',
+    label: 'Select and drag things about, at the size and angle they are',
+    name: 'Move',
+  },
+  {
+    tool: 'edit',
+    icon: IconResize,
+    label: 'Resize, rotate and reshape what is selected',
+    name: 'Edit',
   },
   {
     tool: 'rect',
@@ -847,7 +857,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           variant="default"
           size="sm"
           spacing={1}
-          aria-label="Drawing tools"
+          aria-label="Pointer and drawing tools"
           value={tool}
           onValueChange={(value) => value && actions.setTool(value as Tool)}
         >

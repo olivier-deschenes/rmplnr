@@ -17,7 +17,8 @@ import type { Tool } from './types.ts'
 export type DrawTool = Exclude<Tool, 'opening' | 'closet'>
 
 export const TOOL_KEYS = {
-  select: 'V',
+  move: 'V',
+  edit: 'A',
   room: 'R',
   rect: 'E',
 } as const satisfies Record<DrawTool, Hotkey>

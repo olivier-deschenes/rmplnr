@@ -104,7 +104,7 @@ import type {
   Room,
   Viewport,
 } from '#/lib/planner/types.ts'
-import { SNAP_ANGLE } from '#/lib/planner/types.ts'
+import { SNAP_ANGLE, isPointerTool } from '#/lib/planner/types.ts'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { Guide } from '#/lib/planner/snapping.ts'
@@ -492,7 +492,7 @@ export function Canvas() {
     if (state.brush) actions.dropStyle()
     else if (state.draft) actions.cancelDraft()
     else if (state.rect) actions.cancelRect()
-    else if (state.tool !== 'select') actions.setTool('select')
+    else if (!isPointerTool(state.tool)) actions.putToolDown()
     else actions.select(null)
   }
 
@@ -644,7 +644,7 @@ export function Canvas() {
       }
       return
     }
-    if (event.button === 1 || spaceHeld || state.tool === 'select') {
+    if (event.button === 1 || spaceHeld || isPointerTool(state.tool)) {
       beginPan(event)
       return
     }
@@ -1011,7 +1011,7 @@ export function Canvas() {
       actions.cancelDraft()
       return
     }
-    if (state.tool !== 'select') return
+    if (!isPointerTool(state.tool)) return
     // Two quick strokes of the brush over the same item are two strokes, not
     // an invitation to rename it.
     if (state.brush) return
@@ -1024,7 +1024,16 @@ export function Canvas() {
     const spot =
       room && nearestWall([room], world, WALL_GRAB / 2 / state.viewport.scale)
     const frame = room && spot && roomWallAt(room, spot.wall)
-    if (room?.kind !== 'closet' && !room?.locked && spot && frame) {
+    // Breaking a wall to add a corner reshapes the room, so it belongs to the
+    // edit tool. Under move the click falls through to the rename below, which
+    // is what a double click on a room means when its shape is off limits.
+    if (
+      state.tool === 'edit' &&
+      room?.kind !== 'closet' &&
+      !room?.locked &&
+      spot &&
+      frame
+    ) {
       actions.insertVertex(
         room.id,
         spot.wall,
@@ -1351,7 +1360,7 @@ export function Canvas() {
       ? 'cursor-move'
       : brush
         ? 'cursor-copy'
-        : tool === 'select'
+        : isPointerTool(tool)
           ? 'cursor-default'
           : 'cursor-crosshair'
 
@@ -1379,7 +1388,7 @@ export function Canvas() {
       <g
         transform={`translate(${viewport.tx} ${viewport.ty}) scale(${viewport.scale})`}
         className={
-          positioningUnderlay || tool !== 'select'
+          positioningUnderlay || !isPointerTool(tool)
             ? 'pointer-events-none'
             : undefined
         }
@@ -1563,13 +1572,17 @@ export function Canvas() {
             : undefined
         }
         onSelect={
-          tool === 'select' && !positioningUnderlay
+          isPointerTool(tool) && !positioningUnderlay
             ? (roomId, wall) => {
                 const room = plannerStore.state.rooms.find(
                   (candidate) => candidate.id === roomId,
                 )
+                // A single wall is a thing to push, and pushing one is an
+                // edit; under move there is nothing to be done with a wall on
+                // its own, so the click takes the room it belongs to. A
+                // closet's walls are never its own either way.
                 actions.select(
-                  room?.kind === 'closet'
+                  tool === 'move' || room?.kind === 'closet'
                     ? { type: 'room', id: roomId }
                     : { type: 'wall', id: roomId, index: wall },
                 )
@@ -1607,7 +1620,7 @@ export function Canvas() {
         avoid={spoken}
       />
 
-      {tool === 'select' &&
+      {tool === 'edit' &&
         selectedRoom?.kind !== 'closet' &&
         !selectedRoom?.locked &&
         selectedRoom && (
@@ -1625,24 +1638,29 @@ export function Canvas() {
             onRotateDown={onRoomRotateHandleDown}
           />
         )}
-      {tool === 'select' && selectedFurniture && (
+      {/*
+        The box and the readout say what is selected and how big it is, which
+        is worth knowing under either tool. The handles that would change it
+        are only handed over to the edit tool.
+      */}
+      {isPointerTool(tool) && selectedFurniture && (
         <FurnitureEditor
           item={selectedFurniture}
           viewport={viewport}
           units={units}
           avoid={written}
-          onHandleDown={onResizeHandleDown}
-          onRotateDown={onRotateHandleDown}
+          onHandleDown={tool === 'edit' ? onResizeHandleDown : undefined}
+          onRotateDown={tool === 'edit' ? onRotateHandleDown : undefined}
         />
       )}
-      {tool === 'select' && selectedOpening && (
+      {isPointerTool(tool) && selectedOpening && (
         <OpeningEditor
           opening={selectedOpening.opening}
           wall={selectedOpening.wall}
           viewport={viewport}
           units={units}
           avoid={written}
-          onEndDown={onOpeningEndDown}
+          onEndDown={tool === 'edit' ? onOpeningEndDown : undefined}
         />
       )}
       {rectDraft && (

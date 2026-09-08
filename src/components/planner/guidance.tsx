@@ -24,6 +24,7 @@ import {
 
 import { OPENING_PRESETS } from '#/lib/planner/presets.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
+import { isPointerTool } from '#/lib/planner/types.ts'
 import { closingIssue, draftPoints } from '#/lib/planner/drawing.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
 
@@ -161,7 +162,7 @@ export function CanvasGuidance({
 
   const guide = instructionFor(state)
 
-  if (background.present && state.empty && state.tool === 'select') {
+  if (background.present && state.empty && isPointerTool(state.tool)) {
     return (
       <ToolGuidance
         title="Trace the underlay"
@@ -187,7 +188,7 @@ export function CanvasGuidance({
     )
   }
 
-  if (state.empty && state.tool === 'select') {
+  if (state.empty && isPointerTool(state.tool)) {
     return (
       <>
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-4">
@@ -299,7 +300,7 @@ export function CanvasGuidance({
         variant={state.tool === 'room' ? 'default' : 'outline'}
         size="sm"
         className={GUIDE_BUTTON}
-        onClick={() => plannerStore.actions.setTool('select')}
+        onClick={() => plannerStore.actions.putToolDown()}
       >
         {state.tool === 'room'
           ? 'Stop drawing'

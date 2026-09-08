@@ -356,7 +356,31 @@ export type Clipboard =
  */
 export type StyleBrush = { color: string | undefined; sticky: boolean }
 
-export type Tool = 'select' | 'room' | 'rect' | 'opening' | 'closet'
+/**
+ * What the pointer is for. `move` and `edit` both work on what is already on
+ * the plan; the rest put something new down.
+ */
+export type Tool = 'move' | 'edit' | 'room' | 'rect' | 'opening' | 'closet'
+
+/**
+ * The two tools that take hold of what is already there.
+ *
+ * `move` carries things about and nothing else: a room, a piece of furniture
+ * or a door goes where it is dragged and comes back the same size and at the
+ * same angle it left. `edit` is the one that reshapes — corners, walls, the
+ * resize handles, the rotate handle and the jambs of an opening are all its.
+ *
+ * The split is there because the two are wanted at different times. Laying a
+ * plan out is a long stretch of dragging things around, and a resize handle
+ * caught by mistake in the middle of it is a room silently made the wrong
+ * size — so the handles are not on the canvas at all until they are asked for.
+ */
+export type PointerTool = Extract<Tool, 'move' | 'edit'>
+
+/** Whether a tool takes hold of what is on the plan rather than drawing. */
+export function isPointerTool(tool: Tool): tool is PointerTool {
+  return tool === 'move' || tool === 'edit'
+}
 
 /** The two opposite corners of a rectangle room being dragged out. */
 export type RectDraft = { start: Point; end: Point }

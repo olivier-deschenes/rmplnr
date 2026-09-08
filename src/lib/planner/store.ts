@@ -61,6 +61,7 @@ import {
   PrefsSchema,
   ProjectNameSchema,
   StoredLibrarySchema,
+  isPointerTool,
 } from './types.ts'
 
 import type { AIPlanImport } from './aiPlan.ts'
@@ -76,6 +77,7 @@ import type {
   Opening,
   OpeningKind,
   Point,
+  PointerTool,
   Prefs,
   Project,
   RectDraft,
@@ -154,6 +156,13 @@ export type PlannerState = {
   /** The colour picked up off one item, waiting to be painted onto others. */
   brush: StyleBrush | null
   tool: Tool
+  /**
+   * The last of `move` and `edit` to have been in hand, which is the one a
+   * drawing tool hands back to when it is done. Without it, finishing a room
+   * would drop whoever had reached for `edit` back into `move`, and every
+   * corner they went on to drag would cost them a trip to the toolbar.
+   */
+  pointerTool: PointerTool
   /** What the opening tool is about to place. */
   openingKind: OpeningKind
   snap: boolean
@@ -199,7 +208,8 @@ const initialState: PlannerState = {
   renaming: null,
   clipboard: null,
   brush: null,
-  tool: 'select',
+  tool: 'move',
+  pointerTool: 'move',
   openingKind: 'door',
   snap: true,
   straightWalls: false,
@@ -264,7 +274,7 @@ function restore(state: PlannerState, step: Snapshot): PlannerState {
     ...step,
     rect: null,
     renaming: null,
-    tool: step.draft ? 'room' : state.draft ? 'select' : state.tool,
+    tool: step.draft ? 'room' : state.draft ? state.pointerTool : state.tool,
   }
 }
 
@@ -300,7 +310,7 @@ function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
     rooms: [...state.rooms, room],
     draft: null,
     rect: null,
-    tool: 'select',
+    tool: state.pointerTool,
     selection: { type: 'room', id: room.id },
   }
 }
@@ -417,7 +427,7 @@ function withoutWall(
         rooms: [...rooms, ...parts.map((part) => part.room)],
         openings,
         draft: null,
-        tool: 'select',
+        tool: state.pointerTool,
         selection: parts.length ? { type: 'room', id: parts[0].room.id } : null,
       },
       error: null,
@@ -606,7 +616,7 @@ function withFurniture(
     history: commit(state, null, `Added ${item.name}`),
     furniture: [...state.furniture, item],
     selection: { type: 'furniture', id: item.id },
-    tool: 'select',
+    tool: state.pointerTool,
     draft: null,
     rect: null,
     brush: null,
@@ -833,7 +843,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
       openings: [...state.openings, ...openings],
       clipboard: { type: 'room', room, openings },
       selection: { type: 'room', id: room.id },
-      tool: 'select',
+      tool: state.pointerTool,
     }
   }
 
@@ -863,7 +873,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
       furniture: [...state.furniture, item],
       clipboard: { type: 'furniture', item },
       selection: { type: 'furniture', id: item.id },
-      tool: 'select',
+      tool: state.pointerTool,
     }
   }
 
@@ -893,7 +903,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
     openings: [...state.openings, opening],
     clipboard: { type: 'opening', opening },
     selection: { type: 'opening', id: opening.id },
-    tool: 'select',
+    tool: state.pointerTool,
   }
 }
 
@@ -983,7 +993,7 @@ function opened(
     draft: null,
     rect: null,
     brush: null,
-    tool: 'select',
+    tool: state.pointerTool,
     viewport: framedOn(state, plan),
     history: EMPTY_HISTORY,
   }
@@ -1056,17 +1066,39 @@ function upserted(state: PlannerState, incoming: Array<Project>): PlannerState {
   }
 }
 
+/**
+ * Take up a tool, putting down what the last one was holding: an unfinished
+ * outline, a rectangle mid-drag, a name being typed, a colour on the brush.
+ *
+ * Reaching for `move` or `edit` also remembers which of the two it was, so
+ * that finishing a room later hands the pointer back to the same one.
+ */
+function withTool(state: PlannerState, tool: Tool): PlannerState {
+  return {
+    ...state,
+    tool,
+    pointerTool: isPointerTool(tool) ? tool : state.pointerTool,
+    draft: tool === 'room' ? state.draft : null,
+    rect: tool === 'rect' ? state.rect : null,
+    renaming: null,
+    brush: null,
+  }
+}
+
 export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   setTool(tool: Tool) {
-    setState((s) => ({
-      ...s,
-      tool,
-      draft: tool === 'room' ? s.draft : null,
-      rect: tool === 'rect' ? s.rect : null,
-      renaming: null,
-      // Reaching for another tool is putting down whatever was in hand.
-      brush: null,
-    }))
+    setState((s) => withTool(s, tool))
+  },
+
+  /**
+   * Put down whatever is in hand and take up the pointer tool last held.
+   *
+   * What Escape does out of a drawing tool, and what the guidance's own way
+   * out does. It comes back to `move` or to `edit` — whichever was in hand
+   * before the drawing started — rather than to a fixed one of the two.
+   */
+  putToolDown() {
+    setState((s) => withTool(s, s.pointerTool))
   },
 
   toggleSnap() {
@@ -1335,7 +1367,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         history: commit(s, null, `Added ${describeAIPlan(plan)}`),
         draft: null,
         rect: null,
-        tool: 'select',
+        tool: s.pointerTool,
         selection,
       }
     })
@@ -1431,7 +1463,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       rooms: [...s.rooms, closet],
       openings: [...s.openings, opening],
       selection: { type: 'room', id },
-      tool: 'select',
+      tool: s.pointerTool,
     }))
   },
 
@@ -1525,7 +1557,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       history: commit(s, null, `Added ${openingName(kind)} to ${room.name}`),
       openings: [...s.openings, opening],
       selection: { type: 'opening', id: opening.id },
-      tool: 'select',
+      tool: s.pointerTool,
     }))
   },
 
@@ -1569,7 +1601,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       const item = s.furniture.find((f) => f.id === itemId)
       if (!item) return s
-      return { ...s, tool: 'select', brush: { color: item.color, sticky } }
+      return { ...s, tool: s.pointerTool, brush: { color: item.color, sticky } }
     })
   },
 
@@ -2481,7 +2513,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             : room,
         ),
         draft: null,
-        tool: 'select',
+        tool: s.pointerTool,
         selection: { type: 'room', id },
       }
     })
