@@ -1047,6 +1047,7 @@ function upserted(state: PlannerState, incoming: Array<Project>): PlannerState {
     rooms: open.rooms,
     furniture: open.furniture,
     openings: open.openings,
+    spaces: open.spaces,
     selection: null,
     renaming: null,
     draft: null,

@@ -6,6 +6,7 @@ import { deriveGitHubWorkspaceChanges } from './dirtyState.ts'
 import { hashProject } from './hash.ts'
 import {
   applyGitHubReconciliationPlan,
+  planGitHubLocalDiscard,
   planGitHubReconciliation,
   resolveGitHubSyncConflict,
 } from './reconciliation.ts'
@@ -513,6 +514,288 @@ describe('deriveGitHubWorkspaceChanges', () => {
     expect(changes.hasChanges).toBe(true)
     expect(changes.blockedByConflicts).toBe(true)
     expect(changes.canCommit).toBe(false)
+  })
+})
+
+describe('planGitHubLocalDiscard', () => {
+  it('finds nothing to do when the library already matches GitHub', async () => {
+    const { state, projects } = await synced([plan(PLAN_A, 'Flat')])
+    const discard = await planGitHubLocalDiscard(
+      state,
+      projects,
+      await remote(sha('a'), [{ project: plan(PLAN_A, 'Flat') }]),
+    )
+
+    expect(discard.hasWork).toBe(false)
+    expect(discard.projectUpserts).toEqual([])
+    expect(discard.nextState.selectedProjectIds).toEqual([PLAN_A])
+  })
+
+  it("puts a local edit back to the repository's copy", async () => {
+    const { state } = await synced([plan(PLAN_A, 'Flat')])
+    const discard = await planGitHubLocalDiscard(
+      state,
+      [plan(PLAN_A, 'Flat', 'Bedroom')],
+      await remote(sha('a'), [{ project: plan(PLAN_A, 'Flat') }]),
+    )
+
+    expect(discard.reverted).toEqual([PLAN_A])
+    expect(discard.recovered).toEqual([])
+    expect(discard.unlinked).toEqual([])
+    expect(discard.projectUpserts).toHaveLength(1)
+    expect(discard.projectUpserts[0]?.rooms[0]?.name).toBe('Living')
+  })
+
+  it('brings back a plan that was deleted from the library', async () => {
+    const { state } = await synced([plan(PLAN_A, 'Flat')])
+    const discard = await planGitHubLocalDiscard(
+      state,
+      [],
+      await remote(sha('a'), [{ project: plan(PLAN_A, 'Flat') }]),
+    )
+
+    expect(discard.recovered).toEqual([PLAN_A])
+    expect(discard.projectUpserts[0]?.id).toBe(PLAN_A)
+    expect(discard.nextState.selectedProjectIds).toEqual([PLAN_A])
+  })
+
+  it('puts a plan taken out of sync back into it', async () => {
+    const local = plan(PLAN_A, 'Flat')
+    const { state } = await synced([local])
+    const discard = await planGitHubLocalDiscard(
+      setGitHubProjectSelected(state, PLAN_A, false),
+      [local],
+      await remote(sha('a'), [{ project: local }]),
+    )
+
+    expect(discard.recovered).toEqual([PLAN_A])
+    expect(discard.nextState.selectedProjectIds).toEqual([PLAN_A])
+    // The drawing already matches, so there is nothing to write into the library.
+    expect(discard.projectUpserts).toEqual([])
+  })
+
+  it('unlinks a plan GitHub has never had rather than deleting it', async () => {
+    const { state, projects } = await synced([plan(PLAN_A, 'Flat')])
+    const added = plan(PLAN_B, 'House')
+    const discard = await planGitHubLocalDiscard(
+      setGitHubProjectSelected(state, PLAN_B, true),
+      [...projects, added],
+      await remote(sha('a'), [{ project: plan(PLAN_A, 'Flat') }]),
+    )
+
+    expect(discard.unlinked).toEqual([PLAN_B])
+    expect(discard.projectUpserts).toEqual([])
+    expect(discard.nextState.selectedProjectIds).toEqual([PLAN_A])
+    expect(discard.nextState.baseProjects[PLAN_B]).toBeUndefined()
+  })
+
+  it('settles a conflict that had a side to take', async () => {
+    const { state } = await synced([plan(PLAN_A, 'Flat')])
+    const discard = await planGitHubLocalDiscard(
+      {
+        ...state,
+        conflicts: [
+          {
+            kind: 'both-modified',
+            projectId: PLAN_A,
+            path: getGitHubProjectPath(PLAN_A),
+          },
+        ],
+      },
+      [plan(PLAN_A, 'Flat', 'Bedroom')],
+      await remote(sha('b'), [{ project: plan(PLAN_A, 'Flat', 'Kitchen') }]),
+    )
+
+    expect(discard.nextState.conflicts).toEqual([])
+    expect(discard.projectUpserts[0]?.rooms[0]?.name).toBe('Kitchen')
+    expect(discard.nextState.baseHeadSha).toBe(sha('b'))
+  })
+
+  it('leaves an unreadable managed file blocking commits', async () => {
+    const { state, projects } = await synced([plan(PLAN_A, 'Flat')])
+    const conflicts = [
+      {
+        kind: 'invalid-remote' as const,
+        path: `${'.rmplnr/plans'}/not-a-plan.json`,
+        error: 'Invalid plan JSON.',
+      },
+    ]
+    const discard = await planGitHubLocalDiscard(
+      { ...state, conflicts },
+      projects,
+      await remote(sha('a'), [{ project: plan(PLAN_A, 'Flat') }]),
+    )
+
+    expect(discard.nextState.conflicts).toEqual(conflicts)
+  })
+
+  it('repairs a baseline written down by an older build', async () => {
+    // A plan identical to GitHub's, whose recorded hash came from a build that
+    // serialized plans differently. `deriveGitHubWorkspaceChanges` reads that
+    // as an edit, and the head has not moved, so reconciliation never looks.
+    const local = plan(PLAN_A, 'Flat')
+    const { state } = await synced([local])
+    const stale = {
+      ...state,
+      baseProjects: {
+        [PLAN_A]: { blobSha: sha('c'), contentHash: 'f'.repeat(64) },
+      },
+    }
+    expect(
+      (await deriveGitHubWorkspaceChanges(stale, [local])).updated,
+    ).toEqual([PLAN_A])
+
+    const snapshot = await remote(sha('a'), [{ project: local }])
+    const discard = await planGitHubLocalDiscard(stale, [local], snapshot)
+
+    expect(discard.hasWork).toBe(true)
+    expect(discard.realigned).toEqual([PLAN_A])
+    // The drawing already matched, so nothing is written into the library.
+    expect(discard.projectUpserts).toEqual([])
+    expect(
+      (await deriveGitHubWorkspaceChanges(discard.nextState, [local]))
+        .hasChanges,
+    ).toBe(false)
+  })
+
+  it('reports a corrected record apart from a discarded edit', async () => {
+    const { state } = await synced([
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House'),
+    ])
+    const stale = {
+      ...state,
+      baseProjects: {
+        ...state.baseProjects,
+        [PLAN_B]: { blobSha: sha('c'), contentHash: 'f'.repeat(64) },
+      },
+    }
+    const discard = await planGitHubLocalDiscard(
+      stale,
+      [plan(PLAN_A, 'Flat', 'Bedroom'), plan(PLAN_B, 'House')],
+      await remote(sha('a'), [
+        { project: plan(PLAN_A, 'Flat') },
+        { project: plan(PLAN_B, 'House') },
+      ]),
+    )
+
+    expect(discard.reverted).toEqual([PLAN_A])
+    expect(discard.realigned).toEqual([PLAN_B])
+  })
+
+  it('puts back only the plan it is given', async () => {
+    const { state } = await synced([
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House'),
+    ])
+    const discard = await planGitHubLocalDiscard(
+      state,
+      [plan(PLAN_A, 'Flat', 'Bedroom'), plan(PLAN_B, 'House', 'Attic')],
+      await remote(sha('a'), [
+        { project: plan(PLAN_A, 'Flat') },
+        { project: plan(PLAN_B, 'House') },
+      ]),
+      [PLAN_A],
+    )
+
+    expect(discard.reverted).toEqual([PLAN_A])
+    expect(discard.projectUpserts.map((project) => project.id)).toEqual([
+      PLAN_A,
+    ])
+  })
+
+  it('leaves a plan outside the scope waiting to commit', async () => {
+    const { state } = await synced([
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House'),
+    ])
+    const edited = [
+      plan(PLAN_A, 'Flat', 'Bedroom'),
+      plan(PLAN_B, 'House', 'Attic'),
+    ]
+    const discard = await planGitHubLocalDiscard(
+      state,
+      edited,
+      await remote(sha('a'), [
+        { project: plan(PLAN_A, 'Flat') },
+        { project: plan(PLAN_B, 'House') },
+      ]),
+      [PLAN_A],
+    )
+    const changes = await deriveGitHubWorkspaceChanges(discard.nextState, [
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House', 'Attic'),
+    ])
+
+    expect(changes.updated).toEqual([PLAN_B])
+  })
+
+  it('unlinks only the scoped addition, leaving the other selected', async () => {
+    const state = {
+      ...createGitHubWorkspaceState(REPOSITORY_ID),
+      selectedProjectIds: [PLAN_A, PLAN_B],
+    }
+    const discard = await planGitHubLocalDiscard(
+      state,
+      [plan(PLAN_A, 'Flat'), plan(PLAN_B, 'House')],
+      await remote(sha('a'), []),
+      [PLAN_A],
+    )
+
+    expect(discard.unlinked).toEqual([PLAN_A])
+    expect(discard.nextState.selectedProjectIds).toEqual([PLAN_B])
+  })
+
+  it('leaves a conflict outside the scope standing', async () => {
+    const { state } = await synced([
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House'),
+    ])
+    const conflicts = [
+      {
+        kind: 'both-modified' as const,
+        projectId: PLAN_B,
+        path: getGitHubProjectPath(PLAN_B),
+      },
+    ]
+    const discard = await planGitHubLocalDiscard(
+      { ...state, conflicts },
+      [plan(PLAN_A, 'Flat', 'Bedroom'), plan(PLAN_B, 'House', 'Attic')],
+      await remote(sha('a'), [
+        { project: plan(PLAN_A, 'Flat') },
+        { project: plan(PLAN_B, 'House') },
+      ]),
+      [PLAN_A],
+    )
+
+    expect(discard.nextState.conflicts).toEqual(conflicts)
+  })
+
+  it('leaves the reconciled state with nothing waiting to commit', async () => {
+    const { state, projects } = await synced([
+      plan(PLAN_A, 'Flat'),
+      plan(PLAN_B, 'House'),
+    ])
+    const edited = projects.map((project) =>
+      project.id === PLAN_A ? plan(PLAN_A, 'Flat', 'Bedroom') : project,
+    )
+    const snapshot = await remote(sha('a'), [
+      { project: plan(PLAN_A, 'Flat') },
+      { project: plan(PLAN_B, 'House') },
+    ])
+    const discard = await planGitHubLocalDiscard(state, edited, snapshot)
+
+    const applied = edited.map(
+      (project) =>
+        discard.projectUpserts.find((upsert) => upsert.id === project.id) ??
+        project,
+    )
+    const changes = await deriveGitHubWorkspaceChanges(
+      discard.nextState,
+      applied,
+    )
+
+    expect(changes.hasChanges).toBe(false)
   })
 })
 

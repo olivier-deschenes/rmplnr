@@ -218,3 +218,81 @@ export function isGitHubConflictResolvable(
 ): boolean {
   return conflict.kind !== 'invalid-remote' && conflict.projectId !== undefined
 }
+
+export interface GitHubDiscardCounts {
+  reverted: number
+  recovered: number
+  unlinked: number
+  realigned: number
+}
+
+/**
+ * What a discard did, in one line, in the same three terms the confirmation
+ * offered it in — so the toast reads as the answer to the question just asked.
+ */
+export function describeGitHubDiscard(counts: GitHubDiscardCounts): string {
+  const plans = (count: number) => (count === 1 ? '1 plan' : `${count} plans`)
+  const parts = [
+    counts.reverted > 0
+      ? `${plans(counts.reverted)} restored from GitHub`
+      : null,
+    counts.recovered > 0 ? `${plans(counts.recovered)} brought back` : null,
+    counts.unlinked > 0
+      ? `${plans(counts.unlinked)} kept here and no longer synced`
+      : null,
+    counts.realigned > 0
+      ? `${plans(counts.realigned)} already matched GitHub`
+      : null,
+  ].filter((part) => part !== null)
+  return `${parts.join(', ')}.`
+}
+
+/** Which of the three ways a plan can be waiting to commit this row shows. */
+export type GitHubPendingChangeKind = 'added' | 'updated' | 'deleted'
+
+export interface GitHubPlanDiscardCopy {
+  /** The question asked before one row's change is thrown away. */
+  title: string
+  /** What throwing it away does to this plan. */
+  description: string
+  /** The verb on the button that does it. */
+  confirm: string
+}
+
+/**
+ * Discarding one row, in words.
+ *
+ * The three kinds are not one act under three names, and "discard" fits only
+ * the first of them: an edit is thrown away, a removal is undone by the plan
+ * coming back, and an addition cannot be restored from a repository that has
+ * never held it — it can only stop being the repository's business. So each
+ * says what it is, the way the conflict cards do.
+ */
+export function describeGitHubPlanDiscard(
+  kind: GitHubPendingChangeKind,
+  name: string,
+): GitHubPlanDiscardCopy {
+  switch (kind) {
+    case 'updated':
+      return {
+        title: `Restore ${name} from GitHub?`,
+        description:
+          "The edits made here are thrown away and this browser goes back to the repository's copy. This cannot be undone.",
+        confirm: 'Discard edits',
+      }
+    case 'deleted':
+      return {
+        title: `Bring ${name} back from GitHub?`,
+        description:
+          'The plan returns to this browser as the repository has it, and stops waiting to be removed from GitHub.',
+        confirm: 'Bring it back',
+      }
+    case 'added':
+      return {
+        title: `Stop syncing ${name}?`,
+        description:
+          'GitHub has never had this plan, so there is nothing to restore. It stays in this browser and this repository forgets it.',
+        confirm: 'Stop syncing',
+      }
+  }
+}

@@ -17,12 +17,14 @@ import {
 } from './githubFunctions.ts'
 import { deriveGitHubWorkspaceChanges } from './dirtyState.ts'
 import {
+  planGitHubLocalDiscard,
   planGitHubReconciliation,
   resolveGitHubSyncConflict,
 } from './reconciliation.ts'
 import { toGitHubRemoteSnapshot } from './remoteSnapshot.ts'
 import {
   describeGitHubConflict,
+  describeGitHubDiscard,
   isGitHubConflictResolvable,
 } from './syncStatus.ts'
 import { isRepositoryEventMessage } from './repositoryEvents.ts'
@@ -116,6 +118,11 @@ export interface GitHubSyncController {
   ) => Promise<boolean>
   confirmReview: () => Promise<boolean>
   commit: (message: string) => Promise<boolean>
+  /**
+   * Throws away what is waiting to commit and takes the repository's copy.
+   * Given plan IDs, only those are put back; everything else keeps waiting.
+   */
+  discardLocalChanges: (projectIds?: Array<string>) => Promise<boolean>
   disconnect: () => Promise<boolean>
 }
 
@@ -756,6 +763,94 @@ export function useGithubSync(): GitHubSyncController {
     [changes, persistWorkspace, queryClient, refresh, review],
   )
 
+  /**
+   * Throw away what is waiting to commit and take the repository's copy.
+   *
+   * The snapshot is fetched again first, because a discard only means anything
+   * against a repository that has not moved: if GitHub is ahead, the copy that
+   * would arrive is not the copy the dialog offered to restore, and the review
+   * is the honest way in. So a moved head backs out and leaves the refetch to
+   * raise the review it has just discovered.
+   *
+   * Standing conflicts are the review's business rather than this one's —
+   * `resolveAllConflicts` is the same choice, made where it is explained — and
+   * they can outlive a reload while the first snapshot is still in flight, so
+   * they are turned away here as well as hidden in the dialog.
+   */
+  const discardLocalChanges = useCallback(
+    async (projectIds?: Array<string>) => {
+      const current = workspaceRef.current
+      if (!current || review || current.conflicts.length > 0) return false
+
+      setBusy(true)
+      setActionError(null)
+      try {
+        const refreshed = await refetchSnapshot()
+        const result = refreshed.data
+        if (result?.ok !== true) {
+          if (result?.ok === false) {
+            setActionError(result.error)
+            toast.error(result.error.message)
+          } else {
+            toast.error(
+              'GitHub could not be reached, so nothing was discarded.',
+            )
+          }
+          return false
+        }
+        if (result.data.headSha !== current.baseHeadSha) {
+          toast.info('GitHub changed', {
+            description: 'Review what arrived before discarding anything.',
+          })
+          return false
+        }
+
+        const plan = await planGitHubLocalDiscard(
+          current,
+          projectsRef.current,
+          toGitHubRemoteSnapshot(result.data),
+          projectIds,
+        )
+        if (!plan.hasWork) {
+          toast.info('There was nothing to discard.')
+          return false
+        }
+
+        // The library is the store's, not this hook's: it writes the
+        // repository's plans in, and its own autosave puts them in the browser.
+        plannerStore.actions.upsertProjects(plan.projectUpserts)
+        persistWorkspace(plan.nextState)
+        // Where every plan already matched, nothing was thrown away and saying
+        // so would be a lie: only what this browser had written down moved.
+        const discarded =
+          plan.reverted.length + plan.recovered.length + plan.unlinked.length >
+          0
+        toast.success(
+          discarded
+            ? 'Local changes discarded'
+            : 'Sync record brought up to date',
+          {
+            description: describeGitHubDiscard({
+              reverted: plan.reverted.length,
+              recovered: plan.recovered.length,
+              unlinked: plan.unlinked.length,
+              realigned: plan.realigned.length,
+            }),
+          },
+        )
+        return true
+      } catch {
+        toast.error(
+          'The changes could not be discarded. Your plans are as they were.',
+        )
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [persistWorkspace, refetchSnapshot, review],
+  )
+
   const disconnect = useCallback(async () => {
     setBusy(true)
     setActionError(null)
@@ -829,6 +924,7 @@ export function useGithubSync(): GitHubSyncController {
     resolveAllConflicts,
     confirmReview,
     commit,
+    discardLocalChanges,
     disconnect,
   }
 }

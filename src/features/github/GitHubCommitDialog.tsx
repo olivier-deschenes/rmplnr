@@ -1,6 +1,7 @@
 import { useForm } from '@tanstack/react-form'
 import {
   IconAlertTriangle,
+  IconArrowBackUp,
   IconCheck,
   IconCloudDownload,
   IconCopy,
@@ -13,6 +14,7 @@ import {
   IconPlus,
   IconSettings,
   IconTrash,
+  IconX,
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -20,6 +22,17 @@ import { z } from 'zod'
 import { serializeProject } from '#/lib/planner/planSerialization.ts'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert.tsx'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '#/components/ui/alert-dialog.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import {
   Dialog,
@@ -35,6 +48,7 @@ import { Spinner } from '#/components/ui/spinner.tsx'
 
 import {
   describeGitHubConflict,
+  describeGitHubPlanDiscard,
   describeGitHubSync,
   isGitHubConflictResolvable,
 } from './syncStatus.ts'
@@ -47,6 +61,7 @@ import {
 } from './dialogShared.tsx'
 
 import type { GitHubSyncController } from './useGithubSync.ts'
+import type { GitHubPendingChangeKind } from './syncStatus.ts'
 import type { GitHubConflictResolution, GitHubSyncConflict } from './types.ts'
 import type { Project } from '#/lib/planner/types.ts'
 
@@ -384,13 +399,20 @@ function PendingChanges({
         changes[key].map((projectId) => (
           <div
             key={`${key}:${projectId}`}
-            className="flex items-center gap-3 px-3 py-2"
+            className="flex items-center gap-3 py-1.5 pr-2 pl-3"
           >
             <Icon className="text-muted-foreground size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate font-medium">
               {nameFor(projectId, controller)}
             </span>
             <span className="text-muted-foreground shrink-0">{label}</span>
+            {changes.blockedByConflicts ? null : (
+              <DiscardPlanChange
+                controller={controller}
+                projectId={projectId}
+                kind={key}
+              />
+            )}
           </div>
         )),
       )}
@@ -463,6 +485,156 @@ function CommitForm({
 }
 
 /**
+ * The shell every discard is asked through.
+ *
+ * Discarding is the one thing in this dialog that destroys work, and it comes
+ * in two sizes — one row, or the lot. Both are asked the same way so that the
+ * small one is not the cheap one: the question, then what it does, then a
+ * button that names the act rather than agreeing to it.
+ */
+function DiscardConfirm({
+  trigger,
+  title,
+  description,
+  confirm,
+  onConfirm,
+  children,
+}: {
+  trigger: React.ReactNode
+  title: string
+  description: string
+  confirm: string
+  onConfirm: () => void
+  children?: React.ReactNode
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        {children}
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm">Keep my changes</AlertDialogCancel>
+          <AlertDialogAction
+            size="sm"
+            variant="destructive"
+            onClick={onConfirm}
+          >
+            <IconArrowBackUp />
+            {confirm}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * One row's way out: put this plan back the way the repository has it, and
+ * leave everything else waiting to commit.
+ *
+ * The three kinds want three different sentences — an edit is thrown away, a
+ * removal is undone, and an addition GitHub has never seen can only stop being
+ * synced — so the copy comes from the plan's kind rather than from the button.
+ */
+function DiscardPlanChange({
+  controller,
+  projectId,
+  kind,
+}: Pick<GitHubCommitDialogProps, 'controller'> & {
+  projectId: string
+  kind: GitHubPendingChangeKind
+}) {
+  const name = nameFor(projectId, controller)
+  const copy = describeGitHubPlanDiscard(kind, name)
+
+  return (
+    <DiscardConfirm
+      title={copy.title}
+      description={copy.description}
+      confirm={copy.confirm}
+      onConfirm={() => void controller.discardLocalChanges([projectId])}
+      trigger={
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          aria-label={`Discard the change to ${name}`}
+          className="text-muted-foreground hover:text-destructive shrink-0"
+          disabled={controller.busy || controller.displayState === 'offline'}
+        >
+          <IconX />
+        </Button>
+      }
+    />
+  )
+}
+
+/**
+ * The same way out for everything at once: throw away all of it and take the
+ * repository's copy.
+ *
+ * It stands under the commit button, quietly — one is the ordinary end of a
+ * session's work and the other undoes it. What it would do is spelled out plan
+ * by plan first, in the same three groups the list above shows, because
+ * "discard" alone does not say that a plan deleted here comes back, or that a
+ * plan GitHub has never seen cannot be restored from it and is only unlinked.
+ */
+function DiscardAllChanges({
+  controller,
+}: Pick<GitHubCommitDialogProps, 'controller'>) {
+  const { changes } = controller
+  // The debounced hash can leave every group empty for a frame; an empty list
+  // would only be a gap between the warning and the buttons.
+  const listed =
+    changes.updated.length + changes.deleted.length + changes.added.length > 0
+
+  return (
+    <DiscardConfirm
+      title="Restore every plan from GitHub?"
+      description="Everything waiting to commit is thrown away and this browser goes back to the repository’s copy. Nothing changes on GitHub, and this cannot be undone."
+      confirm="Discard all"
+      onConfirm={() => void controller.discardLocalChanges()}
+      trigger={
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="text-destructive"
+          disabled={controller.busy || controller.displayState === 'offline'}
+        >
+          <IconArrowBackUp />
+          Discard all changes
+        </Button>
+      }
+    >
+      {listed ? (
+        <ul className="text-muted-foreground list-disc space-y-1 pl-4 text-xs/relaxed">
+          <ReviewList
+            label="Replaced by GitHub's copy"
+            projectIds={changes.updated}
+            controller={controller}
+          />
+          <ReviewList
+            label="Brought back from GitHub"
+            projectIds={changes.deleted}
+            controller={controller}
+          />
+          <ReviewList
+            label="Not on GitHub — kept here, no longer synced"
+            projectIds={changes.added}
+            controller={controller}
+          />
+        </ul>
+      ) : null}
+    </DiscardConfirm>
+  )
+}
+
+/**
  * Everything about *moving* plans: what is waiting to commit, what GitHub sent
  * back, and the commit itself. Setup lives in `GitHubRepositoryDialog`.
  */
@@ -524,6 +696,10 @@ export function GitHubCommitDialog({
                   controller={controller}
                   onCommitted={() => onOpenChange(false)}
                 />
+                {controller.changes.hasChanges &&
+                !controller.changes.blockedByConflicts ? (
+                  <DiscardAllChanges controller={controller} />
+                ) : null}
               </section>
             ) : null}
 

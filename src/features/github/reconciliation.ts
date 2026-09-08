@@ -334,3 +334,157 @@ export function applyGitHubReconciliationPlan(
 
   return { projects, state: plan.nextState }
 }
+
+export interface GitHubLocalDiscardPlan {
+  /** GitHub's copies, ready to be written into the library. */
+  projectUpserts: Project[]
+  /** Synced plans whose local copy GitHub's replaces. */
+  reverted: string[]
+  /** Plans taken out of the library, or out of sync, that GitHub brings back. */
+  recovered: string[]
+  /** Plans GitHub has never had. They stay in the library, unsynced. */
+  unlinked: string[]
+  /**
+   * Plans that already matched GitHub, where only this browser's record of
+   * what the repository holds was out of date.
+   */
+  realigned: string[]
+  nextState: GitHubWorkspaceState
+  hasWork: boolean
+}
+
+function sameBaseline(
+  left: GitHubProjectBaseline | undefined,
+  right: GitHubProjectBaseline | undefined,
+): boolean {
+  return (
+    left?.blobSha === right?.blobSha && left?.contentHash === right?.contentHash
+  )
+}
+
+/**
+ * Throw away everything waiting to commit, putting this browser back to the
+ * repository's copy of it.
+ *
+ * This is a commit read backwards: rather than sending the work here to
+ * GitHub, it takes GitHub's work back. Every plan the workspace syncs is
+ * looked up in the snapshot and the repository's copy wins — including plans
+ * that were deleted here or taken out of sync, which come back, because their
+ * absence is a local change like any other and a discard undoes local changes.
+ *
+ * A plan GitHub has never had is the one thing this cannot restore, and it is
+ * not deleted on the user's behalf: the repository forgets it and it stays in
+ * the library as a local plan. Callers say so before they run this.
+ *
+ * Taking GitHub's side everywhere also settles every conflict that had a side
+ * to take. An unreadable managed file did not, so those conflicts survive and
+ * go on blocking commits.
+ *
+ * `scope` narrows all of that to the plans it names, which is what the button
+ * on a single row does: everything it does not name keeps the state it had and
+ * goes on waiting to commit.
+ *
+ * Putting the baseline right is work in its own right, even where no drawing
+ * moves. A baseline written down by an older build hashes what that build
+ * serialized, so a plan identical to GitHub's can read as edited forever —
+ * reconciliation never looks, because the head it was taken at has not moved.
+ * Discarding is where the reader asks for exactly that to be settled, so a
+ * corrected record counts and is reported rather than passed over as nothing.
+ */
+export async function planGitHubLocalDiscard(
+  state: GitHubWorkspaceState,
+  localProjects: Iterable<Project>,
+  remoteSnapshot: GitHubRemoteSnapshot,
+  scope?: Iterable<string>,
+): Promise<GitHubLocalDiscardPlan> {
+  const limited = scope === undefined ? null : new Set(scope)
+  const localProjectList = [...localProjects]
+  const localById = new Map(
+    localProjectList.map((project) => [project.id, project]),
+  )
+  const localHashes = await hashProjects(localProjectList)
+  const wasSelected = new Set(state.selectedProjectIds)
+  const selectedIds = new Set(state.selectedProjectIds)
+  const nextBaseProjects = { ...state.baseProjects }
+  const projectUpserts: Project[] = []
+  const reverted: string[] = []
+  const recovered: string[] = []
+  const unlinked: string[] = []
+  const realigned: string[] = []
+
+  // Everything the repository is meant to be holding: what is selected for it,
+  // and what it was last seen holding. A plan deleted here is only in the
+  // second, and is exactly the kind of local change this undoes.
+  const syncedIds = new Set([
+    ...state.selectedProjectIds,
+    ...Object.entries(state.baseProjects)
+      .filter(([, baseline]) => baseline !== undefined)
+      .map(([projectId]) => projectId),
+  ])
+
+  for (const projectId of syncedIds) {
+    if (limited && !limited.has(projectId)) continue
+
+    const baseline = state.baseProjects[projectId]
+    const remote = remoteSnapshot.projects[projectId]
+    if (!remote) {
+      delete nextBaseProjects[projectId]
+      selectedIds.delete(projectId)
+      // With nothing on either side there is no plan to keep. The reader is
+      // told only that a record was dropped, there being no plan to name.
+      if (localById.has(projectId)) unlinked.push(projectId)
+      else if (baseline) realigned.push(projectId)
+      continue
+    }
+
+    selectedIds.add(projectId)
+    nextBaseProjects[projectId] = baselineFromRemote(remote)
+
+    const local = localById.get(projectId)
+    if (!local || localHashes[projectId] !== remote.contentHash) {
+      projectUpserts.push(remote.project)
+      if (local && wasSelected.has(projectId)) reverted.push(projectId)
+      else recovered.push(projectId)
+      continue
+    }
+
+    // Same drawing on both sides. Either the choice not to sync it is undone,
+    // or the only thing that was wrong is what this browser had written down.
+    if (!wasSelected.has(projectId)) recovered.push(projectId)
+    else if (!sameBaseline(baseline, nextBaseProjects[projectId])) {
+      realigned.push(projectId)
+    }
+  }
+
+  const sortedReverted = sortedUnique(reverted)
+  const sortedRecovered = sortedUnique(recovered)
+  const sortedUnlinked = sortedUnique(unlinked)
+  const sortedRealigned = sortedUnique(realigned)
+
+  return {
+    projectUpserts,
+    reverted: sortedReverted,
+    recovered: sortedRecovered,
+    unlinked: sortedUnlinked,
+    realigned: sortedRealigned,
+    nextState: {
+      ...state,
+      selectedProjectIds: [...selectedIds].sort(),
+      baseHeadSha: remoteSnapshot.headSha,
+      baseProjects: nextBaseProjects,
+      conflicts: state.conflicts.filter(
+        (conflict) =>
+          conflict.kind === 'invalid-remote' ||
+          (limited !== null &&
+            (conflict.projectId === undefined ||
+              !limited.has(conflict.projectId))),
+      ),
+    },
+    hasWork:
+      sortedReverted.length +
+        sortedRecovered.length +
+        sortedUnlinked.length +
+        sortedRealigned.length >
+      0,
+  }
+}
