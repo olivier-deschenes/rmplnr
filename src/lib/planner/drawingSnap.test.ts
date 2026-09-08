@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'bun:test'
 
 import { snapDrawingPoint } from './drawingSnap.ts'
-import type { Point, Room } from './types.ts'
+import type { Point, WallRun } from './types.ts'
 
-const wall: Room = {
+const wall: WallRun = {
   id: 'wall',
   name: 'Wall',
-  closed: false,
+
   points: [
     { x: 103, y: 100 },
     { x: 103, y: 300 },
   ],
 }
-const defaults = { rooms: [wall], straight: false, reach: 10, step: 25 }
+const defaults = { walls: [wall], straight: false, reach: 10, step: 25 }
 
 function snap(
   point: Point,
@@ -39,7 +39,7 @@ describe('wall drawing helpers', () => {
     expect(snap({ x: 117, y: 487 }, { previous }).point.x).toBe(103)
     expect(snap({ x: 121, y: 487 }, { previous }).point.x).toBe(125)
     expect(snap({ x: 117, y: 487 }).point.x).toBe(125)
-    expect(snap({ x: 117, y: 487 }, { previous, rooms: [] }).point.x).toBe(125)
+    expect(snap({ x: 117, y: 487 }, { previous, walls: [] }).point.x).toBe(125)
   })
 
   it('snaps exactly to corners, midpoints, and wall faces', () => {
@@ -74,7 +74,7 @@ describe('wall drawing helpers', () => {
       {
         anchor: { x: 0, y: 50 },
         straight: true,
-        rooms: [
+        walls: [
           {
             ...wall,
             points: [
@@ -93,7 +93,7 @@ describe('wall drawing helpers', () => {
     const result = snap(
       { x: 50, y: 50 },
       {
-        rooms: [
+        walls: [
           {
             ...wall,
             points: [
@@ -111,7 +111,7 @@ describe('wall drawing helpers', () => {
 
   it('supports square drawing from the first unsaved anchor with straight mode off', () => {
     expect(
-      snap({ x: 203, y: 11 }, { rooms: [], anchor: { x: 3, y: 7 } }).point,
+      snap({ x: 203, y: 11 }, { walls: [], anchor: { x: 3, y: 7 } }).point,
     ).toEqual({ x: 200, y: 7 })
   })
 

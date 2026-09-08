@@ -1,14 +1,20 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { expect, it } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   FurnitureEditor,
   OpeningEditor,
-  RoomEditor,
+  RunEditor,
   WallDimensions,
 } from './overlay.tsx'
 
-import type { Furniture, Opening, Room, Viewport } from '#/lib/planner/types.ts'
+import type {
+  Furniture,
+  Opening,
+  WallRun,
+  Viewport,
+} from '#/lib/planner/types.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
 const VIEWPORT: Viewport = { tx: 0, ty: 0, scale: 1 }
@@ -24,15 +30,15 @@ const ITEM: Furniture = {
   rotation: 0,
 }
 
-const ROOM: Room = {
+const ROOM: WallRun = {
   id: 'room-1',
   name: 'Living',
-  points: [
+  points: closeWallPoints([
     { x: 0, y: 0 },
     { x: 400, y: 0 },
     { x: 400, y: 300 },
     { x: 0, y: 300 },
-  ],
+  ]),
 }
 
 const WALL: Wall = {
@@ -46,7 +52,7 @@ const WALL: Wall = {
 const OPENING: Opening = {
   id: 'opening-1',
   kind: 'door',
-  roomId: 'room-1',
+  runId: 'room-1',
   wall: 0,
   t: 0.5,
   width: 80,
@@ -61,8 +67,8 @@ it('exposes a displayed wall measurement as a selectable control', () => {
         labels={[
           {
             key: 'room-1:0',
-            roomId: 'room-1',
-            roomName: 'Living',
+            runId: 'room-1',
+            runName: 'Living',
             wall: 0,
             text: '4.00 m',
             box: {
@@ -74,7 +80,7 @@ it('exposes a displayed wall measurement as a selectable control', () => {
             leader: null,
           },
         ]}
-        selected={{ roomId: 'room-1', wall: 0 }}
+        selected={{ runId: 'room-1', wall: 0 }}
         onSelect={() => {}}
       />
     </svg>,
@@ -138,27 +144,26 @@ it('gives an opening its jamb handles only under the edit tool', () => {
 })
 
 it('lets a wall be pushed under either pointer tool, and reshaped only in edit', () => {
-  const room = (reshaping: boolean) =>
+  const run = (reshaping: boolean) =>
     renderToStaticMarkup(
       <svg>
-        <RoomEditor
-          room={ROOM}
+        <RunEditor
+          run={ROOM}
           gaps={ROOM.points.map(() => [])}
           viewport={VIEWPORT}
           onWallDown={() => {}}
           onVertexDown={reshaping ? () => {} : undefined}
-          onRotateDown={reshaping ? () => {} : undefined}
         />
       </svg>,
     )
 
-  const editing = room(true)
-  expect(editing).toContain('cursor-grab')
+  const editing = run(true)
+  expect(editing).not.toContain('cursor-grab')
   expect(editing).toContain('cursor-move')
 
   // Under move the corners and the rotate handle are gone, so nothing there
   // reshapes the room by accident.
-  const moving = room(false)
+  const moving = run(false)
   expect(moving).not.toContain('cursor-grab')
   expect(moving).not.toContain('cursor-move')
 

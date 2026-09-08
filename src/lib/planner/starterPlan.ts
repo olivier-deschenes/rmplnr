@@ -1,4 +1,4 @@
-import { rectPolygon } from './geometry.ts'
+import { closeWallPoints, interiorPoint, rectPolygon } from './geometry.ts'
 import { FURNITURE_PRESETS } from './presets.ts'
 
 import type {
@@ -6,27 +6,29 @@ import type {
   FurnitureKind,
   Opening,
   Project,
-  Room,
+  WallRun,
 } from './types.ts'
 
 /** A measured example with a clear path from the entrance to every room. */
 export function createStarterPlan(): Project {
-  const living: Room = {
+  const living: WallRun = {
     id: crypto.randomUUID(),
     name: 'Living & kitchen',
-    points: rectPolygon({ x: 0, y: 0 }, { x: 400, y: 600 }),
+    points: closeWallPoints(rectPolygon({ x: 0, y: 0 }, { x: 400, y: 600 })),
     locked: true,
   }
-  const bedroom: Room = {
+  const bedroom: WallRun = {
     id: crypto.randomUUID(),
     name: 'Bedroom',
-    points: rectPolygon({ x: 400, y: 0 }, { x: 680, y: 360 }),
+    points: closeWallPoints(rectPolygon({ x: 400, y: 0 }, { x: 680, y: 360 })),
     locked: true,
   }
-  const bathroom: Room = {
+  const bathroom: WallRun = {
     id: crypto.randomUUID(),
     name: 'Bathroom',
-    points: rectPolygon({ x: 400, y: 360 }, { x: 680, y: 600 }),
+    points: closeWallPoints(
+      rectPolygon({ x: 400, y: 360 }, { x: 680, y: 600 }),
+    ),
     locked: true,
   }
 
@@ -52,7 +54,7 @@ export function createStarterPlan(): Project {
   }
 
   function opening(
-    room: Room,
+    run: WallRun,
     kind: Opening['kind'],
     wall: number,
     t: number,
@@ -60,7 +62,7 @@ export function createStarterPlan(): Project {
   ): Opening {
     return {
       id: crypto.randomUUID(),
-      roomId: room.id,
+      runId: run.id,
       kind,
       wall,
       t,
@@ -73,7 +75,7 @@ export function createStarterPlan(): Project {
   return {
     id: crypto.randomUUID(),
     name: 'Studio apartment',
-    rooms: [living, bedroom, bathroom],
+    walls: [living, bedroom, bathroom],
     furniture: [
       furniture('kitchen', 180, 50, { w: 320 }),
       furniture('sofa', 80, 395, { rotation: 270 }),
@@ -92,6 +94,10 @@ export function createStarterPlan(): Project {
       opening(bedroom, 'window', 1, 0.6, 120),
       opening(bathroom, 'window', 2, 0.5, 80),
     ],
-    spaces: [],
+    spaces: [living, bedroom, bathroom].map((run) => ({
+      id: crypto.randomUUID(),
+      name: run.name,
+      seed: interiorPoint(run.points),
+    })),
   }
 }

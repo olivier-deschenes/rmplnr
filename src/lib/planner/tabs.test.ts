@@ -40,7 +40,7 @@ function plan(
   name: string,
   furniture: Array<Furniture> = [],
 ): Project {
-  return { id, name, rooms: [], furniture, openings: [], spaces: [] }
+  return { id, name, walls: [], furniture, openings: [], spaces: [] }
 }
 
 function library() {

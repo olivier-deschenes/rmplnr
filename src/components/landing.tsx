@@ -6,7 +6,7 @@ import { PlanPreview } from '#/components/planner/plan-preview.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group.tsx'
 import { FAQ } from '#/lib/faq.ts'
-import { polygonArea } from '#/lib/planner/geometry.ts'
+import { planFloors } from '#/lib/planner/enclosures.ts'
 import { createStarterPlan } from '#/lib/planner/starterPlan.ts'
 import { formatArea } from '#/lib/planner/units.ts'
 
@@ -25,10 +25,7 @@ export function Landing({
 }) {
   const [example] = useState(createStarterPlan)
   const [view, setView] = useState('furnished')
-  const area = example.rooms.reduce(
-    (sum, room) => sum + polygonArea(room.points),
-    0,
-  )
+  const { area, count } = planFloors(example.walls, example.spaces)
 
   return (
     <>
@@ -85,7 +82,7 @@ export function Landing({
             <div>
               <p className="text-sm font-medium">{example.name}</p>
               <p className="text-muted-foreground mt-1 text-xs tabular-nums">
-                {example.rooms.length} rooms · {formatArea(area, units)}
+                {count} rooms · {formatArea(area, units)}
               </p>
             </div>
             <ToggleGroup

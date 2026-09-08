@@ -12,7 +12,7 @@ import type {
   Opening,
   Project,
   ProjectRecord,
-  Room,
+  WallRun,
   Space,
 } from './types.ts'
 
@@ -39,24 +39,22 @@ export class RmplnrFileError extends Error {
  * noise. Array order is kept: it is the order things were drawn in, and the
  * order they are drawn back in.
  */
-function toCanonicalRoom(room: Room): Room {
+function toCanonicalRun(run: WallRun): WallRun {
   return {
-    id: room.id,
-    name: room.name,
-    ...(room.color ? { color: room.color } : {}),
-    points: room.points.map((point) => ({ x: point.x, y: point.y })),
-    ...(room.closed === false ? { closed: false } : {}),
-    ...(room.kind ? { kind: room.kind } : {}),
-    ...(room.attachment
+    id: run.id,
+    name: run.name,
+    points: run.points.map((point) => ({ x: point.x, y: point.y })),
+    ...(run.kind ? { kind: run.kind } : {}),
+    ...(run.attachment
       ? {
           attachment: {
-            roomId: room.attachment.roomId,
-            wall: room.attachment.wall,
-            t: room.attachment.t,
+            runId: run.attachment.runId,
+            wall: run.attachment.wall,
+            t: run.attachment.t,
           },
         }
       : {}),
-    ...(room.locked === undefined ? {} : { locked: room.locked }),
+    ...(run.locked === undefined ? {} : { locked: run.locked }),
   }
 }
 
@@ -88,7 +86,7 @@ function toCanonicalOpening(opening: Opening): Opening {
   return {
     id: opening.id,
     kind: opening.kind,
-    roomId: opening.roomId,
+    runId: opening.runId,
     wall: opening.wall,
     t: opening.t,
     width: opening.width,
@@ -103,7 +101,7 @@ export function toProjectRecord(project: Project): ProjectRecord {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: project.id,
     name: project.name,
-    rooms: project.rooms.map(toCanonicalRoom),
+    walls: project.walls.map(toCanonicalRun),
     furniture: project.furniture.map(toCanonicalFurniture),
     openings: project.openings.map(toCanonicalOpening),
     spaces: project.spaces.map(toCanonicalSpace),
@@ -115,7 +113,7 @@ export function fromProjectRecord(record: ProjectRecord): Project {
   return {
     id: record.id,
     name: record.name,
-    rooms: record.rooms,
+    walls: record.walls,
     furniture: record.furniture,
     openings: record.openings,
     spaces: record.spaces,

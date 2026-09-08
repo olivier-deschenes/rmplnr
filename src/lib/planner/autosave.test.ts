@@ -17,7 +17,7 @@ function plan(): Project {
     spaces: [],
     id: PLAN,
     name: 'Flat',
-    rooms: [],
+    walls: [],
     furniture: [],
     openings: [],
   }
@@ -114,7 +114,7 @@ describe('autosave', () => {
 
     plannerStore.actions.setTool('rect')
     plannerStore.actions.zoomTo(2)
-    plannerStore.actions.select({ type: 'room', id: 'nothing' })
+    plannerStore.actions.select({ type: 'run', id: 'nothing' })
     lifecycle.dispatchEvent(new Event('pagehide'))
 
     expect(plannerStore.state.persistence.status).toBe('saved')

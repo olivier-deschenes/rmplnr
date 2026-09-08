@@ -1,18 +1,16 @@
+import {
+  closeWallPoints,
+  polygonBounds,
+  scalePolygon,
+  slideWall,
+  translatePolygon,
+} from '#/lib/planner/geometry.ts'
 import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize, placeCloset } from './closets.ts'
-import { freeEnclosures } from './enclosures.ts'
-import {
-  distance,
-  polygonArea,
-  polygonBounds,
-  polygonCentroid,
-  scalePolygon,
-  slideWall,
-  translatePolygon,
-} from './geometry.ts'
-import { openingEnds, openingWall, wallAt, wallCount } from './openings.ts'
+import { enclosuresOf } from './enclosures.ts'
+import { openingEnds, openingWall, wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
   serializeLibraryBackup,
@@ -28,20 +26,20 @@ const PLAN_A = '11111111-1111-4111-8111-111111111111'
 const PLAN_B = '22222222-2222-4222-8222-222222222222'
 const PLAN_C = '33333333-3333-4333-8333-333333333333'
 
-function plan(id: string, name: string, roomName = 'Living'): Project {
+function plan(id: string, name: string, runName = 'Living'): Project {
   return {
     spaces: [],
     id,
     name,
-    rooms: [
+    walls: [
       {
         id: 'room-1',
-        name: roomName,
-        points: [
+        name: runName,
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 400, y: 0 },
           { x: 400, y: 300 },
-        ],
+        ]),
       },
     ],
     furniture: [],
@@ -50,34 +48,34 @@ function plan(id: string, name: string, roomName = 'Living'): Project {
 }
 
 function connectedRectangle(): Project {
-  const room: Project['rooms'][number] = {
+  const run: Project['walls'][number] = {
     id: 'room-rect',
     name: 'Living',
-    points: [
+    points: closeWallPoints([
       { x: 0, y: 0 },
       { x: 400, y: 0 },
       { x: 400, y: 300 },
       { x: 0, y: 300 },
-    ],
+    ]),
   }
-  const neighbour: Project['rooms'][number] = {
+  const neighbour: Project['walls'][number] = {
     id: 'room-neighbour',
     name: 'Study',
-    points: [
+    points: closeWallPoints([
       { x: 0, y: -200 },
       { x: 400, y: -200 },
       { x: 400, y: 0 },
       { x: 0, y: 0 },
-    ],
+    ]),
   }
-  const hostWall = wallAt(room.points, 0)!
+  const hostWall = wallAt(run.points, 0)!
   const placed = placeCloset(
     hostWall,
-    { roomId: room.id, wall: 0, t: 0.7 },
+    { runId: run.id, wall: 0, t: 0.7 },
     100,
     60,
   )
-  const closet: Project['rooms'][number] = {
+  const closet: Project['walls'][number] = {
     id: 'closet-rect',
     kind: 'closet',
     name: 'Coats',
@@ -89,13 +87,13 @@ function connectedRectangle(): Project {
     spaces: [],
     id: PLAN_C,
     name: 'Connected rooms',
-    rooms: [room, neighbour, closet],
+    walls: [run, neighbour, closet],
     furniture: [],
     openings: [
       {
         id: 'door-host',
         kind: 'door',
-        roomId: room.id,
+        runId: run.id,
         wall: 0,
         t: 0.25,
         width: 90,
@@ -105,7 +103,7 @@ function connectedRectangle(): Project {
       {
         id: 'window-neighbour',
         kind: 'window',
-        roomId: neighbour.id,
+        runId: neighbour.id,
         wall: 2,
         t: 0.5,
         width: 80,
@@ -115,7 +113,7 @@ function connectedRectangle(): Project {
       {
         id: 'door-closet',
         kind: 'sliding-door',
-        roomId: closet.id,
+        runId: closet.id,
         wall: 0,
         t: 0.5,
         width: 100,
@@ -149,7 +147,7 @@ describe('the pointer tools', () => {
 
   it('hands a drawing tool back to whichever pointer tool was in hand', () => {
     plannerStore.actions.setTool('edit')
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
     expect(plannerStore.state.pointerTool).toBe('edit')
 
     plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
@@ -161,7 +159,7 @@ describe('the pointer tools', () => {
   })
 
   it('puts a drawing tool down without disturbing the pointer it comes back to', () => {
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
     plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
 
     plannerStore.actions.putToolDown()
@@ -182,7 +180,7 @@ describe('furniture catalogue', () => {
   beforeEach(() => plannerStore.actions.openProject(PLAN_A))
 
   it('puts down an unfinished outline when adding furniture', () => {
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
     plannerStore.actions.addDraftPoint({ x: 20, y: 20 })
     plannerStore.actions.addDraftPoint({ x: 180, y: 20 })
     plannerStore.actions.addFurniture('desk')
@@ -200,7 +198,7 @@ describe('furniture catalogue', () => {
     const presetId = plannerStore.actions.saveFurniturePreset(
       plannerStore.state.furniture[0].id,
     )!
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
     plannerStore.actions.addDraftPoint({ x: 20, y: 20 })
     plannerStore.actions.addCustomFurniture(presetId)
 
@@ -328,7 +326,7 @@ describe('furniture catalogue', () => {
     plannerStore.actions.closeProject()
     plannerStore.actions.loadLibrary({
       version: 1,
-      projects: [{ ...plan(PLAN_A, 'Flat'), rooms: [] }],
+      projects: [{ ...plan(PLAN_A, 'Flat'), walls: [] }],
     })
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.setSize(800, 600)
@@ -345,12 +343,15 @@ describe('furniture catalogue', () => {
       ],
     })
 
-    const rooms = plannerStore.state.rooms
-    expect(rooms.map((room) => room.name)).toEqual(['Living room', 'Kitchen'])
+    const walls = plannerStore.state.walls
+    expect(plannerStore.state.spaces.map((space) => space.name)).toEqual([
+      'Living room',
+      'Kitchen',
+    ])
     // Every imported room lands unlocked, ready to be put where it belongs,
     // and the two the response placed side by side stay side by side.
-    expect(rooms.some((room) => room.locked)).toBe(false)
-    const [living, kitchen] = rooms.map((room) => polygonBounds(room.points))
+    expect(walls.some((run) => run.locked)).toBe(false)
+    const [living, kitchen] = walls.map((run) => polygonBounds(run.points))
     expect(living.w).toBe(450)
     expect(kitchen.x).toBe(living.x + living.w)
     expect(kitchen.y).toBe(living.y)
@@ -370,7 +371,7 @@ describe('furniture catalogue', () => {
     )
 
     plannerStore.actions.undo()
-    expect(plannerStore.state.rooms).toEqual([])
+    expect(plannerStore.state.walls).toEqual([])
     expect(plannerStore.state.furniture).toEqual([])
   })
 
@@ -389,11 +390,13 @@ describe('furniture catalogue', () => {
       furniture: [],
     })
 
-    const added = plannerStore.state.rooms.at(-1)!
-    expect(added.name).toBe('Living room copy')
+    expect(plannerStore.state.spaces.at(-1)?.name).toBe('Living room copy')
     expect(plannerStore.state.selection).toEqual({
-      type: 'room',
-      id: added.id,
+      type: 'enclosure',
+      id: enclosuresOf(
+        plannerStore.state.walls,
+        plannerStore.state.spaces,
+      ).find((floor) => floor.space?.name === 'Living room copy')!.key,
     })
     expect(plannerStore.state.history.past.at(-1)?.text).toBe('Added 1 room')
   })
@@ -402,7 +405,7 @@ describe('furniture catalogue', () => {
     plannerStore.actions.closeProject()
     plannerStore.actions.loadLibrary({
       version: 1,
-      projects: [{ ...plan(PLAN_A, 'Flat'), rooms: [] }],
+      projects: [{ ...plan(PLAN_A, 'Flat'), walls: [] }],
     })
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.setSize(800, 600)
@@ -433,7 +436,7 @@ describe('furniture catalogue', () => {
       projects: [
         {
           ...plan(PLAN_A, 'Flat'),
-          rooms: [],
+          walls: [],
           furniture: [
             {
               id: 'table',
@@ -495,7 +498,7 @@ describe('furniture catalogue', () => {
       projects: [
         {
           ...plan(PLAN_A, 'Flat'),
-          rooms: [],
+          walls: [],
           furniture: [
             {
               id: 'table',
@@ -539,7 +542,7 @@ describe('furniture catalogue', () => {
       projects: [
         {
           ...plan(PLAN_A, 'Flat'),
-          rooms: [],
+          walls: [],
           furniture: [
             {
               id: 'desk',
@@ -646,7 +649,7 @@ describe('upsertProjects', () => {
     expect(projects.find((p) => p.id === PLAN_B)?.name).toBe(
       'House (from GitHub)',
     )
-    expect(plannerStore.state.rooms[0].name).toBe('Living')
+    expect(plannerStore.state.walls[0].name).toBe('Living')
   })
 
   it('adds a plan the library has never seen', () => {
@@ -662,7 +665,7 @@ describe('upsertProjects', () => {
       plan(PLAN_A, 'Flat (from GitHub)', 'Bedroom'),
     ])
 
-    expect(plannerStore.state.rooms[0].name).toBe('Bedroom')
+    expect(plannerStore.state.walls[0].name).toBe('Bedroom')
     expect(plannerStore.state.furniture).toEqual([])
   })
 
@@ -709,7 +712,7 @@ describe('JSON import and restore', () => {
 
     expect(id).toBe(PLAN_A)
     expect(currentProjects(plannerStore.state)).toHaveLength(2)
-    expect(plannerStore.state.rooms[0].name).toBe('Bedroom')
+    expect(plannerStore.state.walls[0].name).toBe('Bedroom')
     expect(plannerStore.state.furniture).toEqual([])
     expect(plannerStore.state.history.past).toEqual([])
   })
@@ -746,7 +749,7 @@ describe('JSON import and restore', () => {
     expect(
       currentProjects(plannerStore.state).map((project) => project.id),
     ).toEqual([PLAN_C, PLAN_A])
-    expect(plannerStore.state.rooms[0].name).toBe('Bedroom')
+    expect(plannerStore.state.walls[0].name).toBe('Bedroom')
     expect(plannerStore.state.furniture).toEqual([])
     expect(plannerStore.state.history.past).toEqual([])
   })
@@ -761,7 +764,7 @@ describe('JSON import and restore', () => {
           schemaVersion: 1,
           id: PLAN_C,
           name: 'Broken',
-          rooms: [{ id: 'bad', name: 'Bad', points: [] }],
+          walls: [{ id: 'bad', name: 'Bad', points: closeWallPoints([]) }],
           furniture: [],
           openings: [],
         },
@@ -780,30 +783,28 @@ describe('closets', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
 
-    const closet = plannerStore.state.rooms.find(
-      (room) => room.kind === 'closet',
-    )
+    const closet = plannerStore.state.walls.find((run) => run.kind === 'closet')
     expect(closet).toBeDefined()
     if (!closet) throw new Error('Closet was not added')
     expect(closet.attachment).toEqual({
-      roomId: 'room-1',
+      runId: 'room-1',
       wall: 0,
       t: 0.5,
     })
     expect(closet.points.slice(0, 2).every((point) => point.y === 0)).toBe(true)
-    expect(closet.points.slice(2).every((point) => point.y < 0)).toBe(true)
+    expect(closet.points.slice(2, 4).every((point) => point.y < 0)).toBe(true)
 
     const opening = plannerStore.state.openings.find(
-      (candidate) => candidate.roomId === closet.id,
+      (candidate) => candidate.runId === closet.id,
     )
     expect(opening).toMatchObject({
       kind: 'sliding-door',
-      roomId: closet.id,
+      runId: closet.id,
       wall: 0,
       t: 0.5,
     })
     expect(plannerStore.state.selection).toEqual({
-      type: 'room',
+      type: 'run',
       id: closet.id,
     })
   })
@@ -811,22 +812,22 @@ describe('closets', () => {
   it('stays open when its independently selectable door is removed', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
-    const closet = plannerStore.state.rooms.find(
-      (room) => room.kind === 'closet',
+    const closet = plannerStore.state.walls.find(
+      (run) => run.kind === 'closet',
     )!
     const door = plannerStore.state.openings.find(
-      (opening) => opening.roomId === closet.id,
+      (opening) => opening.runId === closet.id,
     )!
 
     plannerStore.actions.select({ type: 'opening', id: door.id })
     plannerStore.actions.deleteSelected()
 
-    expect(plannerStore.state.rooms).toContainEqual(closet)
+    expect(plannerStore.state.walls).toContainEqual(closet)
     expect(plannerStore.state.openings).toEqual([])
-    expect(wallGaps(plannerStore.state.rooms, [], closet.id, 0)).toContainEqual(
+    expect(wallGaps(plannerStore.state.walls, [], closet.id, 0)).toContainEqual(
       [0, 1],
     )
-    expect(wallGaps(plannerStore.state.rooms, [], 'room-1', 0)).toContainEqual([
+    expect(wallGaps(plannerStore.state.walls, [], 'room-1', 0)).toContainEqual([
       0.275, 0.725,
     ])
   })
@@ -834,19 +835,19 @@ describe('closets', () => {
   it('resizes the closet and fits the door riding on its front', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
-    const closet = plannerStore.state.rooms.find(
-      (room) => room.kind === 'closet',
+    const closet = plannerStore.state.walls.find(
+      (run) => run.kind === 'closet',
     )!
 
     plannerStore.actions.updateCloset(closet.id, { width: 120, depth: 80 })
 
-    const resized = plannerStore.state.rooms.find(
-      (room) => room.id === closet.id,
+    const resized = plannerStore.state.walls.find(
+      (run) => run.id === closet.id,
     )!
     expect(closetSize(resized)).toEqual({ width: 120, depth: 80 })
     expect(
       plannerStore.state.openings.find(
-        (opening) => opening.roomId === resized.id,
+        (opening) => opening.runId === resized.id,
       )?.width,
     ).toBe(120)
   })
@@ -854,26 +855,24 @@ describe('closets', () => {
   it('follows its host room and is deleted with it', () => {
     plannerStore.actions.openProject(PLAN_A)
     plannerStore.actions.addCloset('room-1', 0, 0.5)
-    const before = plannerStore.state.rooms.find(
-      (room) => room.kind === 'closet',
+    const before = plannerStore.state.walls.find(
+      (run) => run.kind === 'closet',
     )!
-    expect(snapTargets(plannerStore.state.rooms, 'room-1')).toEqual({
+    expect(snapTargets(plannerStore.state.walls, 'room-1')).toEqual({
       xs: [],
       ys: [],
     })
 
-    const host = plannerStore.state.rooms.find((room) => room.id === 'room-1')!
-    plannerStore.actions.updateRoom('room-1', {
+    const host = plannerStore.state.walls.find((run) => run.id === 'room-1')!
+    plannerStore.actions.updateRun('room-1', {
       points: translatePolygon(host.points, 100, 50),
     })
-    const moved = plannerStore.state.rooms.find(
-      (room) => room.id === before.id,
-    )!
+    const moved = plannerStore.state.walls.find((run) => run.id === before.id)!
     expect(moved.points).toEqual(translatePolygon(before.points, 100, 50))
 
-    plannerStore.actions.select({ type: 'room', id: 'room-1' })
+    plannerStore.actions.select({ type: 'run', id: 'room-1' })
     plannerStore.actions.deleteSelected()
-    expect(plannerStore.state.rooms).toEqual([])
+    expect(plannerStore.state.walls).toEqual([])
     expect(plannerStore.state.openings).toEqual([])
   })
 })
@@ -884,41 +883,41 @@ describe('exact wall dimensions', () => {
     plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
     plannerStore.actions.openProject(project.id)
     plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 0 })
-    const before = plannerStore.state.rooms
+    const before = plannerStore.state.walls
 
     const result = plannerStore.actions.setWallDimensions('room-rect', 0, {
       length: 500,
     })
 
     expect(result).toEqual({ ok: true })
-    const room = plannerStore.state.rooms.find(
+    const run = plannerStore.state.walls.find(
       (candidate) => candidate.id === 'room-rect',
     )!
-    const neighbour = plannerStore.state.rooms.find(
+    const neighbour = plannerStore.state.walls.find(
       (candidate) => candidate.id === 'room-neighbour',
     )!
-    const closet = plannerStore.state.rooms.find(
+    const closet = plannerStore.state.walls.find(
       (candidate) => candidate.id === 'closet-rect',
     )!
-    expect(wallAt(room.points, 0)?.length).toBeCloseTo(500, 8)
+    expect(wallAt(run.points, 0)?.length).toBeCloseTo(500, 8)
     expect(wallAt(neighbour.points, 2)?.length).toBeCloseTo(500, 8)
     expect(
-      sharedWalls(plannerStore.state.rooms, room.id, 0).some(
-        (share) => share.roomId === neighbour.id && share.wall === 2,
+      sharedWalls(plannerStore.state.walls, run.id, 0).some(
+        (share) => share.runId === neighbour.id && share.wall === 2,
       ),
     ).toBe(true)
     expect(closetSize(closet)).toEqual({ width: 100, depth: 60 })
     // The wall grew from 400 to 500 past everything standing on it: the
     // closet's centre stays at 280 cm from the corner that did not move.
     expect(closet.attachment).toMatchObject({
-      roomId: room.id,
+      runId: run.id,
       wall: 0,
       t: 0.56,
     })
     expect(
-      plannerStore.state.openings.map(({ id, roomId, wall, t, width }) => ({
+      plannerStore.state.openings.map(({ id, runId, wall, t, width }) => ({
         id,
-        roomId,
+        runId,
         wall,
         t,
         width,
@@ -926,21 +925,21 @@ describe('exact wall dimensions', () => {
     ).toEqual([
       {
         id: 'door-host',
-        roomId: room.id,
+        runId: run.id,
         wall: 0,
         t: 0.2,
         width: 90,
       },
       {
         id: 'window-neighbour',
-        roomId: neighbour.id,
+        runId: neighbour.id,
         wall: 2,
         t: 0.6,
         width: 80,
       },
       {
         id: 'door-closet',
-        roomId: closet.id,
+        runId: closet.id,
         wall: 0,
         t: 0.5,
         width: 100,
@@ -949,7 +948,7 @@ describe('exact wall dimensions', () => {
     expect(plannerStore.state.history.past).toHaveLength(1)
 
     plannerStore.actions.undo()
-    expect(plannerStore.state.rooms).toEqual(before)
+    expect(plannerStore.state.walls).toEqual(before)
     expect(plannerStore.state.selection).toEqual({
       type: 'wall',
       id: 'room-rect',
@@ -957,7 +956,7 @@ describe('exact wall dimensions', () => {
     })
 
     plannerStore.actions.redo()
-    const redone = plannerStore.state.rooms.find(
+    const redone = plannerStore.state.walls.find(
       (candidate) => candidate.id === 'room-rect',
     )!
     expect(wallAt(redone.points, 0)?.length).toBeCloseTo(500, 8)
@@ -969,17 +968,17 @@ describe('exact wall dimensions', () => {
       spaces: [],
       id: PLAN_C,
       name: 'Irregular room',
-      rooms: [
+      walls: [
         {
           id: 'room-irregular',
           name: 'Loft',
-          points: [
+          points: closeWallPoints([
             { x: 0, y: 0 },
             { x: 280, y: 0 },
             { x: 360, y: 120 },
             { x: 230, y: 260 },
             { x: 40, y: 190 },
-          ],
+          ]),
         },
       ],
       furniture: [],
@@ -987,7 +986,7 @@ describe('exact wall dimensions', () => {
         {
           id: 'wide-window',
           kind: 'window',
-          roomId: 'room-irregular',
+          runId: 'room-irregular',
           wall: 0,
           t: 0.5,
           width: 100,
@@ -1019,43 +1018,43 @@ describe('exact wall dimensions', () => {
 })
 
 /** A room with a canted corner, a window on the wall beside it, and a neighbour. */
-function cantedRoom(): Project {
+function cantedRun(): Project {
   return {
     spaces: [],
     id: PLAN_C,
     name: 'Canted plan',
-    rooms: [
+    walls: [
       {
         id: 'room-canted',
         name: 'Living',
-        points: [
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 400, y: 0 },
           { x: 400, y: 200 },
           { x: 300, y: 300 },
           { x: 0, y: 300 },
-        ],
+        ]),
       },
       {
         id: 'room-study',
         name: 'Study',
-        points: [
+        points: closeWallPoints([
           { x: 0, y: -200 },
           { x: 400, y: -200 },
           { x: 400, y: 0 },
           { x: 0, y: 0 },
-        ],
+        ]),
       },
       {
         // Sits against the cant, so its wall 2 and the canted room's wall 2
         // are the two leaves of one party wall.
         id: 'room-nook',
         name: 'Nook',
-        points: [
+        points: closeWallPoints([
           { x: 400, y: 200 },
           { x: 400, y: 300 },
           { x: 300, y: 300 },
-        ],
+        ]),
       },
     ],
     furniture: [],
@@ -1063,7 +1062,7 @@ function cantedRoom(): Project {
       {
         id: 'window-side',
         kind: 'window',
-        roomId: 'room-canted',
+        runId: 'room-canted',
         wall: 1,
         t: 0.5,
         width: 80,
@@ -1073,7 +1072,7 @@ function cantedRoom(): Project {
       {
         id: 'window-nook',
         kind: 'window',
-        roomId: 'room-nook',
+        runId: 'room-nook',
         wall: 2,
         t: 0.5,
         width: 80,
@@ -1085,7 +1084,7 @@ function cantedRoom(): Project {
         // hole through the nook's side of it too.
         id: 'door-cant',
         kind: 'door',
-        roomId: 'room-canted',
+        runId: 'room-canted',
         wall: 2,
         t: 0.25,
         width: 60,
@@ -1097,71 +1096,10 @@ function cantedRoom(): Project {
 }
 
 function openCanted() {
-  const project = cantedRoom()
+  const project = cantedRun()
   plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
   plannerStore.actions.openProject(project.id)
 }
-
-describe('removing a wall', () => {
-  beforeEach(openCanted)
-
-  it('refuses to take a wall out of a room, and says how to', () => {
-    const before = plannerStore.state
-    plannerStore.actions.select({ type: 'wall', id: 'room-canted', index: 2 })
-
-    const result = plannerStore.actions.removeWall('room-canted', 2)
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Convert Living to walls to take one of them out.',
-    })
-    expect(plannerStore.state.rooms).toEqual(before.rooms)
-    expect(plannerStore.state.openings).toEqual(before.openings)
-  })
-
-  it('refuses every wall of a locked room', () => {
-    plannerStore.actions.setRoomLocked('room-canted', true)
-    const before = plannerStore.state
-
-    const result = plannerStore.actions.removeWall('room-canted', 2)
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Unlock Living to remove its walls.',
-    })
-    expect(plannerStore.state).toBe(before)
-  })
-
-  it('leaves the plan alone when a room wall is deleted', () => {
-    plannerStore.actions.select({ type: 'wall', id: 'room-canted', index: 2 })
-    const before = plannerStore.state
-
-    plannerStore.actions.deleteSelected()
-
-    expect(plannerStore.state.rooms).toEqual(before.rooms)
-    expect(plannerStore.state.openings).toEqual(before.openings)
-    expect(plannerStore.state.history.past).toEqual([])
-  })
-
-  it('takes a wall out of the run the room becomes, cutting it in two', () => {
-    plannerStore.actions.convertRoomToWalls('room-canted')
-
-    const result = plannerStore.actions.removeWall('room-canted', 2)
-
-    expect(result).toEqual({ ok: true })
-    const runs = plannerStore.state.rooms.filter(
-      (candidate) => candidate.closed === false,
-    )
-    expect(runs).toHaveLength(2)
-    expect(runs.map((run) => run.points.length)).toEqual([3, 3])
-    // The rooms next door are not touched by a wall coming out of this one.
-    expect(
-      plannerStore.state.rooms.filter(
-        (candidate) => candidate.closed !== false,
-      ),
-    ).toHaveLength(2)
-  })
-})
 
 describe('locked rooms', () => {
   beforeEach(() => {
@@ -1173,35 +1111,34 @@ describe('locked rooms', () => {
     plannerStore.actions.updateRect({ x: 200, y: 100 })
     plannerStore.actions.commitRect()
 
-    const drawn = plannerStore.state.rooms.at(-1)!
+    const drawn = plannerStore.state.walls.at(-1)!
     expect(drawn.locked).not.toBe(true)
   })
 
   it('holds its outline and itself until it is unlocked', () => {
-    plannerStore.actions.setRoomLocked('room-1', true)
-    const before = plannerStore.state.rooms[0]
+    plannerStore.actions.setRunLocked('room-1', true)
+    const before = plannerStore.state.walls[0]
 
-    plannerStore.actions.updateRoom('room-1', {
+    plannerStore.actions.updateRun('room-1', {
       points: translatePolygon(before.points, 100, 50),
     })
-    plannerStore.actions.rotateRoom('room-1', 90)
     plannerStore.actions.moveVertex('room-1', 0, { x: 50, y: 50 })
     plannerStore.actions.nudgeSelection(10, 0)
-    plannerStore.actions.select({ type: 'room', id: 'room-1' })
+    plannerStore.actions.select({ type: 'run', id: 'room-1' })
     plannerStore.actions.deleteSelected()
 
-    expect(plannerStore.state.rooms[0].points).toEqual(before.points)
-    expect(plannerStore.state.rooms).toHaveLength(1)
+    expect(plannerStore.state.walls[0].points).toEqual(before.points)
+    expect(plannerStore.state.walls).toHaveLength(1)
 
     // A rename still goes through, and so does the outline once it is let go.
-    plannerStore.actions.updateRoom('room-1', { name: 'Kitchen' })
-    expect(plannerStore.state.rooms[0].name).toBe('Kitchen')
+    plannerStore.actions.updateRun('room-1', { name: 'Kitchen' })
+    expect(plannerStore.state.walls[0].name).toBe('Kitchen')
 
-    plannerStore.actions.setRoomLocked('room-1', false)
-    plannerStore.actions.updateRoom('room-1', {
+    plannerStore.actions.setRunLocked('room-1', false)
+    plannerStore.actions.updateRun('room-1', {
       points: translatePolygon(before.points, 100, 50),
     })
-    expect(plannerStore.state.rooms[0].points).toEqual(
+    expect(plannerStore.state.walls[0].points).toEqual(
       translatePolygon(before.points, 100, 50),
     )
   })
@@ -1218,21 +1155,21 @@ describe('locked spaces the walls close in', () => {
       spaces: [],
       furniture: [],
       openings: [],
-      rooms: [
+      walls: [
         {
           id: 'room-main',
           name: 'Living',
-          points: [
+          points: closeWallPoints([
             { x: 0, y: 0 },
             { x: 400, y: 0 },
             { x: 400, y: 300 },
             { x: 0, y: 300 },
-          ],
+          ]),
         },
         {
           id: 'run-1',
           name: 'Walls 1',
-          closed: false,
+
           points: [
             { x: 0, y: 0 },
             { x: -200, y: 0 },
@@ -1253,14 +1190,16 @@ describe('locked spaces the walls close in', () => {
   })
 
   const spaceKey = () =>
-    freeEnclosures(plannerStore.state.rooms, plannerStore.state.spaces)[0].key
+    enclosuresOf(plannerStore.state.walls, plannerStore.state.spaces).find(
+      (floor) => floor.centre.x < 0,
+    )!.key
 
   it('holds every run that closes the space in, and lets them all go again', () => {
     const key = spaceKey()
 
     plannerStore.actions.setEnclosureLocked(key, true)
 
-    expect(plannerStore.state.rooms.map((room) => room.locked)).toEqual([
+    expect(plannerStore.state.walls.map((run) => run.locked)).toEqual([
       true,
       true,
     ])
@@ -1275,7 +1214,7 @@ describe('locked spaces the walls close in', () => {
 
     plannerStore.actions.setEnclosureLocked(key, false)
 
-    expect(plannerStore.state.rooms.some((room) => room.locked)).toBe(false)
+    expect(plannerStore.state.walls.some((run) => run.locked)).toBe(false)
     plannerStore.actions.moveVertex('run-1', 1, { x: -300, y: 0 })
     expect(spaceKey()).not.toBe(key)
   })
@@ -1304,54 +1243,6 @@ describe('locked spaces the walls close in', () => {
     plannerStore.actions.setEnclosureLocked('not a space', true)
 
     expect(plannerStore.state).toBe(before)
-  })
-})
-
-describe('room rotation', () => {
-  it('turns the outline around its centre and carries openings and closets', () => {
-    const project = connectedRectangle()
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-    const before = plannerStore.state.rooms.find(
-      (room) => room.id === 'room-rect',
-    )!
-    const beforeCloset = plannerStore.state.rooms.find(
-      (room) => room.id === 'closet-rect',
-    )!
-    const beforeOpenings = plannerStore.state.openings
-
-    plannerStore.actions.rotateRoom(before.id, 90)
-
-    const rotated = plannerStore.state.rooms.find(
-      (room) => room.id === before.id,
-    )!
-    const rotatedCloset = plannerStore.state.rooms.find(
-      (room) => room.id === beforeCloset.id,
-    )!
-    expect(polygonCentroid(rotated.points)).toEqual(
-      polygonCentroid(before.points),
-    )
-    expect(polygonArea(rotated.points)).toBeCloseTo(
-      polygonArea(before.points),
-      8,
-    )
-    const expected = [
-      { x: 350, y: -50 },
-      { x: 350, y: 350 },
-      { x: 50, y: 350 },
-      { x: 50, y: -50 },
-    ]
-    rotated.points.forEach((point, index) => {
-      expect(point.x).toBeCloseTo(expected[index].x, 8)
-      expect(point.y).toBeCloseTo(expected[index].y, 8)
-    })
-    expect(rotatedCloset.points).not.toEqual(beforeCloset.points)
-    expect(rotatedCloset.attachment).toEqual(beforeCloset.attachment)
-    expect(plannerStore.state.openings).toEqual(beforeOpenings)
-    expect(plannerStore.state.history.past.at(-1)?.text).toBe('Rotated Living')
-
-    plannerStore.actions.undo()
-    expect(plannerStore.state.rooms).toEqual(project.rooms)
   })
 })
 
@@ -1443,7 +1334,7 @@ describe('the style brush', () => {
   it('comes back to the pointer tool, and is put down by reaching for another', () => {
     const [source] = pair()
     plannerStore.actions.setTool('edit')
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
 
     plannerStore.actions.pickUpStyle(source)
     expect(plannerStore.state.tool).toBe('edit')
@@ -1475,13 +1366,13 @@ describe('a room made bigger', () => {
       spaces: [],
       id: PLAN_C,
       name: 'Openings',
-      rooms: [{ id: 'room-1', name: 'Living', points: ROOM }],
+      walls: [{ id: 'room-1', name: 'Living', points: closeWallPoints(ROOM) }],
       furniture: [],
       openings: [
         {
           id: 'window-top',
           kind: 'window',
-          roomId: 'room-1',
+          runId: 'room-1',
           wall: 0,
           t: 0.25,
           width: 100,
@@ -1491,7 +1382,7 @@ describe('a room made bigger', () => {
         {
           id: 'door-right',
           kind: 'door',
-          roomId: 'room-1',
+          runId: 'room-1',
           wall: 1,
           t: 0.5,
           width: 90,
@@ -1505,7 +1396,7 @@ describe('a room made bigger', () => {
   /** Where an opening's centre actually stands in the plan. */
   function centreOf(id: string) {
     const opening = plannerStore.state.openings.find((o) => o.id === id)!
-    const wall = openingWall(plannerStore.state.rooms, opening)!
+    const wall = openingWall(plannerStore.state.walls, opening)!
     const { centre } = openingEnds(wall, opening)
     return {
       x: Math.round(centre.x * 1e6) / 1e6,
@@ -1519,9 +1410,9 @@ describe('a room made bigger', () => {
   })
 
   it('leaves the openings on the walls that stretched where they were put', () => {
-    const room = plannerStore.state.rooms[0]
-    plannerStore.actions.updateRoom('room-1', {
-      points: scalePolygon(room.points, 600, 300),
+    const run = plannerStore.state.walls[0]
+    plannerStore.actions.updateRun('room-1', {
+      points: scalePolygon(run.points, 600, 300),
     })
 
     // The top wall grew to the right past the window, which has not budged.
@@ -1531,8 +1422,8 @@ describe('a room made bigger', () => {
   })
 
   it('holds them when a wall is pushed out', () => {
-    const room = plannerStore.state.rooms[0]
-    plannerStore.actions.moveWall('room-1', 1, slideWall(room.points, 1, 200))
+    const run = plannerStore.state.walls[0]
+    plannerStore.actions.moveWall('room-1', 1, slideWall(run.points, 1, 200))
 
     expect(centreOf('window-top')).toEqual({ x: 100, y: 0 })
     expect(centreOf('door-right')).toEqual({ x: 600, y: 150 })
@@ -1545,9 +1436,9 @@ describe('a room made bigger', () => {
   })
 
   it('still carries them along when the whole room is moved', () => {
-    const room = plannerStore.state.rooms[0]
-    plannerStore.actions.updateRoom('room-1', {
-      points: translatePolygon(room.points, 100, 50),
+    const run = plannerStore.state.walls[0]
+    plannerStore.actions.updateRun('room-1', {
+      points: translatePolygon(run.points, 100, 50),
     })
 
     expect(centreOf('window-top')).toEqual({ x: 200, y: 50 })
@@ -1556,437 +1447,38 @@ describe('a room made bigger', () => {
 
   it('holds an attached closet on the wall that grew under it', () => {
     plannerStore.actions.addCloset('room-1', 2, 0.5)
-    const closet = plannerStore.state.rooms.find((r) => r.kind === 'closet')!
+    const closet = plannerStore.state.walls.find((r) => r.kind === 'closet')!
     const before = polygonBounds(closet.points)
 
-    const room = plannerStore.state.rooms.find((r) => r.id === 'room-1')!
-    plannerStore.actions.updateRoom('room-1', {
-      points: scalePolygon(room.points, 600, 300),
+    const run = plannerStore.state.walls.find((r) => r.id === 'room-1')!
+    plannerStore.actions.updateRun('room-1', {
+      points: scalePolygon(run.points, 600, 300),
     })
 
     const after = polygonBounds(
-      plannerStore.state.rooms.find((r) => r.id === closet.id)!.points,
+      plannerStore.state.walls.find((r) => r.id === closet.id)!.points,
     )
     expect(after.x).toBeCloseTo(before.x, 6)
     expect(after.w).toBeCloseTo(before.w, 6)
   })
 })
 
-it('keeps a copied room color and leaves the copy movable', () => {
-  const source = plan(PLAN_A, 'Flat')
-  source.rooms[0].color = '#809080'
-  source.rooms[0].locked = true
-  plannerStore.actions.loadLibrary({ version: 1, projects: [source] })
-  plannerStore.actions.openProject(PLAN_A)
-  plannerStore.actions.select({ type: 'room', id: source.rooms[0].id })
-  plannerStore.actions.duplicateSelection()
-  const copy = plannerStore.state.rooms.at(-1)!
-  expect(copy.color).toBe('#809080')
-  expect(copy.id).not.toBe(source.rooms[0].id)
-  expect(copy.locked).not.toBe(true)
-  plannerStore.actions.undo()
-  expect(plannerStore.state.rooms).toEqual(source.rooms)
-})
-
-/** A room traced the other way round, with a door and a closet on one wall. */
-function widdershinsRoom(): Project {
-  const room: Project['rooms'][number] = {
-    id: 'room-widdershins',
-    name: 'Living',
-    color: '#809080',
-    points: [
-      { x: 0, y: 0 },
-      { x: 0, y: 300 },
-      { x: 400, y: 300 },
-      { x: 400, y: 0 },
-    ],
-  }
-  const placed = placeCloset(
-    wallAt(room.points, 1)!,
-    { roomId: room.id, wall: 1, t: 0.7 },
-    100,
-    60,
+it('removes a wall directly, preserving the other walls and supporting undo', () => {
+  openCanted()
+  const before = plannerStore.state.walls
+  const wallCount = before.reduce(
+    (count, run) => count + run.points.length - 1,
+    0,
   )
-  const closet: Project['rooms'][number] = {
-    id: 'closet-widdershins',
-    kind: 'closet',
-    name: 'Coats',
-    points: placed.points,
-    attachment: placed.attachment,
-  }
-
-  return {
-    spaces: [],
-    id: PLAN_C,
-    name: 'Widdershins plan',
-    rooms: [room, closet],
-    furniture: [],
-    openings: [
-      {
-        id: 'door-widdershins',
-        kind: 'door',
-        roomId: room.id,
-        wall: 1,
-        t: 0.25,
-        width: 90,
-        hinge: 'start',
-        swing: 'in',
-      },
-    ],
-  }
-}
-
-/** A rectangle whose east wall is opened from end to end: no wall at all. */
-function openSided(): Project {
-  return {
-    spaces: [],
-    id: PLAN_C,
-    name: 'Open sided',
-    rooms: [
-      {
-        id: 'room-open',
-        name: 'Living',
-        points: [
-          { x: 0, y: 0 },
-          { x: 400, y: 0 },
-          { x: 400, y: 300 },
-          { x: 0, y: 300 },
-        ],
-      },
-    ],
-    furniture: [],
-    openings: [
-      {
-        id: 'gap-east',
-        kind: 'opening',
-        roomId: 'room-open',
-        wall: 1,
-        t: 0.5,
-        width: 300,
-        hinge: 'start',
-        swing: 'in',
-      },
-    ],
-  }
-}
-
-describe('converting a room to walls', () => {
-  it('keeps the same walls in the same places, closing the same floor', () => {
-    const source = plan(PLAN_A, 'Flat')
-    source.rooms[0].color = '#809080'
-    plannerStore.actions.loadLibrary({ version: 1, projects: [source] })
-    plannerStore.actions.openProject(PLAN_A)
-    const before = source.rooms[0].points
-
-    const result = plannerStore.actions.convertRoomToWalls('room-1')
-
-    expect(result).toEqual({ ok: true })
-    const run = plannerStore.state.rooms.find((r) => r.id === 'room-1')!
-    // The outline's own corners, walked back round to the one they began at,
-    // which is what keeps the closing wall.
-    expect(run.closed).toBe(false)
-    expect(run.points).toEqual([...before, before[0]])
-    expect(wallCount(run)).toBe(before.length)
-    // The name and the colour went to the floor, not to the walls.
-    expect(run.name).toBe('Walls 1')
-    expect(run.color).toBeUndefined()
-    const [space] = plannerStore.state.spaces
-    expect(space).toMatchObject({ name: 'Living', color: '#809080' })
-
-    const enclosures = freeEnclosures(
-      plannerStore.state.rooms,
-      plannerStore.state.spaces,
-    )
-    expect(enclosures).toHaveLength(1)
-    expect(enclosures[0].space?.name).toBe('Living')
-    expect(enclosures[0].area).toBeCloseTo(polygonArea(before), 6)
-    expect(plannerStore.state.selection).toEqual({ type: 'room', id: 'room-1' })
-    expect(plannerStore.state.history.past.at(-1)?.text).toBe(
-      'Converted Living to walls',
-    )
+  expect(plannerStore.actions.removeWall('room-canted', 2)).toEqual({
+    ok: true,
   })
-
-  it('puts the room back in one undo', () => {
-    plannerStore.actions.openProject(PLAN_A)
-    const before = {
-      rooms: plannerStore.state.rooms,
-      openings: plannerStore.state.openings,
-      spaces: plannerStore.state.spaces,
-    }
-
-    plannerStore.actions.convertRoomToWalls('room-1')
-    plannerStore.actions.undo()
-
-    expect(plannerStore.state.rooms).toEqual(before.rooms)
-    expect(plannerStore.state.openings).toEqual(before.openings)
-    expect(plannerStore.state.spaces).toEqual(before.spaces)
-  })
-
-  it('leaves the doors, the closets and the neighbour where they were', () => {
-    const project = connectedRectangle()
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-    const centreOf = (id: string) => {
-      const opening = plannerStore.state.openings.find((o) => o.id === id)!
-      return openingEnds(
-        openingWall(plannerStore.state.rooms, opening)!,
-        opening,
-      ).centre
-    }
-    const before = {
-      door: centreOf('door-host'),
-      closet: polygonBounds(
-        plannerStore.state.rooms.find((r) => r.id === 'closet-rect')!.points,
-      ),
-      neighbour: plannerStore.state.rooms.find(
-        (r) => r.id === 'room-neighbour',
-      )!,
-    }
-
-    expect(plannerStore.actions.convertRoomToWalls('room-rect')).toEqual({
-      ok: true,
-    })
-
-    expect(centreOf('door-host')).toEqual(before.door)
-    expect(
-      polygonBounds(
-        plannerStore.state.rooms.find((r) => r.id === 'closet-rect')!.points,
-      ),
-    ).toEqual(before.closet)
-    expect(
-      plannerStore.state.rooms.find((r) => r.id === 'room-neighbour'),
-    ).toEqual(before.neighbour)
-  })
-
-  it('walks a room traced the other way round backwards, so nothing moves', () => {
-    const project = widdershinsRoom()
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-    const door = project.openings[0]
-    const before = {
-      door: openingEnds(wallAt(project.rooms[0].points, door.wall)!, door),
-      closet: polygonBounds(project.rooms[1].points),
-    }
-
-    expect(plannerStore.actions.convertRoomToWalls('room-widdershins')).toEqual(
-      { ok: true },
-    )
-
-    const run = plannerStore.state.rooms.find(
-      (r) => r.id === 'room-widdershins',
-    )!
-    expect(run.points).toEqual([
-      { x: 0, y: 0 },
-      { x: 400, y: 0 },
-      { x: 400, y: 300 },
-      { x: 0, y: 300 },
-      { x: 0, y: 0 },
-    ])
-    // The door is on the wall it was on, read from the other end of it, and is
-    // hung on the same physical jamb.
-    const moved = plannerStore.state.openings.find(
-      (o) => o.id === 'door-widdershins',
-    )!
-    expect(moved.wall).toBe(2)
-    expect(moved.t).toBeCloseTo(0.75, 6)
-    expect(moved.hinge).toBe('end')
-    const wall = openingWall(plannerStore.state.rooms, moved)!
-    expect(openingEnds(wall, moved).centre.x).toBeCloseTo(
-      before.door.centre.x,
-      6,
-    )
-    expect(openingEnds(wall, moved).centre.y).toBeCloseTo(
-      before.door.centre.y,
-      6,
-    )
-    // The wall still faces the way it faced, so the closet stands outside it.
-    expect(wall.normal).toEqual({ x: 0, y: 1 })
-    const closet = plannerStore.state.rooms.find(
-      (r) => r.id === 'closet-widdershins',
-    )!
-    expect(closet.attachment).toMatchObject({ wall: 2 })
-    expect(closetSize(closet).width).toBeCloseTo(100, 6)
-    expect(closetSize(closet).depth).toBeCloseTo(60, 6)
-    const bounds = polygonBounds(closet.points)
-    expect(bounds.x).toBeCloseTo(before.closet.x, 6)
-    expect(bounds.y).toBeCloseTo(before.closet.y, 6)
-    expect(bounds.w).toBeCloseTo(before.closet.w, 6)
-    expect(bounds.h).toBeCloseTo(before.closet.h, 6)
-  })
-
-  it('comes back out of a saved file as walls and a named floor', () => {
-    const source = plan(PLAN_A, 'Flat')
-    source.rooms[0].color = '#809080'
-    plannerStore.actions.loadLibrary({ version: 1, projects: [source] })
-    plannerStore.actions.openProject(PLAN_A)
-    plannerStore.actions.convertRoomToWalls('room-1')
-
-    const parsed = parseRmplnrFile(
-      serializeProject(currentProjects(plannerStore.state)[0]),
-    )
-    if (parsed.kind !== 'project') throw new Error('Expected one plan')
-
-    expect(parsed.project.rooms[0]).toMatchObject({
-      id: 'room-1',
-      name: 'Walls 1',
-      closed: false,
-    })
-    expect(parsed.project.rooms[0].color).toBeUndefined()
-    expect(parsed.project.spaces).toHaveLength(1)
-    expect(parsed.project.spaces[0]).toMatchObject({
-      name: 'Living',
-      color: '#809080',
-    })
-    expect(
-      freeEnclosures(parsed.project.rooms, parsed.project.spaces)[0].space
-        ?.name,
-    ).toBe('Living')
-  })
-
-  it('still takes an exact wall length once it is walls', () => {
-    plannerStore.actions.openProject(PLAN_A)
-    plannerStore.actions.convertRoomToWalls('room-1')
-
-    const result = plannerStore.actions.setWallDimensions('room-1', 0, {
-      length: 500,
-    })
-
-    expect(result).toEqual({ ok: true })
-    const run = plannerStore.state.rooms.find((r) => r.id === 'room-1')!
-    expect(distance(run.points[0], run.points[1])).toBeCloseTo(500, 6)
-    // The run still ends where it started, so the floor is still closed in.
-    expect(run.points.at(-1)).toEqual(run.points[0])
-    expect(
-      freeEnclosures(plannerStore.state.rooms, plannerStore.state.spaces),
-    ).toHaveLength(1)
-  })
-
-  it('leaves out a wall that has nothing of it left standing', () => {
-    // What a plan written before walls could only be there or not there called
-    // a removed wall reads back as this: a gap cut end to end through a wall.
-    const project = openSided()
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-
-    expect(plannerStore.actions.convertRoomToWalls('room-open')).toEqual({
-      ok: true,
-    })
-
-    const run = plannerStore.state.rooms.find((r) => r.id === 'room-open')!
-    expect(plannerStore.state.rooms).toHaveLength(1)
-    // Three walls, walked from the far side of the gap round to its near side.
-    expect(run.points).toEqual([
-      { x: 400, y: 300 },
-      { x: 0, y: 300 },
-      { x: 0, y: 0 },
-      { x: 400, y: 0 },
-    ])
-    // The gap was the wall's absence; there is nothing left for it to be in.
-    expect(plannerStore.state.openings).toEqual([])
-    // The walls no longer close anything, and say so.
-    expect(
-      freeEnclosures(plannerStore.state.rooms, plannerStore.state.spaces),
-    ).toEqual([])
-    expect(plannerStore.state.spaces[0]).toMatchObject({ name: 'Living' })
-  })
-
-  it('leaves a run either side of every wall that is not there', () => {
-    const project = openSided()
-    project.openings.push({
-      id: 'gap-west',
-      kind: 'opening',
-      roomId: 'room-open',
-      wall: 3,
-      t: 0.5,
-      width: 300,
-      hinge: 'start',
-      swing: 'in',
-    })
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-
-    expect(plannerStore.actions.convertRoomToWalls('room-open')).toEqual({
-      ok: true,
-    })
-
-    const runs = plannerStore.state.rooms
-    expect(runs.map((run) => run.name)).toEqual(['Walls 1', 'Walls 2'])
-    expect(runs.map((run) => run.points)).toEqual([
-      [
-        { x: 0, y: 0 },
-        { x: 400, y: 0 },
-      ],
-      [
-        { x: 400, y: 300 },
-        { x: 0, y: 300 },
-      ],
-    ])
-    expect(runs.every((run) => run.closed === false)).toBe(true)
-  })
-
-  it('takes down a closet left hanging on a wall that is not there', () => {
-    const project = openSided()
-    const placed = placeCloset(
-      wallAt(project.rooms[0].points, 1)!,
-      { roomId: 'room-open', wall: 1, t: 0.5 },
-      100,
-      60,
-    )
-    project.rooms.push({
-      id: 'closet-open',
-      kind: 'closet',
-      name: 'Coats',
-      points: placed.points,
-      attachment: placed.attachment,
-    })
-    project.openings.push({
-      id: 'door-closet-open',
-      kind: 'sliding-door',
-      roomId: 'closet-open',
-      wall: 0,
-      t: 0.5,
-      width: 100,
-      hinge: 'start',
-      swing: 'in',
-    })
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-
-    expect(plannerStore.actions.convertRoomToWalls('room-open')).toEqual({
-      ok: true,
-    })
-
-    expect(plannerStore.state.rooms.map((room) => room.id)).toEqual([
-      'room-open',
-    ])
-    expect(plannerStore.state.openings).toEqual([])
-  })
-
-  it('refuses a locked room, a closet, and walls that are already walls', () => {
-    const project = widdershinsRoom()
-    project.rooms[0].locked = true
-    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
-    plannerStore.actions.openProject(project.id)
-
-    expect(plannerStore.actions.convertRoomToWalls('room-widdershins')).toEqual(
-      { ok: false, error: 'Unlock Living to convert it to walls.' },
-    )
-    expect(
-      plannerStore.actions.convertRoomToWalls('closet-widdershins'),
-    ).toEqual({
-      ok: false,
-      error: 'A closet is a recess in the wall it hangs on, not a room.',
-    })
-    expect(plannerStore.actions.convertRoomToWalls('nobody')).toEqual({
-      ok: false,
-      error: 'This room no longer exists.',
-    })
-    expect(plannerStore.state.history.past).toEqual([])
-
-    plannerStore.actions.setRoomLocked('room-widdershins', false)
-    plannerStore.actions.convertRoomToWalls('room-widdershins')
-    expect(plannerStore.actions.convertRoomToWalls('room-widdershins')).toEqual(
-      { ok: false, error: 'Walls 1 is already walls.' },
-    )
-  })
+  expect(
+    plannerStore.state.walls.reduce(
+      (count, run) => count + run.points.length - 1,
+      0,
+    ),
+  ).toBe(wallCount - 2)
+  plannerStore.actions.undo()
+  expect(plannerStore.state.walls).toEqual(before)
 })

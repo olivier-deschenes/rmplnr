@@ -1,9 +1,9 @@
 import { OPENING_PRESETS } from './presets.ts'
-import { enclosureName, freeEnclosures } from './enclosures.ts'
+import { enclosureName, enclosuresOf } from './enclosures.ts'
 import { polygonBounds } from './geometry.ts'
 
 import type { Snapshot } from './history.ts'
-import type { Furniture, Opening, OpeningKind, Room } from './types.ts'
+import type { Furniture, Opening, OpeningKind, WallRun } from './types.ts'
 
 /**
  * The words the history panel reads a change out in.
@@ -23,21 +23,21 @@ export function openingName(kind: OpeningKind): string {
 export function selectionName(state: Snapshot): string {
   const selection = state.selection
   if (!selection) return 'selection'
-  if (selection.type === 'room') {
-    return state.rooms.find((r) => r.id === selection.id)?.name ?? 'room'
+  if (selection.type === 'run') {
+    return state.walls.find((r) => r.id === selection.id)?.name ?? 'run'
   }
   if (selection.type === 'furniture') {
     return state.furniture.find((f) => f.id === selection.id)?.name ?? 'item'
   }
   if (selection.type === 'enclosure') {
-    const enclosure = freeEnclosures(state.rooms, state.spaces).find(
+    const enclosure = enclosuresOf(state.walls, state.spaces).find(
       (found) => found.key === selection.id,
     )
-    return enclosure ? enclosureName(enclosure).toLowerCase() : 'room'
+    return enclosure ? enclosureName(enclosure).toLowerCase() : 'run'
   }
   if (selection.type === 'wall') {
-    const room = state.rooms.find((candidate) => candidate.id === selection.id)
-    return room ? `wall ${selection.index + 1} of ${room.name}` : 'wall'
+    const run = state.walls.find((candidate) => candidate.id === selection.id)
+    return run ? `wall ${selection.index + 1} of ${run.name}` : 'wall'
   }
   const opening = state.openings.find((o) => o.id === selection.id)
   return opening ? openingName(opening.kind) : 'opening'
@@ -61,16 +61,16 @@ export function describeFurniture(
   return `Changed ${item.name}`
 }
 
-export function describeRoom(room: Room, patch: Partial<Room>): string {
-  if (patch.name !== undefined) return `Renamed ${room.name}`
-  if (!patch.points) return `Changed ${room.name}`
+export function describeRun(run: WallRun, patch: Partial<WallRun>): string {
+  if (patch.name !== undefined) return `Renamed ${run.name}`
+  if (!patch.points) return `Changed ${run.name}`
   // Dragging a room hands over a whole new outline, exactly as resizing it
   // does; what tells the two apart is whether the box around it kept its size.
-  const before = polygonBounds(room.points)
+  const before = polygonBounds(run.points)
   const after = polygonBounds(patch.points)
   const sameSize =
     Math.abs(before.w - after.w) < 0.5 && Math.abs(before.h - after.h) < 0.5
-  return `${sameSize ? 'Moved' : 'Resized'} ${room.name}`
+  return `${sameSize ? 'Moved' : 'Resized'} ${run.name}`
 }
 
 export function describeOpening(

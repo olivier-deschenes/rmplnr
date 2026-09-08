@@ -28,8 +28,8 @@ export const SHORTCUT_GROUPS: Array<ShortcutGroup> = [
     shortcuts: [
       { label: 'Move', hotkey: TOOL_KEYS.move },
       { label: 'Edit: resize, rotate, reshape', hotkey: TOOL_KEYS.edit },
-      { label: 'Rectangle room', hotkey: TOOL_KEYS.rect },
-      { label: 'Draw walls', hotkey: TOOL_KEYS.room },
+      { label: 'Rectangle walls', hotkey: TOOL_KEYS.rect },
+      { label: 'Draw walls', hotkey: TOOL_KEYS.run },
       { label: 'Door', hotkey: OPENING_KEYS.door },
       { label: 'Window', hotkey: OPENING_KEYS.window },
       { label: 'Opening', hotkey: OPENING_KEYS.opening },

@@ -1,3 +1,4 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { beforeEach, expect, it } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -16,16 +17,16 @@ function plan(populated = false): Project {
     spaces: [],
     id: PLAN,
     name: 'Plan 1',
-    rooms: populated
+    walls: populated
       ? [
           {
             id: 'room-1',
             name: 'Living room',
-            points: [
+            points: closeWallPoints([
               { x: 0, y: 0 },
               { x: 400, y: 0 },
               { x: 400, y: 300 },
-            ],
+            ]),
           },
         ]
       : [],
@@ -52,13 +53,13 @@ it('offers the three useful ways to start an empty plan', () => {
   const html = guidance()
 
   expect(html).toContain('data-canvas-empty-state="true"')
-  expect(html).toContain('Rectangle room')
+  expect(html).toContain('Rectangle walls')
   expect(html).toContain('Draw walls')
   expect(html).toContain('Import plan')
 })
 
 it('follows a polygon from its first corner through finishing it', () => {
-  plannerStore.actions.setTool('room')
+  plannerStore.actions.setTool('run')
   expect(guidance()).toContain('Click anywhere to start a run')
 
   plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
@@ -84,7 +85,7 @@ it('explains cancellation and panning for the rectangle tool', () => {
 })
 
 it('offers touch controls and enables finishing only after three corners', () => {
-  plannerStore.actions.setTool('room')
+  plannerStore.actions.setTool('run')
   plannerStore.actions.addDraftPoint({ x: 0, y: 0 })
 
   const started = guidance()
@@ -110,7 +111,7 @@ it('offers a Done button while placing openings', () => {
 
 it('distinguishes an untouched blank plan from a reopened populated plan', () => {
   expect(renderToStaticMarkup(<HistoryPanel />)).toContain(
-    'Nothing yet. Draw a room to start.',
+    'Nothing yet. Draw walls to start.',
   )
 
   open(plan(true))
@@ -124,7 +125,7 @@ it('lists drawing, finishing, cancellation, and panning shortcuts', () => {
     group.shortcuts.map((shortcut) => shortcut.label),
   )
 
-  expect(labels).toContain('Rectangle room')
+  expect(labels).toContain('Rectangle walls')
   expect(labels).toContain('Stop drawing walls')
   expect(labels).toContain('Cancel current action')
   expect(labels).toContain('Pan from anywhere')

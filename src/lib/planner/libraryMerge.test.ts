@@ -16,7 +16,7 @@ function plan(
   name: string,
   furniture: Array<Furniture> = [],
 ): Project {
-  return { id, name, rooms: [], furniture, openings: [], spaces: [] }
+  return { id, name, walls: [], furniture, openings: [], spaces: [] }
 }
 
 /** The plans a merge came to, or the names it could not decide between. */
@@ -28,9 +28,9 @@ function merged(result: ReturnType<typeof mergeLibraries>) {
 
 describe('samePlan', () => {
   it('ignores a key set to nothing, which storage would not have kept', () => {
-    const drawn = { rooms: [], furniture: [sofa('s1')], openings: [] }
+    const drawn = { walls: [], furniture: [sofa('s1')], openings: [] }
     const spread = {
-      rooms: [],
+      walls: [],
       furniture: [{ ...sofa('s1'), name: 'Sofa' }],
       openings: [],
     }

@@ -1,3 +1,4 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
 import {
@@ -22,15 +23,15 @@ function plan(overrides: Partial<Project> = {}): Project {
     spaces: [],
     id: PLAN_ID,
     name: 'Flat',
-    rooms: [
+    walls: [
       {
         id: 'room-1',
         name: 'Living',
-        points: [
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 400, y: 0 },
           { x: 400, y: 300 },
-        ],
+        ]),
       },
     ],
     furniture: [
@@ -49,7 +50,7 @@ function plan(overrides: Partial<Project> = {}): Project {
       {
         id: 'door-1',
         kind: 'door',
-        roomId: 'room-1',
+        runId: 'room-1',
         wall: 0,
         t: 0.5,
         width: 80,
@@ -77,7 +78,7 @@ describe('serializeProject', () => {
       spaces: plan().spaces,
       openings: plan().openings,
       furniture: plan().furniture,
-      rooms: plan().rooms,
+      walls: plan().walls,
       name: plan().name,
       id: plan().id,
     }
@@ -106,18 +107,18 @@ describe('serializeProject', () => {
   })
 
   it('preserves a closet and its independent door', () => {
-    const closet: Project['rooms'][number] = {
+    const closet: Project['walls'][number] = {
       id: 'closet-1',
       kind: 'closet',
       name: 'Closet',
-      points: [
+      points: closeWallPoints([
         { x: 290, y: 0 },
         { x: 110, y: 0 },
         { x: 110, y: -60 },
         { x: 290, y: -60 },
-      ],
+      ]),
       attachment: {
-        roomId: 'room-1',
+        runId: 'room-1',
         wall: 0,
         t: 0.5,
       },
@@ -125,7 +126,7 @@ describe('serializeProject', () => {
     const door: Project['openings'][number] = {
       id: 'closet-door-1',
       kind: 'sliding-door',
-      roomId: closet.id,
+      runId: closet.id,
       wall: 0,
       t: 0.5,
       width: 160,
@@ -133,7 +134,7 @@ describe('serializeProject', () => {
       swing: 'in',
     }
     const project = plan({
-      rooms: [...plan().rooms, closet],
+      walls: [...plan().walls, closet],
       openings: [...plan().openings, door],
     })
 
@@ -142,10 +143,10 @@ describe('serializeProject', () => {
 
   it('preserves locked and explicitly unlocked rooms', () => {
     const project = plan({
-      rooms: [
-        { ...plan().rooms[0], locked: true },
+      walls: [
+        { ...plan().walls[0], locked: true },
         {
-          ...plan().rooms[0],
+          ...plan().walls[0],
           id: 'room-2',
           name: 'Kitchen',
           locked: false,
@@ -181,7 +182,7 @@ describe('serializeProject', () => {
   it('changes the serialized content and hash for a lock-only change', async () => {
     const unlocked = plan()
     const locked = plan({
-      rooms: [{ ...plan().rooms[0], locked: true }],
+      walls: [{ ...plan().walls[0], locked: true }],
     })
 
     expect(serializeProject(locked)).not.toBe(serializeProject(unlocked))
@@ -210,7 +211,14 @@ describe('serializeProject', () => {
 
   it('preserves room and furniture colors', () => {
     const project = plan({
-      rooms: [{ ...plan().rooms[0], color: '#f59e0b' }],
+      spaces: [
+        {
+          id: 'label-1',
+          name: 'Living',
+          color: '#f59e0b',
+          seed: { x: 100, y: 100 },
+        },
+      ],
       furniture: [{ ...plan().furniture[0], color: '#0ea5e9' }],
     })
 
@@ -233,7 +241,7 @@ describe('serializeProject', () => {
 
 describe('toProjectRecord', () => {
   it('stamps the schema version onto what leaves the browser', () => {
-    expect(toProjectRecord(plan()).schemaVersion).toBe(1)
+    expect(toProjectRecord(plan()).schemaVersion).toBe(2)
   })
 
   it('drops the schema version again on the way back in', () => {
@@ -252,12 +260,9 @@ describe('parseProjectFile', () => {
     expect(() => parseProjectFile(JSON.stringify(record))).toThrow()
   })
 
-  it('rejects a room with fewer than three corners', () => {
+  it('rejects a wall run with fewer than two endpoints', () => {
     const record = toProjectRecord(plan())
-    record.rooms[0].points = [
-      { x: 0, y: 0 },
-      { x: 1, y: 1 },
-    ]
+    record.walls[0].points = [{ x: 0, y: 0 }]
     expect(() => parseProjectFile(JSON.stringify(record))).toThrow()
   })
 
@@ -270,7 +275,7 @@ describe('library backups', () => {
   const other = plan({
     id: '22222222-2222-4222-8222-222222222222',
     name: 'House',
-    rooms: [{ ...plan().rooms[0], id: 'room-2', locked: true }],
+    walls: [{ ...plan().walls[0], id: 'room-2', locked: true }],
   })
 
   it('round-trips every plan without changing its id', () => {
@@ -305,10 +310,10 @@ describe('library backups', () => {
   it('rejects the whole backup when any plan is invalid', () => {
     const backup = toLibraryBackupRecord([plan(), other])
     const invalid = JSON.parse(JSON.stringify(backup))
-    invalid.projects[1].rooms[0].points = [{ x: 0, y: 0 }]
+    invalid.projects[1].walls[0].points = [{ x: 0, y: 0 }]
 
     expect(() => parseLibraryBackupFile(JSON.stringify(invalid))).toThrow(
-      'projects.1.rooms.0.points',
+      'projects.1.walls.0.points',
     )
   })
 

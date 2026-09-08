@@ -1,3 +1,4 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
 import { serializeProject } from '#/lib/planner/planSerialization.ts'
@@ -27,20 +28,20 @@ const PLAN_B = '22222222-2222-4222-8222-222222222222'
 /** Distinct 40-character hex strings, so the shapes read like real Git ids. */
 const sha = (seed: string) => seed.repeat(40).slice(0, 40)
 
-function plan(id: string, name: string, roomName = 'Living'): Project {
+function plan(id: string, name: string, runName = 'Living'): Project {
   return {
     spaces: [],
     id,
     name,
-    rooms: [
+    walls: [
       {
         id: 'room-1',
-        name: roomName,
-        points: [
+        name: runName,
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 400, y: 0 },
           { x: 400, y: 300 },
-        ],
+        ]),
       },
     ],
     furniture: [],
@@ -543,7 +544,7 @@ describe('planGitHubLocalDiscard', () => {
     expect(discard.recovered).toEqual([])
     expect(discard.unlinked).toEqual([])
     expect(discard.projectUpserts).toHaveLength(1)
-    expect(discard.projectUpserts[0]?.rooms[0]?.name).toBe('Living')
+    expect(discard.projectUpserts[0]?.walls[0]?.name).toBe('Living')
   })
 
   it('brings back a plan that was deleted from the library', async () => {
@@ -607,7 +608,7 @@ describe('planGitHubLocalDiscard', () => {
     )
 
     expect(discard.nextState.conflicts).toEqual([])
-    expect(discard.projectUpserts[0]?.rooms[0]?.name).toBe('Kitchen')
+    expect(discard.projectUpserts[0]?.walls[0]?.name).toBe('Kitchen')
     expect(discard.nextState.baseHeadSha).toBe(sha('b'))
   })
 

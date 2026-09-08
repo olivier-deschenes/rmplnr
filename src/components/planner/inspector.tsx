@@ -1,13 +1,9 @@
 import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import {
-  IconArrowsExchange,
-  IconBorderSides,
   IconBrush,
   IconLock,
   IconLockOpen,
-  IconRotate,
-  IconRotateClockwise,
   IconTrash,
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -41,16 +37,15 @@ import { closetSize } from '#/lib/planner/closets.ts'
 import {
   enclosureLocked,
   enclosureWalls,
-  freeEnclosures,
+  enclosuresOf,
   planFloors,
 } from '#/lib/planner/enclosures.ts'
-import { roomWallAt, wallCount } from '#/lib/planner/openings.ts'
+import { runWallAt, wallCount } from '#/lib/planner/openings.ts'
 import {
   angleBetween,
+  loopsBack,
   normalizeAngle,
   polygonArea,
-  polygonBounds,
-  scalePolygon,
 } from '#/lib/planner/geometry.ts'
 import {
   formatArea,
@@ -73,7 +68,7 @@ import type {
   Furniture,
   Opening,
   OpeningKind,
-  Room,
+  WallRun,
   StyleBrush,
   Units,
 } from '#/lib/planner/types.ts'
@@ -374,13 +369,13 @@ function SelectionActions({
  */
 function EnclosureLockButton({
   enclosure,
-  rooms,
+  walls,
 }: {
   enclosure: Enclosure
-  rooms: Array<Room>
+  walls: Array<WallRun>
 }) {
-  const locked = enclosureLocked(rooms, enclosure)
-  const held = enclosureWalls(rooms, enclosure).length
+  const locked = enclosureLocked(walls, enclosure)
+  const held = enclosureWalls(walls, enclosure).length
   return (
     <Button
       variant={locked ? 'secondary' : 'ghost'}
@@ -414,22 +409,21 @@ function EnclosureLockButton({
  */
 function EnclosurePanel({
   enclosure,
-  rooms,
+  walls,
   units,
 }: {
   enclosure: Enclosure
-  rooms: Array<Room>
+  walls: Array<WallRun>
   units: Units
 }) {
   const actions = plannerStore.actions
   const named = enclosure.space !== null
-  const locked = enclosureLocked(rooms, enclosure)
 
   return (
     <>
       <div className="flex items-center justify-between gap-2">
         <SectionTitle>Room</SectionTitle>
-        <EnclosureLockButton enclosure={enclosure} rooms={rooms} />
+        <EnclosureLockButton enclosure={enclosure} walls={walls} />
       </div>
       {!named && (
         <Alert>
@@ -459,11 +453,8 @@ function EnclosurePanel({
         </dd>
       </dl>
       <p className="text-muted-foreground text-[13px] leading-relaxed">
-        This room is whatever its walls close in, so it has no outline of its
-        own to move or resize. Select one of its walls to change it.
-        {locked
-          ? ' Locking it holds every run of walls around it, wherever else they go.'
-          : ' Locking it holds every run of walls around it, so none of them can be dragged out of place.'}
+        Select a wall to change this room’s shape. Locking this room holds the
+        surrounding walls in place.
       </p>
       {named && (
         <Button
@@ -479,27 +470,23 @@ function EnclosurePanel({
 }
 
 function ClosetPanel({
-  room,
+  run,
   host,
   units,
 }: {
-  room: Room
-  host?: Room
+  run: WallRun
+  host?: WallRun
   units: Units
 }) {
   const actions = plannerStore.actions
-  const size = closetSize(room)
+  const size = closetSize(run)
 
   return (
     <>
       <SectionTitle>Closet</SectionTitle>
       <NameField
-        value={room.name}
-        onChange={(name) => actions.updateRoom(room.id, { name })}
-      />
-      <ColorField
-        value={room.color}
-        onChange={(color) => actions.updateRoom(room.id, { color })}
+        value={run.name}
+        onChange={(name) => actions.updateRun(run.id, { name })}
       />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
@@ -507,14 +494,14 @@ function ClosetPanel({
           cm={size.width}
           units={units}
           min={MIN_SIZE}
-          onCommit={(width) => actions.updateCloset(room.id, { width })}
+          onCommit={(width) => actions.updateCloset(run.id, { width })}
         />
         <LengthField
           label="Depth"
           cm={size.depth}
           units={units}
           min={MIN_SIZE}
-          onCommit={(depth) => actions.updateCloset(room.id, { depth })}
+          onCommit={(depth) => actions.updateCloset(run.id, { depth })}
         />
       </div>
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
@@ -524,7 +511,7 @@ function ClosetPanel({
         </dd>
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {formatArea(polygonArea(room.points), units, 2)}
+          {formatArea(polygonArea(run.points), units, 2)}
         </dd>
       </dl>
       <SelectionActions duplicate={false} />
@@ -532,15 +519,15 @@ function ClosetPanel({
   )
 }
 
-function RoomLockButton({ room }: { room: Room }) {
-  const locked = room.locked === true
+function RunLockButton({ run }: { run: WallRun }) {
+  const locked = run.locked === true
   return (
     <Button
       variant={locked ? 'secondary' : 'ghost'}
       size="sm"
       className="h-8 gap-1.5 px-2 text-xs"
       aria-pressed={locked}
-      onClick={() => plannerStore.actions.setRoomLocked(room.id, !locked)}
+      onClick={() => plannerStore.actions.setRunLocked(run.id, !locked)}
     >
       {locked ? (
         <IconLock className="size-3" />
@@ -552,8 +539,8 @@ function RoomLockButton({ room }: { room: Room }) {
   )
 }
 
-function ContinueWalls({ room }: { room: Room }) {
-  if (room.closed !== false) return null
+function ContinueWalls({ run }: { run: WallRun }) {
+  if (loopsBack(run.points)) return null
   return (
     <div className="grid gap-2">
       <p className="text-muted-foreground text-[13px] leading-relaxed">
@@ -563,16 +550,16 @@ function ContinueWalls({ room }: { room: Room }) {
         <Button
           variant="outline"
           size="sm"
-          disabled={room.locked}
-          onClick={() => plannerStore.actions.continueWalls(room.id, 'start')}
+          disabled={run.locked}
+          onClick={() => plannerStore.actions.continueWalls(run.id, 'start')}
         >
           Continue from start
         </Button>
         <Button
           variant="outline"
           size="sm"
-          disabled={room.locked}
-          onClick={() => plannerStore.actions.continueWalls(room.id, 'end')}
+          disabled={run.locked}
+          onClick={() => plannerStore.actions.continueWalls(run.id, 'end')}
         >
           Continue from end
         </Button>
@@ -581,199 +568,47 @@ function ContinueWalls({ room }: { room: Room }) {
   )
 }
 
-/**
- * The button that hands a room back to its walls.
- *
- * It is put next to the controls that move and resize the outline, because it
- * is the answer to the reader who has stopped wanting those: it takes the
- * outline away and leaves the walls, which are then pushed about one at a time.
- * Nothing on the plan moves, and the floor keeps its name and its colour, so
- * the only way to tell it happened is that the room can no longer be dragged
- * as a piece.
- */
-function ConvertToWalls({ room }: { room: Room }) {
-  const [error, setError] = useState<string | null>(null)
-  const locked = room.locked === true
-
-  return (
-    <div className="grid gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={locked}
-        aria-label={`Convert ${room.name} to walls`}
-        onClick={() => {
-          const result = plannerStore.actions.convertRoomToWalls(room.id)
-          setError(result.ok ? null : result.error)
-        }}
-      >
-        <IconBorderSides />
-        Convert to walls
-      </Button>
-      {error ? (
-        <Alert variant="destructive">
-          <AlertDescription role="alert">{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      <p className="text-muted-foreground text-[13px] leading-relaxed">
-        Give up the outline and keep the walls, each free to be moved on its
-        own. The walls stay where they are, and the floor they close in keeps
-        this name and colour.
-      </p>
-    </div>
-  )
-}
-
-function RoomPanel({ room, units }: { room: Room; units: Units }) {
-  const actions = plannerStore.actions
-  const bounds = polygonBounds(room.points)
-  // The padlock is the first thing this panel has to say about a room:
-  // everything below it that changes the outline is held while it is on.
-  const locked = room.locked === true
-  const rotate = (degrees: number) => {
-    actions.rotateRoom(room.id, degrees)
-    actions.sealHistory()
-  }
-  const swapDimensions = () => {
-    actions.updateRoom(room.id, {
-      points: scalePolygon(room.points, bounds.h, bounds.w),
-    })
-    actions.sealHistory()
-  }
-
-  if (room.closed === false)
-    return (
-      <>
-        <div className="flex items-center justify-between gap-2">
-          <SectionTitle>Open walls</SectionTitle>
-          <RoomLockButton room={room} />
-        </div>
-        <NameField
-          value={room.name}
-          onChange={(name) => actions.updateRoom(room.id, { name })}
-        />
-        <p className="text-muted-foreground text-[13px] leading-relaxed">
-          Select a wall or its measurement to change its length and angle. Drag
-          a corner to reshape it.
-        </p>
-        <ContinueWalls room={room} />
-        <SelectionActions deletable={!locked} />
-      </>
-    )
-
+function RunPanel({ run }: { run: WallRun }) {
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <SectionTitle>Room</SectionTitle>
-        <RoomLockButton room={room} />
+        <SectionTitle>Walls</SectionTitle>
+        <RunLockButton run={run} />
       </div>
-      <NameField
-        value={room.name}
-        onChange={(name) => actions.updateRoom(room.id, { name })}
-      />
-      <ColorField
-        value={room.color}
-        onChange={(color) => actions.updateRoom(room.id, { color })}
-      />
-      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-1">
-        <LengthField
-          label="Width"
-          cm={bounds.w}
-          units={units}
-          min={MIN_SIZE}
-          disabled={locked}
-          onCommit={(w) =>
-            actions.updateRoom(room.id, {
-              points: scalePolygon(room.points, w, bounds.h),
-            })
-          }
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="mb-1"
-          disabled={locked}
-          aria-label={`Swap width and height for ${room.name}`}
-          title="Swap width and height"
-          onClick={swapDimensions}
-        >
-          <IconArrowsExchange />
-        </Button>
-        <LengthField
-          label="Height"
-          cm={bounds.h}
-          units={units}
-          min={MIN_SIZE}
-          disabled={locked}
-          onCommit={(h) =>
-            actions.updateRoom(room.id, {
-              points: scalePolygon(room.points, bounds.w, h),
-            })
-          }
-        />
-      </div>
-      <div className="grid gap-1.5">
-        <span className="text-muted-foreground text-xs">Rotate 90°</span>
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={locked}
-            aria-label={`Rotate ${room.name} 90 degrees counterclockwise`}
-            onClick={() => rotate(-90)}
-          >
-            <IconRotate />
-            Left
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={locked}
-            aria-label={`Rotate ${room.name} 90 degrees clockwise`}
-            onClick={() => rotate(90)}
-          >
-            <IconRotateClockwise />
-            Right
-          </Button>
-        </div>
-      </div>
-      <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
-        <dt>Area</dt>
-        <dd className="text-foreground text-right tabular-nums">
-          {formatArea(polygonArea(room.points), units, 2)}
-        </dd>
-      </dl>
-      <ConvertToWalls room={room} />
-      <SelectionActions deletable={!locked} />
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
+        Select a wall or its measurement to change its length and angle. Drag a
+        corner to reshape it.
+      </p>
+      <ContinueWalls run={run} />
+      <SelectionActions deletable={!run.locked} />
     </>
   )
 }
 
 function WallPanel({
-  room,
+  run,
   index,
   units,
 }: {
-  room: Room
+  run: WallRun
   index: number
   units: Units
 }) {
   // Why a wall could not be taken out is about the wall rather than about
   // anything typed, so it is held here rather than under a field.
   const [removal, setRemoval] = useState<string | null>(null)
-  const wall = roomWallAt(room, index)
+  const wall = runWallAt(run, index)
   if (!wall) return null
-  const locked = room.locked === true
+  const locked = run.locked === true
   const change = (patch: { length?: number; angle?: number }) => {
-    const result = plannerStore.actions.setWallDimensions(room.id, index, patch)
+    const result = plannerStore.actions.setWallDimensions(run.id, index, patch)
     return result.ok ? null : formatMeasurementMessage(result.error, units)
   }
   // Only a run of walls has a wall to give up; a room has to become its walls
   // first, and the button that does that is on the room.
-  const removable = room.closed === false
+  const removable = run.kind !== 'closet'
   const remove = () => {
-    const result = plannerStore.actions.removeWall(room.id, index)
+    const result = plannerStore.actions.removeWall(run.id, index)
     // A wall that goes takes this panel with it: the run is what is left to
     // hold, so there is nothing here to clear the message off.
     setRemoval(result.ok ? null : formatMeasurementMessage(result.error, units))
@@ -783,11 +618,11 @@ function WallPanel({
     <>
       <div className="flex items-center justify-between gap-2">
         <SectionTitle>
-          Wall {index + 1} of {wallCount(room)}
+          Wall {index + 1} of {wallCount(run)}
         </SectionTitle>
-        <RoomLockButton room={room} />
+        <RunLockButton run={run} />
       </div>
-      <ContinueWalls room={room} />
+      <ContinueWalls run={run} />
       <div className="grid grid-cols-2 gap-2">
         <LengthField
           label="Length"
@@ -807,7 +642,7 @@ function WallPanel({
       {locked ? (
         <Alert>
           <AlertDescription>
-            Unlock {room.name} to edit this wall.
+            Unlock {run.name} to edit this wall.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -816,7 +651,7 @@ function WallPanel({
           variant="outline"
           size="sm"
           disabled={locked}
-          aria-label={`Remove wall ${index + 1} of ${room.name}`}
+          aria-label={`Remove wall ${index + 1} of ${run.name}`}
           onClick={remove}
         >
           <IconTrash />
@@ -830,16 +665,14 @@ function WallPanel({
       ) : null}
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>In</dt>
-        <dd className="text-foreground truncate text-right">{room.name}</dd>
+        <dd className="text-foreground truncate text-right">{run.name}</dd>
         <dt>Anchor</dt>
         <dd className="text-foreground text-right">Start corner</dd>
       </dl>
       <p className="text-muted-foreground text-[13px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
-        clockwise.{' '}
-        {removable
-          ? 'You can resize a wall now and keep drawing from the updated endpoint.'
-          : 'To take this wall out, convert the room to walls first: a room is a closed outline, and a room short of a wall is not one.'}
+        clockwise. You can resize a wall and keep drawing from its updated
+        endpoint.
       </p>
     </>
   )
@@ -1019,17 +852,17 @@ function ChoiceField({
  */
 function OpeningPanel({
   opening,
-  room,
+  run,
   units,
 }: {
   opening: Opening
-  room: Room
+  run: WallRun
   units: Units
 }) {
   const actions = plannerStore.actions
   const update = (patch: Partial<Opening>) =>
     actions.updateOpening(opening.id, patch)
-  const wall = roomWallAt(room, opening.wall)
+  const wall = runWallAt(run, opening.wall)
   if (!wall) return null
 
   // Kept as a fraction, shown as the distance from the wall's first corner:
@@ -1099,10 +932,10 @@ function OpeningPanel({
       )}
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>In</dt>
-        <dd className="text-foreground truncate text-right">{room.name}</dd>
+        <dd className="text-foreground truncate text-right">{run.name}</dd>
         <dt>Wall</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {opening.wall + 1} of {wallCount(room)}
+          {opening.wall + 1} of {wallCount(run)}
         </dd>
         <dt>Wall length</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -1115,7 +948,7 @@ function OpeningPanel({
 }
 
 function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
-  const rooms = useSelector(plannerStore, (s) => s.rooms)
+  const walls = useSelector(plannerStore, (s) => s.walls)
   const spaces = useSelector(plannerStore, (s) => s.spaces)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
@@ -1123,7 +956,7 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
     plannerStore,
     (s) => s.projects.find((p) => p.id === s.projectId)?.name ?? '',
   )
-  const floors = planFloors(rooms, spaces)
+  const floors = planFloors(walls, spaces)
 
   return (
     <>
@@ -1171,7 +1004,7 @@ export function Inspector({
   nameId?: string
 }) {
   const selection = useSelector(plannerStore, (s) => s.selection)
-  const rooms = useSelector(plannerStore, (s) => s.rooms)
+  const walls = useSelector(plannerStore, (s) => s.walls)
   const spaces = useSelector(plannerStore, (s) => s.spaces)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
@@ -1179,14 +1012,12 @@ export function Inspector({
 
   const enclosure =
     selection?.type === 'enclosure'
-      ? freeEnclosures(rooms, spaces).find(
-          (found) => found.key === selection.id,
-        )
+      ? enclosuresOf(walls, spaces).find((found) => found.key === selection.id)
       : undefined
 
-  const room =
-    selection?.type === 'room'
-      ? rooms.find((r) => r.id === selection.id)
+  const run =
+    selection?.type === 'run'
+      ? walls.find((r) => r.id === selection.id)
       : undefined
   const item =
     selection?.type === 'furniture'
@@ -1196,14 +1027,14 @@ export function Inspector({
     selection?.type === 'opening'
       ? openings.find((o) => o.id === selection.id)
       : undefined
-  const wallRoom =
+  const wallRun =
     selection?.type === 'wall'
-      ? rooms.find((candidate) => candidate.id === selection.id)
+      ? walls.find((candidate) => candidate.id === selection.id)
       : undefined
-  const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
+  const openingRun = opening && walls.find((r) => r.id === opening.runId)
   const closetHost =
-    room?.kind === 'closet' && room.attachment
-      ? rooms.find((candidate) => candidate.id === room.attachment?.roomId)
+    run?.kind === 'closet' && run.attachment
+      ? walls.find((candidate) => candidate.id === run.attachment?.runId)
       : undefined
 
   return (
@@ -1223,27 +1054,27 @@ export function Inspector({
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.
         */}
-        {wallRoom && selection?.type === 'wall' ? (
+        {wallRun && selection?.type === 'wall' ? (
           <WallPanel
-            key={`${wallRoom.id}-${selection.index}-${units}`}
-            room={wallRoom}
+            key={`${wallRun.id}-${selection.index}-${units}`}
+            run={wallRun}
             index={selection.index}
             units={units}
           />
-        ) : room?.kind === 'closet' ? (
+        ) : run?.kind === 'closet' ? (
           <ClosetPanel
-            key={`${room.id}-${units}`}
-            room={room}
+            key={`${run.id}-${units}`}
+            run={run}
             host={closetHost}
             units={units}
           />
-        ) : room ? (
-          <RoomPanel key={`${room.id}-${units}`} room={room} units={units} />
+        ) : run ? (
+          <RunPanel key={`${run.id}-${units}`} run={run} />
         ) : enclosure ? (
           <EnclosurePanel
             key={`${enclosure.key}-${units}`}
             enclosure={enclosure}
-            rooms={rooms}
+            walls={walls}
             units={units}
           />
         ) : item ? (
@@ -1252,11 +1083,11 @@ export function Inspector({
             item={item}
             units={units}
           />
-        ) : opening && openingRoom ? (
+        ) : opening && openingRun ? (
           <OpeningPanel
             key={`${opening.id}-${units}`}
             opening={opening}
-            room={openingRoom}
+            run={openingRun}
             units={units}
           />
         ) : (

@@ -1,5 +1,5 @@
 import { wallCount } from './openings.ts'
-import type { Point, Room } from './types.ts'
+import type { Point, WallRun } from './types.ts'
 
 /**
  * What pulls one room onto another.
@@ -48,21 +48,21 @@ function add(lines: Array<Line>, value: number, from: number, to: number) {
  * along and the two through its ends, which is what lets a room go flush
  * against a neighbour's face as readily as it lines its corners up with one.
  */
-export function snapTargets(rooms: Array<Room>, exclude?: string): Targets {
+export function snapTargets(walls: Array<WallRun>, exclude?: string): Targets {
   const xs: Array<Line> = []
   const ys: Array<Line> = []
 
-  for (const room of rooms) {
+  for (const run of walls) {
     // An attached closet travels with its host room, so it is part of the
     // moving shape rather than a line the host should snap back onto.
     if (
       exclude !== undefined &&
-      (room.id === exclude || room.attachment?.roomId === exclude)
+      (run.id === exclude || run.attachment?.runId === exclude)
     )
       continue
-    for (let i = 0; i < wallCount(room); i++) {
-      const a = room.points[i]
-      const b = room.points[(i + 1) % room.points.length]
+    for (let i = 0; i < wallCount(run); i++) {
+      const a = run.points[i]
+      const b = run.points[(i + 1) % run.points.length]
       add(xs, a.x, a.y, b.y)
       add(xs, b.x, a.y, b.y)
       add(ys, a.y, a.x, b.x)

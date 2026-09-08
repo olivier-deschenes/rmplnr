@@ -1,7 +1,7 @@
 import {
   openingEnds,
   pointOnWall,
-  roomWallAt,
+  runWallAt,
   wallSegments,
 } from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
@@ -12,7 +12,7 @@ import type {
   FurnitureKind,
   Opening,
   Point,
-  Room,
+  WallRun,
 } from '#/lib/planner/types.ts'
 import type { Span, Wall } from '#/lib/planner/openings.ts'
 import type { Enclosure } from '#/lib/planner/enclosures.ts'
@@ -52,62 +52,7 @@ function inked(color: string, alpha: number): CSSProperties {
   return { stroke: color, ...wash(color, alpha) }
 }
 
-/**
- * A room's floor: the polygon its wall centrelines enclose, filled so it
- * occludes the grid and so the room's interior is what a click lands on.
- *
- * The walls are not drawn here. They belong to the plan rather than to any one
- * room — the wall between two rooms is a single wall — so they go down in one
- * pass of their own, over every floor.
- */
-export function RoomFloor({
-  room,
-  selected,
-  onPointerDown,
-}: {
-  room: Room
-  selected: boolean
-  onPointerDown: (event: React.PointerEvent) => void
-}) {
-  if (room.closed === false) return null
-  const points = room.points.map((p) => `${p.x},${p.y}`).join(' ')
-
-  if (!room.color) {
-    return (
-      <polygon
-        points={points}
-        className={`cursor-move ${selected ? 'fill-muted' : 'fill-background'}`}
-        stroke="none"
-        onPointerDown={onPointerDown}
-      />
-    )
-  }
-
-  // Two coats: the paper first, so the grid stays covered whatever the wash is
-  // thinned to, and the colour over it. A room takes no outline of its own —
-  // the wall is its edge, and it is drawn later, in one pass over every floor.
-  return (
-    <g className="cursor-move" onPointerDown={onPointerDown}>
-      <polygon points={points} className="fill-background" stroke="none" />
-      <polygon
-        points={points}
-        style={wash(room.color, ROOM_WASH)}
-        stroke="none"
-      />
-    </g>
-  )
-}
-
-/**
- * The floor of a space the walls close in that was never drawn as a room.
- *
- * Drawn exactly as a room's floor is, because it is one — a space walled in
- * against a wall that was already there is a room, whatever order its walls
- * happened to be drawn in. What is different is only what it does when nobody
- * has named it yet: it is washed the faintest amount in the accent, which is
- * the plan saying *there is a room here* to someone who has not noticed that
- * their walls closed. Naming it settles it down into an ordinary floor.
- */
+/** Draw the floor inferred from its boundary walls. */
 export function EnclosureFloor({
   enclosure,
   selected = false,
@@ -151,7 +96,7 @@ export function EnclosureFloor({
 }
 
 /**
- * The walls of one room, stroked at the wall's own thickness in world units so
+ * The walls of the plan, stroked at the wall's own thickness in world units so
  * that the band straddles the centreline. Two rooms sitting flush lay identical
  * bands over each other and come out as the one wall they share; nothing has to
  * be merged for that to happen, which is the whole reason walls are drawn this
@@ -160,7 +105,7 @@ export function EnclosureFloor({
  * Butt caps, so an opening's gap is cut square at its jambs rather than being
  * closed back up by the cap, and mitred joins so corners come to a point.
  */
-export function RoomWalls({ d, scale }: { d: string; scale: number }) {
+export function RunWalls({ d, scale }: { d: string; scale: number }) {
   return (
     <path
       d={d}
@@ -181,18 +126,18 @@ export function RoomWalls({ d, scale }: { d: string; scale: number }) {
  * another room behind it.
  */
 export function SharedWalls({
-  room,
+  run,
   spans,
   scale,
 }: {
-  room: Room
+  run: WallRun
   spans: Array<{ wall: number; span: Span }>
   scale: number
 }) {
   return (
     <g className="pointer-events-none">
       {spans.map(({ wall, span }, i) => {
-        const frame = roomWallAt(room, wall)
+        const frame = runWallAt(run, wall)
         if (!frame) return null
         const a = pointOnWall(frame, span[0])
         const b = pointOnWall(frame, span[1])
@@ -223,18 +168,18 @@ export function SharedWalls({
  * selecting the wall does not fill it back in.
  */
 export function SelectedWall({
-  room,
+  run,
   index,
   gaps,
   scale,
 }: {
-  room: Room
+  run: WallRun
   index: number
   /** What is cut through this wall: the doorways and windows. */
   gaps: Array<Span>
   scale: number
 }) {
-  const frame = roomWallAt(room, index)
+  const frame = runWallAt(run, index)
   if (!frame) return null
   return (
     <g className="pointer-events-none">

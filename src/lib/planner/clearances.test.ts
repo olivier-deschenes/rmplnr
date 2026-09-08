@@ -1,3 +1,4 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
 import { clearancesFor } from './clearances.ts'
@@ -5,18 +6,18 @@ import { placeCloset } from './closets.ts'
 import { wallAt } from './openings.ts'
 
 import type { Clearance } from './clearances.ts'
-import type { Furniture, Opening, Room } from './types.ts'
+import type { Furniture, Opening, WallRun } from './types.ts'
 
 /** A 400 x 300 room, its walls 12 thick about the outline below. */
-const ROOM: Room = {
-  id: 'room',
+const ROOM: WallRun = {
+  id: 'run',
   name: 'Living',
-  points: [
+  points: closeWallPoints([
     { x: 0, y: 0 },
     { x: 400, y: 0 },
     { x: 400, y: 300 },
     { x: 0, y: 300 },
-  ],
+  ]),
 }
 
 function box(over: Partial<Furniture> = {}): Furniture {
@@ -37,7 +38,7 @@ function door(over: Partial<Opening> = {}): Opening {
   return {
     id: 'door',
     kind: 'door',
-    roomId: 'room',
+    runId: 'run',
     wall: 0,
     t: 0.25,
     width: 90,
@@ -165,13 +166,8 @@ describe('opening clearances', () => {
 
 describe('closet clearances', () => {
   const wall = wallAt(ROOM.points, 0)!
-  const placed = placeCloset(
-    wall,
-    { roomId: ROOM.id, wall: 0, t: 0.5 },
-    180,
-    60,
-  )
-  const closet: Room = {
+  const placed = placeCloset(wall, { runId: ROOM.id, wall: 0, t: 0.5 }, 180, 60)
+  const closet: WallRun = {
     id: 'closet',
     kind: 'closet',
     name: 'Closet',
@@ -181,7 +177,7 @@ describe('closet clearances', () => {
 
   it('measures its front along the wall it hangs on', () => {
     const found = clearancesFor(
-      { type: 'room', id: 'closet' },
+      { type: 'run', id: 'closet' },
       [ROOM, closet],
       [],
       [],
@@ -191,7 +187,7 @@ describe('closet clearances', () => {
 
   it('leaves an ordinary room alone', () => {
     expect(
-      clearancesFor({ type: 'room', id: 'room' }, [ROOM, closet], [], []),
+      clearancesFor({ type: 'run', id: 'run' }, [ROOM, closet], [], []),
     ).toEqual([])
   })
 })

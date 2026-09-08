@@ -19,7 +19,7 @@ const project: Project = {
   spaces: [],
   id: '11111111-1111-4111-8111-111111111111',
   name: 'Main / Floor',
-  rooms: [],
+  walls: [],
   furniture: [],
   openings: [],
 }

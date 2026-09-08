@@ -1,8 +1,6 @@
 import {
   distance,
-  outwardSign,
   pointInPolygon,
-  polygonArea,
   polygonCentroid,
   worldToScreen,
 } from './geometry.ts'
@@ -10,7 +8,7 @@ import {
   openingEnds,
   openingWall,
   pointOnWall,
-  roomWallAt,
+  runWallAt,
   wallCount,
 } from './openings.ts'
 import { formatArea, formatLength } from './units.ts'
@@ -24,7 +22,7 @@ import type {
   Opening,
   Point,
   Rect,
-  Room,
+  WallRun,
   Units,
   Viewport,
 } from './types.ts'
@@ -49,8 +47,8 @@ export type Box = { centre: Point; w: number; h: number; angle: number }
 
 export type WallLabel = {
   key: string
-  roomId: string
-  roomName: string
+  runId: string
+  runName: string
   wall: number
   text: string
   box: Box
@@ -264,18 +262,13 @@ export function floorLabel(
  * go — the clearances put up while something is dragged — which are laid beside
  * what the plan already says rather than laid out along with it.
  */
-export function roomLabelBoxes(
-  rooms: Array<Room>,
+export function runLabelBoxes(
+  _walls: Array<WallRun>,
   vp: Viewport,
   units: Units,
   enclosures: Array<Enclosure> = [],
 ): Array<Box> {
   return [
-    ...rooms
-      .filter((room) => room.closed !== false)
-      .map((room) =>
-        floorLabel(room.points, room.name, polygonArea(room.points), vp, units),
-      ),
     ...enclosures.map((enclosure) =>
       floorLabel(
         enclosure.points,
@@ -365,13 +358,13 @@ function namePlacement(
  * footprint, and a name never leaves the footprint it belongs to.
  */
 export function furnitureNames(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   furniture: Array<Furniture>,
   vp: Viewport,
   units: Units,
   enclosures: Array<Enclosure> = [],
 ): Array<NameLabel> {
-  const taken = roomLabelBoxes(rooms, vp, units, enclosures)
+  const taken = runLabelBoxes(walls, vp, units, enclosures)
   const labels: Array<NameLabel> = []
 
   for (const item of furniture) {
@@ -392,10 +385,10 @@ export function furnitureNames(
  */
 function openingBox(
   opening: Opening,
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   vp: Viewport,
 ): Box | null {
-  const wall = openingWall(rooms, opening)
+  const wall = openingWall(walls, opening)
   if (!wall) return null
   const { centre, width } = openingEnds(wall, opening)
   const swings = HINGED_KINDS.includes(opening.kind)
@@ -437,8 +430,8 @@ export function uprightAngle(dir: Point): number {
 
 type Candidate = {
   key: string
-  roomId: string
-  roomName: string
+  runId: string
+  runName: string
   wall: number
   text: string
   /** Midpoint of the wall on screen, where the label would rather sit. */
@@ -530,7 +523,7 @@ function dimensionSpans(
 }
 
 export function wallLabels(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   furniture: Array<Furniture>,
   openings: Array<Opening>,
   viewport: Viewport,
@@ -553,9 +546,9 @@ export function wallLabels(
   // join the list as they are placed, so they clear each other as well.
   const taken: Array<Box> = [
     ...furniture.map((item) => furnitureBox(item, viewport)),
-    ...roomLabelBoxes(rooms, viewport, units, enclosures),
+    ...runLabelBoxes(walls, viewport, units, enclosures),
     ...openings.flatMap((opening) => {
-      const box = openingBox(opening, rooms, viewport)
+      const box = openingBox(opening, walls, viewport)
       return box ? [box] : []
     }),
   ].filter((box) => inView(box, consulted))
@@ -565,13 +558,13 @@ export function wallLabels(
   // copy of it, and one wall wants one number, so the second room's copy is
   // passed over: same line, same length, already labelled.
   const numbered: Array<{ mid: Point; length: number }> = []
-  const standing = standingWalls(rooms, openings)
+  const standing = standingWalls(walls, openings)
 
-  for (const room of rooms) {
-    const sign = room.closed === false ? 1 : outwardSign(room.points)
+  for (const run of walls) {
+    const sign = 1
 
-    for (let i = 0; i < wallCount(room); i++) {
-      const frame = roomWallAt(room, i)
+    for (let i = 0; i < wallCount(run); i++) {
+      const frame = runWallAt(run, i)
       if (!frame) continue
       const a = worldToScreen(frame.a, viewport)
       const b = worldToScreen(frame.b, viewport)
@@ -606,9 +599,9 @@ export function wallLabels(
 
         const tangent = frame.tangent
         candidates.push({
-          key: `${room.id}:${i}:${segment}`,
-          roomId: room.id,
-          roomName: room.name,
+          key: `${run.id}:${i}:${segment}`,
+          runId: run.id,
+          runName: run.name,
           wall: i,
           text: formatLength(world, units),
           mid: worldToScreen(mid, viewport),
@@ -641,8 +634,8 @@ export function wallLabels(
     const slot = slots[spot.index]
     labels.push({
       key: candidate.key,
-      roomId: candidate.roomId,
-      roomName: candidate.roomName,
+      runId: candidate.runId,
+      runName: candidate.runName,
       wall: candidate.wall,
       text: candidate.text,
       box: spot.box,

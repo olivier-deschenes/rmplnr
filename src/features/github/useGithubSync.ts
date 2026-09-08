@@ -148,7 +148,7 @@ function websocketUrl(): string {
  * How long the plans have to stand still before they are hashed again.
  *
  * The library is the store, and the store moves with the pointer: dragging a
- * wall replaces `rooms` on every frame. Hashing every plan at that rate to
+ * wall replaces `walls` on every frame. Hashing every plan at that rate to
  * find out whether anything is waiting to commit would be work thrown away
  * sixty times a second, so the answer is allowed to arrive a moment late. It
  * is a badge on a button, not something anyone is waiting on.
@@ -167,7 +167,7 @@ const HASH_DEBOUNCE_MS = 250
 function usePlannerProjects(): Project[] {
   const projects = useSelector(plannerStore, (s) => s.projects)
   const projectId = useSelector(plannerStore, (s) => s.projectId)
-  const rooms = useSelector(plannerStore, (s) => s.rooms)
+  const walls = useSelector(plannerStore, (s) => s.walls)
   const furniture = useSelector(plannerStore, (s) => s.furniture)
   const openings = useSelector(plannerStore, (s) => s.openings)
   const spaces = useSelector(plannerStore, (s) => s.spaces)
@@ -176,10 +176,10 @@ function usePlannerProjects(): Project[] {
     () =>
       projects.map((project) =>
         project.id === projectId
-          ? { ...project, rooms, furniture, openings, spaces }
+          ? { ...project, walls, furniture, openings, spaces }
           : project,
       ),
-    [projects, projectId, rooms, furniture, openings, spaces],
+    [projects, projectId, walls, furniture, openings, spaces],
   )
 }
 

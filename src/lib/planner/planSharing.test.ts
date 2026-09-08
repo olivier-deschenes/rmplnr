@@ -1,3 +1,4 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
 import {
@@ -10,19 +11,20 @@ import {
 import type { Project } from './types.ts'
 
 const project: Project = {
-  spaces: [],
+  spaces: [
+    { id: 'label-1', name: 'Living', color: '#f59e0b', seed: { x: 50, y: 50 } },
+  ],
   id: '11111111-1111-4111-8111-111111111111',
   name: 'Shared flat',
-  rooms: [
+  walls: [
     {
       id: 'room-1',
       name: 'Living room',
-      color: '#f59e0b',
-      points: [
+      points: closeWallPoints([
         { x: 0, y: 0 },
         { x: 400, y: 0 },
         { x: 400, y: 300 },
-      ],
+      ]),
       locked: true,
     },
   ],
@@ -42,7 +44,7 @@ const project: Project = {
     {
       id: 'door-1',
       kind: 'door',
-      roomId: 'room-1',
+      runId: 'room-1',
       wall: 0,
       t: 0.5,
       width: 80,

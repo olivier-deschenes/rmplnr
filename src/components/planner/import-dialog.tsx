@@ -33,7 +33,7 @@ type Prepared = ParsedRmplnrFile & { fileName: string }
 
 function projectContents(project: Project): string {
   const pieces = [
-    `${project.rooms.length} room${project.rooms.length === 1 ? '' : 's'}`,
+    `${project.walls.length} run${project.walls.length === 1 ? '' : 's'}`,
     `${project.furniture.length} item${project.furniture.length === 1 ? '' : 's'}`,
     `${project.openings.length} opening${project.openings.length === 1 ? '' : 's'}`,
   ]
@@ -226,8 +226,8 @@ export function ImportDialog({
                   >
                     <span className="truncate">{project.name}</span>
                     <span className="text-muted-foreground shrink-0 text-[10px]">
-                      {project.rooms.length} room
-                      {project.rooms.length === 1 ? '' : 's'}
+                      {project.walls.length} room
+                      {project.walls.length === 1 ? '' : 's'}
                     </span>
                   </li>
                 ))}

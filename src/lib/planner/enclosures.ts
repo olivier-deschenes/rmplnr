@@ -4,10 +4,10 @@ import {
   polygonArea,
   distance,
 } from './geometry.ts'
-import { wallCount, roomWallAt } from './openings.ts'
+import { wallCount, runWallAt } from './openings.ts'
 import { WALL_THICKNESS } from './walls.ts'
 
-import type { Point, Room, Space } from './types.ts'
+import type { Point, WallRun, Space } from './types.ts'
 
 /**
  * A room is whatever the walls close in.
@@ -66,12 +66,6 @@ function averageWidth(points: Array<Point>): number {
   return perimeter === 0 ? 0 : (2 * polygonArea(points)) / perimeter
 }
 
-/**
- * How much of a closed room's own area a loop has to account for to *be* that
- * room's floor rather than a part of it walled off since.
- */
-const SAME_FLOOR = 0.02
-
 /** One enclosed space on the plan, and whatever is known about it. */
 export type Enclosure = {
   /**
@@ -87,8 +81,6 @@ export type Enclosure = {
   area: number
   /** Somewhere inside it: where its name is written, and what a click hits. */
   centre: Point
-  /** The closed room that was drawn as this floor, if it was drawn as one. */
-  roomId: string | null
   /** The name and colour put on it, once someone has put one on. */
   space: Space | null
 }
@@ -96,11 +88,11 @@ export type Enclosure = {
 type Segment = { a: Point; b: Point }
 
 /** Every wall centreline on the plan, whichever run it was drawn as part of. */
-export function wallLines(rooms: Array<Room>): Array<Segment> {
+export function wallLines(walls: Array<WallRun>): Array<Segment> {
   const lines: Array<Segment> = []
-  for (const room of rooms) {
-    for (let i = 0; i < wallCount(room); i++) {
-      const wall = roomWallAt(room, i)
+  for (const run of walls) {
+    for (let i = 0; i < wallCount(run); i++) {
+      const wall = runWallAt(run, i)
       if (wall) lines.push({ a: wall.a, b: wall.b })
     }
   }
@@ -292,8 +284,8 @@ function dropStraightCorners(points: Array<Point>): Array<Point> {
  * loop is traced exactly once. The walk around the outside of the plan comes
  * out wound the other way, and is dropped along with the slivers.
  */
-export function wallLoops(rooms: Array<Room>): Array<Array<Point>> {
-  const { points, neighbours } = graphOf(planarEdges(wallLines(rooms)))
+export function wallLoops(walls: Array<WallRun>): Array<Array<Point>> {
+  const { points, neighbours } = graphOf(planarEdges(wallLines(walls)))
   const walked = new Set<string>()
   const loops: Array<Array<Point>> = []
 
@@ -374,66 +366,54 @@ function boundSpace(
  * under it and stays clickable.
  */
 export function enclosuresOf(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   spaces: Array<Space> = [],
 ): Array<Enclosure> {
-  const closed = rooms.filter((room) => room.closed !== false)
-  const found: Array<Enclosure> = []
   const taken = new Set<string>()
-
-  for (const loop of wallLoops(rooms)) {
-    const area = polygonArea(loop)
-    const centre = interiorPoint(loop)
-    // Searched from the end, so that the room drawn last wins the floor it
-    // shares — the same order the canvas paints them in.
-    const host = [...closed]
-      .reverse()
-      .find((room) => pointInPolygon(centre, room.points))
-    if (host) {
-      const drawnAsThisRoom =
-        Math.abs(polygonArea(host.points) - area) <=
-        Math.max(MIN_ENCLOSURE_AREA, area * SAME_FLOOR)
-      // A loop inside a room that is smaller than it is a part of that room
-      // walled off since. The room is still drawn whole, and its floor covers
-      // this one, so offering it as a space of its own would only put a second
-      // name on ground that already has one.
-      if (!drawnAsThisRoom) continue
-      found.push({
-        key: loopKey(loop),
-        points: loop,
-        area,
-        centre,
-        roomId: host.id,
-        space: null,
-      })
-      continue
+  const loops = wallLoops(walls)
+    .map((points) => ({
+      points,
+      area: polygonArea(points),
+      centre: interiorPoint(points),
+    }))
+    .sort((a, b) => a.area - b.area)
+  // A disconnected inner loop is a hole in its immediate enclosing floor.
+  const parents = loops.map((loop, index) =>
+    loops.findIndex(
+      (outer, candidate) =>
+        candidate > index && pointInPolygon(loop.centre, outer.points),
+    ),
+  )
+  const floors = loops.map((loop, index) => {
+    const children = loops.filter((_, child) => parents[child] === index)
+    const contains = (point: Point) =>
+      pointInPolygon(point, loop.points) &&
+      !children.some((child) => pointInPolygon(point, child.points))
+    let centre = loop.centre
+    if (!contains(centre)) {
+      for (let i = 0; i < loop.points.length; i++) {
+        const a = loop.points[i],
+          b = loop.points[(i + 1) % loop.points.length]
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const candidate = {
+          x: midpoint.x * 0.99 + loop.centre.x * 0.01,
+          y: midpoint.y * 0.99 + loop.centre.y * 0.01,
+        }
+        if (contains(candidate)) {
+          centre = candidate
+          break
+        }
+      }
     }
-    found.push({
-      key: loopKey(loop),
-      points: loop,
-      area,
+    return {
+      key: loopKey(loop.points),
+      points: loop.points,
+      area: loop.area - children.reduce((sum, child) => sum + child.area, 0),
       centre,
-      roomId: null,
-      space: null,
-    })
-  }
-
-  found.sort((one, other) => other.area - one.area)
-  return found.map((enclosure) =>
-    enclosure.roomId
-      ? enclosure
-      : { ...enclosure, space: boundSpace(spaces, taken, enclosure.points) },
-  )
-}
-
-/** The spaces that were not drawn as rooms — the ones a name is saved for. */
-export function freeEnclosures(
-  rooms: Array<Room>,
-  spaces: Array<Space> = [],
-): Array<Enclosure> {
-  return enclosuresOf(rooms, spaces).filter(
-    (enclosure) => enclosure.roomId === null,
-  )
+      space: boundSpace(spaces, taken, loop.points),
+    }
+  })
+  return floors.reverse()
 }
 
 /**
@@ -475,12 +455,12 @@ function runsAlong(loop: Array<Point>, wall: Segment): boolean {
  * its shape.
  */
 export function enclosureWalls(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   enclosure: Enclosure,
-): Array<Room> {
-  return rooms.filter((room) => {
-    for (let i = 0; i < wallCount(room); i++) {
-      const wall = roomWallAt(room, i)
+): Array<WallRun> {
+  return walls.filter((run) => {
+    for (let i = 0; i < wallCount(run); i++) {
+      const wall = runWallAt(run, i)
       if (wall && runsAlong(enclosure.points, wall)) return true
     }
     return false
@@ -496,32 +476,22 @@ export function enclosureWalls(
  * for is not held either — there is nothing there to hold.
  */
 export function enclosureLocked(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   enclosure: Enclosure,
 ): boolean {
-  const walls = enclosureWalls(rooms, enclosure)
-  return walls.length > 0 && walls.every((room) => room.locked === true)
+  const boundary = enclosureWalls(walls, enclosure)
+  return boundary.length > 0 && boundary.every((run) => run.locked === true)
 }
 
-/**
- * How many rooms the plan has, and how much floor there is between them.
- *
- * Both halves of the plan are counted: the rooms drawn as rooms, off their own
- * outlines, and the spaces that were only ever walled in, off the walls. There
- * is no double counting between them — a space standing on a drawn room's
- * floor is that room, and never comes back as a space of its own.
- */
+/** Room count and floor area come exclusively from the walls. */
 export function planFloors(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   spaces: Array<Space> = [],
 ): { count: number; area: number } {
-  const drawn = rooms.filter((room) => room.closed !== false)
-  const walled = freeEnclosures(rooms, spaces)
+  const floors = enclosuresOf(walls, spaces)
   return {
-    count: drawn.length + walled.length,
-    area:
-      drawn.reduce((total, room) => total + polygonArea(room.points), 0) +
-      walled.reduce((total, enclosure) => total + enclosure.area, 0),
+    count: floors.length,
+    area: floors.reduce((sum, floor) => sum + floor.area, 0),
   }
 }
 

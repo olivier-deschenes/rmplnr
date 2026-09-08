@@ -4,7 +4,8 @@ import {
   angleBetween,
   distance,
   editWallGeometry,
-  outlineIssue,
+  wallRunIssue,
+  closeWallPoints,
 } from './geometry.ts'
 
 import type { Point } from './types.ts'
@@ -26,19 +27,23 @@ const IRREGULAR: Array<Point> = [
 
 describe('exact wall geometry', () => {
   it('sets an exact rectangle wall length from its fixed start corner', () => {
-    const result = editWallGeometry(RECTANGLE, 0, { length: 525 })
+    const result = editWallGeometry(closeWallPoints(RECTANGLE), 0, {
+      length: 525,
+    })
 
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
     expect(result.points[0]).toEqual(RECTANGLE[0])
     expect(distance(result.points[0], result.points[1])).toBeCloseTo(525, 8)
     expect(angleBetween(result.points[0], result.points[1])).toBeCloseTo(0, 8)
-    expect(result.points.slice(2)).toEqual(RECTANGLE.slice(2))
-    expect(outlineIssue(RECTANGLE, result.points)).toBeNull()
+    expect(result.points.slice(2, -1)).toEqual(RECTANGLE.slice(2))
+    expect(wallRunIssue(result.points)).toBeNull()
   })
 
   it('sets an irregular wall angle without disconnecting either adjoining wall', () => {
-    const result = editWallGeometry(IRREGULAR, 1, { angle: 60 })
+    const result = editWallGeometry(closeWallPoints(IRREGULAR), 1, {
+      angle: 60,
+    })
 
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
@@ -50,19 +55,7 @@ describe('exact wall geometry', () => {
     expect(angleBetween(result.points[1], result.points[2])).toBeCloseTo(60, 8)
     expect(result.points[2]).not.toEqual(IRREGULAR[2])
     expect(result.points[3]).toEqual(IRREGULAR[3])
-    expect(outlineIssue(IRREGULAR, result.points)).toBeNull()
-  })
-
-  it('rejects a dimension that would cross the room over itself', () => {
-    const result = editWallGeometry(RECTANGLE, 0, {
-      length: 200,
-      angle: 180,
-    })
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'That change would make the room cross over itself.',
-    })
+    expect(wallRunIssue(result.points)).toBeNull()
   })
 })
 
@@ -71,9 +64,9 @@ describe('a run of walls walked back round to its start', () => {
   const LOOP: Array<Point> = [...RECTANGLE, RECTANGLE[0]]
 
   it('reads the corner its two ends share as a corner, not a crossing', () => {
-    expect(outlineIssue(LOOP, LOOP, false)).toBeNull()
+    expect(wallRunIssue(LOOP)).toBeNull()
 
-    const result = editWallGeometry(LOOP, 0, { length: 525 }, false)
+    const result = editWallGeometry(LOOP, 0, { length: 525 })
 
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
@@ -83,16 +76,16 @@ describe('a run of walls walked back round to its start', () => {
   })
 
   it('still refuses a change that folds the last wall back over the first', () => {
-    expect(editWallGeometry(LOOP, 3, { angle: 0 }, false)).toEqual({
+    expect(editWallGeometry(LOOP, 3, { angle: 0 })).toEqual({
       ok: false,
-      error: 'That change would fold one wall back over another.',
+      error: 'That would lay a wall straight back over the one before it.',
     })
   })
 
-  it('still refuses a change that crosses two walls sharing no corner', () => {
-    expect(editWallGeometry(LOOP, 1, { angle: 180 }, false)).toEqual({
+  it('refuses a wall folded back over the preceding wall', () => {
+    expect(editWallGeometry(LOOP, 1, { angle: 180 })).toEqual({
       ok: false,
-      error: 'That change would make the room cross over itself.',
+      error: 'That would lay a wall straight back over the one before it.',
     })
   })
 })

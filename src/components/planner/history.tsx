@@ -18,7 +18,7 @@ export function HistoryPanel() {
   const planIsEmpty = useSelector(
     plannerStore,
     (s) =>
-      s.rooms.length === 0 &&
+      s.walls.length === 0 &&
       s.furniture.length === 0 &&
       s.openings.length === 0,
   )
@@ -32,7 +32,7 @@ export function HistoryPanel() {
       {actions.length === 0 ? (
         <p className="text-muted-foreground text-[13px] leading-relaxed">
           {planIsEmpty
-            ? 'Nothing yet. Draw a room to start.'
+            ? 'Nothing yet. Draw walls to start.'
             : 'No edits this session'}
         </p>
       ) : (

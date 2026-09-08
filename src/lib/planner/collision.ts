@@ -4,10 +4,10 @@ import {
   normalizeAngle,
   polygonBounds,
 } from './geometry.ts'
-import { roomWallAt, wallSegments } from './openings.ts'
+import { runWallAt, wallSegments } from './openings.ts'
 import { WALL_THICKNESS, wallGaps } from './walls.ts'
 
-import type { Furniture, Opening, Point, Rect, Room } from './types.ts'
+import type { Furniture, Opening, Point, Rect, WallRun } from './types.ts'
 
 /**
  * Furniture takes up floor, and no two things can have the same floor.
@@ -162,17 +162,17 @@ function wallBox(a: Point, b: Point): Array<Point> | null {
  * exactly what a person would walk into.
  */
 function wallBlockers(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
 ): Array<Blocker> {
   const blockers: Array<Blocker> = []
-  for (const room of rooms) {
-    for (let i = 0; i < room.points.length; i++) {
-      const wall = roomWallAt(room, i)
+  for (const run of walls) {
+    for (let i = 0; i < run.points.length; i++) {
+      const wall = runWallAt(run, i)
       if (!wall) continue
       for (const [a, b] of wallSegments(
         wall,
-        wallGaps(rooms, openings, room.id, i),
+        wallGaps(walls, openings, run.id, i),
       )) {
         const box = wallBox(a, b)
         if (box) blockers.push(blockerOf(box))
@@ -189,13 +189,13 @@ function wallBlockers(
  * a table can stand on one while both remain independently editable.
  */
 export function blockersFor(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   furniture: Array<Furniture>,
   openings: Array<Opening>,
   exclude?: string,
 ): Array<Blocker> {
   return [
-    ...wallBlockers(rooms, openings),
+    ...wallBlockers(walls, openings),
     ...furniture
       .filter((item) => item.id !== exclude && item.collides !== false)
       .map((item) => blockerOf(furnitureCorners(item))),

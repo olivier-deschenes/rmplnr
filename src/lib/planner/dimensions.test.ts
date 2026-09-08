@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 
 import { wallLabels } from './dimensions.ts'
-import type { Opening, Point, Room, Units } from './types.ts'
+import type { Opening, Point, WallRun, Units } from './types.ts'
 
-const run = (id: string, points: Array<Point>): Room => ({
+const run = (id: string, points: Array<Point>): WallRun => ({
   id,
   name: id,
   points,
-  closed: false,
 })
 
 const host = run('host', [
@@ -20,12 +19,12 @@ const branch = run('branch', [
 ])
 
 function labels(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening> = [],
   units: Units = 'metric',
 ) {
   return wallLabels(
-    rooms,
+    walls,
     [],
     openings,
     { tx: 100, ty: 100, scale: 1 },
@@ -38,12 +37,12 @@ function labels(
 }
 
 function hostLabels(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening> = [],
   units?: Units,
 ) {
-  return labels(rooms, openings, units).filter(
-    (label) => label.roomId === 'host',
+  return labels(walls, openings, units).filter(
+    (label) => label.runId === 'host',
   )
 }
 
@@ -82,9 +81,9 @@ describe('wall junction dimensions', () => {
   })
 
   it('handles rotated geometry and keeps the selected unit format', () => {
-    const rotated = [host, branch].map((room) => ({
-      ...room,
-      points: room.points.map(({ x, y }) => ({
+    const rotated = [host, branch].map((segment) => ({
+      ...segment,
+      points: segment.points.map(({ x, y }) => ({
         x: (x - y) / Math.SQRT2,
         y: (x + y) / Math.SQRT2,
       })),
@@ -126,7 +125,7 @@ describe('wall junction dimensions', () => {
     const gap: Opening = {
       id: 'gap',
       kind: 'opening',
-      roomId: 'branch',
+      runId: 'branch',
       wall: 0,
       t: 0.25,
       width: 100,
@@ -142,7 +141,7 @@ describe('wall junction dimensions', () => {
     const door: Opening = {
       id: 'door',
       kind: 'door',
-      roomId: 'host',
+      runId: 'host',
       wall: 0,
       t: 0.75,
       width: 80,
@@ -163,7 +162,7 @@ describe('wall junction dimensions', () => {
       points: [...host.points].reverse(),
     }
     const result = labels([host, duplicate, branch]).filter(
-      (label) => label.roomId !== 'branch',
+      (label) => label.runId !== 'branch',
     )
     expect(result.map((label) => label.text).sort()).toEqual([
       '200 cm',
@@ -190,7 +189,7 @@ describe('wall junction dimensions', () => {
         width: 1200,
         height: 1200,
       },
-    ).filter((label) => label.roomId === 'host')
+    ).filter((label) => label.runId === 'host')
     expect(result.map((label) => label.text).sort()).toEqual([
       '318 cm',
       '351.73 cm',

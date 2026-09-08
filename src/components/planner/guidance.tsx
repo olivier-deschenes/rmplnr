@@ -63,17 +63,17 @@ function ToolGuidance({
 
 /** The instruction that follows a drawing tool until it is put away. */
 export function instructionFor(
-  state: Pick<PlannerState, 'tool' | 'draft' | 'openingKind' | 'rooms'>,
+  state: Pick<PlannerState, 'tool' | 'draft' | 'openingKind' | 'walls'>,
 ): ToolGuide | null {
   if (state.tool === 'rect') {
     return {
-      title: 'Rectangle room',
+      title: 'Rectangle walls',
       detail:
         'Drag between opposite corners. Hold Space and drag to pan; press Esc to cancel.',
     }
   }
 
-  if (state.tool === 'room') {
+  if (state.tool === 'run') {
     if (!state.draft) {
       return {
         title: 'Draw walls',
@@ -81,7 +81,7 @@ export function instructionFor(
           'Click anywhere to start a run, or click an open end to continue one. Walls that close a space make a room of it.',
       }
     }
-    if (draftPoints(state.rooms, state.draft).length < 2) {
+    if (draftPoints(state.walls, state.draft).length < 2) {
       return {
         title: 'Draw the first wall',
         detail:
@@ -124,12 +124,12 @@ export function CanvasGuidance({
     restored: current.restored,
     projectId: current.projectId,
     empty:
-      current.rooms.length === 0 &&
+      current.walls.length === 0 &&
       current.furniture.length === 0 &&
       current.openings.length === 0,
     tool: current.tool,
     draft: current.draft,
-    rooms: current.rooms,
+    walls: current.walls,
     straightWalls: current.straightWalls,
     openingKind: current.openingKind,
   }))
@@ -174,13 +174,13 @@ export function CanvasGuidance({
           onClick={() => plannerStore.actions.setTool('rect')}
         >
           <IconRectangle />
-          Rectangle room
+          Rectangle walls
         </Button>
         <Button
           variant="outline"
           size="sm"
           className={GUIDE_BUTTON}
-          onClick={() => plannerStore.actions.setTool('room')}
+          onClick={() => plannerStore.actions.setTool('run')}
         >
           Draw walls
         </Button>
@@ -201,7 +201,7 @@ export function CanvasGuidance({
                 id="start-plan-title"
                 className="text-2xl tracking-tight"
               >
-                Start with a room
+                Start with walls
               </CardTitle>
               <CardDescription className="text-sm leading-relaxed">
                 Draw your space, add furniture, and find a layout that works.
@@ -216,12 +216,12 @@ export function CanvasGuidance({
                 onClick={() => plannerStore.actions.setTool('rect')}
               >
                 <IconRectangle />
-                Rectangle room
+                Rectangle walls
               </Button>
               <Button
                 variant="outline"
                 className="h-11 gap-2"
-                onClick={() => plannerStore.actions.setTool('room')}
+                onClick={() => plannerStore.actions.setTool('run')}
               >
                 <IconVectorTriangle />
                 Draw walls
@@ -250,7 +250,7 @@ export function CanvasGuidance({
 
   return (
     <ToolGuidance {...guide}>
-      {state.tool === 'room' && (
+      {state.tool === 'run' && (
         <div className="pointer-events-auto mr-2 flex min-h-9 items-center gap-2 max-sm:min-h-11">
           <Switch
             id="straight-walls"
@@ -266,7 +266,7 @@ export function CanvasGuidance({
           </span>
         </div>
       )}
-      {state.tool === 'room' && state.draft && (
+      {state.tool === 'run' && state.draft && (
         <>
           <Button
             variant="outline"
@@ -285,7 +285,7 @@ export function CanvasGuidance({
             aria-label="Close room"
             disabled={
               closingIssue(
-                draftPoints(state.rooms, state.draft),
+                draftPoints(state.walls, state.draft),
                 state.straightWalls,
               ) !== null
             }
@@ -297,12 +297,12 @@ export function CanvasGuidance({
         </>
       )}
       <Button
-        variant={state.tool === 'room' ? 'default' : 'outline'}
+        variant={state.tool === 'run' ? 'default' : 'outline'}
         size="sm"
         className={GUIDE_BUTTON}
         onClick={() => plannerStore.actions.putToolDown()}
       >
-        {state.tool === 'room'
+        {state.tool === 'run'
           ? 'Stop drawing'
           : state.tool === 'opening' || state.tool === 'closet'
             ? 'Done'

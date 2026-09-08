@@ -5,12 +5,12 @@ import {
   heldT,
   pointOnWall,
   projectT,
-  roomWallAt,
+  runWallAt,
   wallAt,
   wallDistance,
 } from './openings.ts'
 
-import type { ClosetAttachment, Point, Room } from './types.ts'
+import type { ClosetAttachment, Point, WallRun } from './types.ts'
 import type { Wall } from './openings.ts'
 
 /** A useful reach-in closet, in centimetres. */
@@ -24,10 +24,10 @@ export type ClosetPlacement = {
 }
 
 /** The width and depth carried by a closet's rectangular outline. */
-export function closetSize(room: Room): { width: number; depth: number } {
+export function closetSize(run: WallRun): { width: number; depth: number } {
   return {
-    width: roomWallAt(room, 0)?.length ?? MIN_SIZE,
-    depth: roomWallAt(room, 1)?.length ?? MIN_SIZE,
+    width: runWallAt(run, 0)?.length ?? MIN_SIZE,
+    depth: runWallAt(run, 1)?.length ?? MIN_SIZE,
   }
 }
 
@@ -68,24 +68,24 @@ export function placeCloset(
 
   return {
     attachment: { ...attachment, t },
-    points: [end, start, farStart, farEnd],
+    points: [end, start, farStart, farEnd, end],
     width,
     depth,
   }
 }
 
 /** Put every closet back on its host wall after that room changes. */
-export function reflowClosets(rooms: Array<Room>): Array<Room> {
-  return rooms.map((room) => {
-    if (room.kind !== 'closet' || !room.attachment) return room
-    const host = rooms.find(
-      (candidate) => candidate.id === room.attachment?.roomId,
+export function reflowClosets(walls: Array<WallRun>): Array<WallRun> {
+  return walls.map((run) => {
+    if (run.kind !== 'closet' || !run.attachment) return run
+    const host = walls.find(
+      (candidate) => candidate.id === run.attachment?.runId,
     )
-    const wall = host && roomWallAt(host, room.attachment.wall)
-    if (!wall) return room
-    const size = closetSize(room)
-    const placed = placeCloset(wall, room.attachment, size.width, size.depth)
-    return { ...room, points: placed.points, attachment: placed.attachment }
+    const wall = host && runWallAt(host, run.attachment.wall)
+    if (!wall) return run
+    const size = closetSize(run)
+    const placed = placeCloset(wall, run.attachment, size.width, size.depth)
+    return { ...run, points: placed.points, attachment: placed.attachment }
   })
 }
 
@@ -97,26 +97,26 @@ export function reflowClosets(rooms: Array<Room>): Array<Room> {
  * that came through unstretched, are returned untouched.
  */
 export function heldClosets(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   before: Map<string, Array<Point>>,
-): Array<Room> {
-  if (before.size === 0) return rooms
-  return rooms.map((room) => {
-    const attachment = room.kind === 'closet' ? room.attachment : undefined
-    const was = attachment && before.get(attachment.roomId)
-    if (!attachment || !was) return room
-    const host = rooms.find((candidate) => candidate.id === attachment.roomId)
+): Array<WallRun> {
+  if (before.size === 0) return walls
+  return walls.map((run) => {
+    const attachment = run.kind === 'closet' ? run.attachment : undefined
+    const was = attachment && before.get(attachment.runId)
+    if (!attachment || !was) return run
+    const host = walls.find((candidate) => candidate.id === attachment.runId)
     const previous = wallAt(was, attachment.wall)
-    const now = host && roomWallAt(host, attachment.wall)
-    if (!previous || !now) return room
+    const now = host && runWallAt(host, attachment.wall)
+    if (!previous || !now) return run
     const t = clampT(
       heldT(previous, now, attachment.t),
-      closetSize(room).width,
+      closetSize(run).width,
       now.length,
     )
     return t === attachment.t
-      ? room
-      : { ...room, attachment: { ...attachment, t } }
+      ? run
+      : { ...run, attachment: { ...attachment, t } }
   })
 }
 
@@ -126,17 +126,17 @@ export function heldClosets(
  * its outline is reflowed.
  */
 export function reattachClosets(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   hostId: string,
   before: Array<Point>,
   after: Array<Point>,
-  closed = true,
-): Array<Room> {
-  return rooms.map((room) => {
-    const attachment = room.attachment
-    if (room.kind !== 'closet' || attachment?.roomId !== hostId) return room
+  closed = false,
+): Array<WallRun> {
+  return walls.map((run) => {
+    const attachment = run.attachment
+    if (run.kind !== 'closet' || attachment?.runId !== hostId) return run
     const previous = wallAt(before, attachment.wall, closed)
-    if (!previous) return room
+    if (!previous) return run
     const centre = pointOnWall(previous, attachment.t)
 
     let best: { wall: number; frame: Wall; distance: number } | null = null
@@ -146,9 +146,9 @@ export function reattachClosets(
       const distance = wallDistance(frame, centre)
       if (!best || distance < best.distance) best = { wall, frame, distance }
     }
-    if (!best) return room
+    if (!best) return run
     return {
-      ...room,
+      ...run,
       attachment: {
         ...attachment,
         wall: best.wall,

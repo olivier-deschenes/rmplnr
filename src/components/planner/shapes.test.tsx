@@ -1,20 +1,27 @@
+import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { expect, it } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { FurnitureShape, RoomFloor } from './shapes.tsx'
+import { FurnitureShape, EnclosureFloor } from './shapes.tsx'
 
 it('draws chosen colors on rooms and furniture', () => {
-  const room = renderToStaticMarkup(
-    <RoomFloor
-      room={{
-        id: 'room-1',
-        name: 'Living room',
-        color: '#f59e0b',
-        points: [
+  const run = renderToStaticMarkup(
+    <EnclosureFloor
+      enclosure={{
+        key: 'floor-1',
+        centre: { x: 50, y: 25 },
+        area: 5000,
+        space: {
+          id: 'label-1',
+          name: 'Living room',
+          color: '#f59e0b',
+          seed: { x: 50, y: 25 },
+        },
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 100, y: 0 },
           { x: 100, y: 100 },
-        ],
+        ]),
       }}
       selected={false}
       onPointerDown={() => {}}
@@ -42,33 +49,39 @@ it('draws chosen colors on rooms and furniture', () => {
 
   // The colour outlines the object and only tints what it encloses, so the
   // outline, the glyph and the label over it all survive it.
-  expect(room).toContain('fill:#f59e0b')
-  expect(room).toContain('fill-opacity:0.13')
+  expect(run).toContain('fill:#f59e0b')
+  expect(run).toContain('fill-opacity:0.13')
   expect(furniture).toContain('stroke:#0ea5e9')
   expect(furniture).toContain('fill:#0ea5e9')
   expect(furniture).toContain('fill-opacity:0.2')
 })
 
 it('backs a coloured floor and footprint with paper, so nothing shows through', () => {
-  const room = renderToStaticMarkup(
-    <RoomFloor
-      room={{
-        id: 'room-1',
-        name: 'Living room',
-        color: '#f59e0b',
-        points: [
+  const run = renderToStaticMarkup(
+    <EnclosureFloor
+      enclosure={{
+        key: 'floor-1',
+        centre: { x: 50, y: 25 },
+        area: 5000,
+        space: {
+          id: 'label-1',
+          name: 'Living room',
+          color: '#f59e0b',
+          seed: { x: 50, y: 25 },
+        },
+        points: closeWallPoints([
           { x: 0, y: 0 },
           { x: 100, y: 0 },
           { x: 100, y: 100 },
-        ],
+        ]),
       }}
       selected={false}
       onPointerDown={() => {}}
     />,
   )
 
-  expect(room.match(/<polygon/g)).toHaveLength(2)
-  expect(room).toContain('fill-background')
+  expect(run.match(/<polygon/g)).toHaveLength(2)
+  expect(run).toContain('fill-background')
 })
 
 it('washes a footprint others may stand on thinner, and lays no paper under it', () => {

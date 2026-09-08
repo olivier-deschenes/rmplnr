@@ -2,7 +2,7 @@ import { distance, outwardSign } from './geometry.ts'
 import { OPENING_PRESETS } from './presets.ts'
 import { MIN_SIZE } from './types.ts'
 
-import type { Opening, Point, Room } from './types.ts'
+import type { Opening, Point, WallRun } from './types.ts'
 
 /**
  * Doors and windows do not float in the plan: each rides on one wall, and
@@ -27,14 +27,14 @@ export type Wall = {
   normal: Point
 }
 
-type OpeningPlacement = Pick<Opening, 'id' | 'kind' | 'roomId' | 'wall' | 't'> &
+type OpeningPlacement = Pick<Opening, 'id' | 'kind' | 'runId' | 'wall' | 't'> &
   Partial<Pick<Opening, 'width' | 'hinge' | 'swing'>>
 
 /** The wall running from `points[index]` to the point after it. */
 export function wallAt(
   points: Array<Point>,
   index: number,
-  closed = true,
+  closed = false,
 ): Wall | null {
   if (index < 0 || index >= points.length - (closed ? 0 : 1)) return null
   const a = points[index]
@@ -52,18 +52,21 @@ export function wallAt(
   }
 }
 
-export function wallCount(room: Room): number {
-  return room.points.length - (room.closed === false ? 1 : 0)
+export function wallCount(run: WallRun): number {
+  return run.points.length - 1
 }
 
-export function roomWallAt(room: Room, index: number): Wall | null {
-  return wallAt(room.points, index, room.closed !== false)
+export function runWallAt(run: WallRun, index: number): Wall | null {
+  return wallAt(run.points, index)
 }
 
 /** The wall an opening hangs on, or null once its room or corner has gone. */
-export function openingWall(rooms: Array<Room>, opening: Opening): Wall | null {
-  const room = rooms.find((r) => r.id === opening.roomId)
-  return room ? roomWallAt(room, opening.wall) : null
+export function openingWall(
+  walls: Array<WallRun>,
+  opening: Opening,
+): Wall | null {
+  const run = walls.find((r) => r.id === opening.runId)
+  return run ? runWallAt(run, opening.wall) : null
 }
 
 /** A wall only holds so much: a wider opening is trimmed down to fit it. */
@@ -159,22 +162,22 @@ export function wallDistance(wall: Wall, p: Point): number {
 
 /** The wall nearest `p` within `reach`, for dropping a new opening onto. */
 export function nearestWall(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   p: Point,
   reach: number,
-): { roomId: string; wall: number; t: number } | null {
-  let best: { roomId: string; wall: number; t: number; d: number } | null = null
-  for (const room of rooms) {
-    for (let i = 0; i < room.points.length; i++) {
-      const wall = roomWallAt(room, i)
+): { runId: string; wall: number; t: number } | null {
+  let best: { runId: string; wall: number; t: number; d: number } | null = null
+  for (const run of walls) {
+    for (let i = 0; i < run.points.length; i++) {
+      const wall = runWallAt(run, i)
       if (!wall) continue
       const d = wallDistance(wall, p)
       if (d <= reach && (!best || d < best.d)) {
-        best = { roomId: room.id, wall: i, t: projectT(wall, p), d }
+        best = { runId: run.id, wall: i, t: projectT(wall, p), d }
       }
     }
   }
-  return best && { roomId: best.roomId, wall: best.wall, t: best.t }
+  return best && { runId: best.runId, wall: best.wall, t: best.t }
 }
 
 /**
@@ -188,13 +191,13 @@ export function nearestWall(
  */
 export function reattachOpenings(
   openings: Array<Opening>,
-  roomId: string,
+  runId: string,
   before: Array<Point>,
   after: Array<Point>,
-  closed = true,
+  closed = false,
 ): Array<Opening> {
   return openings.map((opening) => {
-    if (opening.roomId !== roomId) return opening
+    if (opening.runId !== runId) return opening
     const was = wallAt(before, opening.wall, closed)
     if (!was) return opening
     const { centre } = openingEnds(was, opening)
@@ -259,13 +262,13 @@ export function heldOpening(
 export function heldOpenings(
   openings: Array<Opening>,
   before: Map<string, Array<Point>>,
-  after: Array<Room>,
+  after: Array<WallRun>,
 ): Array<Opening> {
   if (before.size === 0) return openings
   return openings.map((opening) => {
-    const was = before.get(opening.roomId)
-    const room = was && after.find((r) => r.id === opening.roomId)
-    return room ? heldOpening(opening, was, room.points) : opening
+    const was = before.get(opening.runId)
+    const run = was && after.find((r) => r.id === opening.runId)
+    return run ? heldOpening(opening, was, run.points) : opening
   })
 }
 
@@ -302,7 +305,7 @@ function samePoint(a: Point, b: Point): boolean {
 export function outlinePath(
   points: Array<Point>,
   gaps: Array<Array<Span>>,
-  closed = true,
+  closed = false,
 ): string {
   const lines: Array<Array<Point>> = []
   let run: Array<Point> | null = null

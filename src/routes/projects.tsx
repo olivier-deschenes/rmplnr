@@ -46,21 +46,19 @@ export const Route = createFileRoute('/projects')({
 })
 
 function summary(project: Project, units: Units): string {
-  const { rooms, furniture } = project
-  if (rooms.length === 0)
+  const { walls, furniture } = project
+  if (walls.length === 0)
     return furniture.length === 0
       ? 'Empty plan'
       : `${furniture.length} furniture item${furniture.length === 1 ? '' : 's'}`
   // Counted off what the walls close in rather than off which runs were drawn
   // shut, so a room walled in against a neighbour's wall counts as the room it
   // is — and the walls left over, that close nothing, count as walls.
-  const floors = planFloors(rooms, project.spaces)
-  const loose = rooms
-    .filter((room) => room.closed === false)
-    .reduce((sum, room) => sum + room.points.length - 1, 0)
+  const floors = planFloors(walls, project.spaces)
+  const loose = walls.reduce((sum, run) => sum + run.points.length - 1, 0)
   if (!floors.count)
     return `${loose} wall${loose === 1 ? '' : 's'} · In progress`
-  return `${floors.count} room${floors.count === 1 ? '' : 's'} · ${formatArea(floors.area, units, 1)}${loose ? ' · Walls in progress' : ''}`
+  return `${floors.count} run${floors.count === 1 ? '' : 's'} · ${formatArea(floors.area, units, 1)}`
 }
 
 function Projects() {
@@ -84,7 +82,9 @@ function Projects() {
     .filter((project) =>
       [
         project.name,
-        ...project.rooms.map((room) => room.name),
+        ...project.walls
+          .filter((run) => run.kind === 'closet')
+          .map((run) => run.name),
         // A room that was walled in rather than drawn is a room to search by
         // too; its name is the only place it is written down.
         ...project.spaces.map((space) => space.name),

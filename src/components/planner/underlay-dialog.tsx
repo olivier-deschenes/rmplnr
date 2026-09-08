@@ -408,7 +408,7 @@ export function UnderlayDialog({
 
     void underlayStore.actions.replace(calibrated)
     fitUnderlay(calibrated)
-    plannerStore.actions.setTool('room')
+    plannerStore.actions.setTool('run')
     changeOpen(false)
   }
 

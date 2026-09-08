@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { interiorPoint, outwardSign } from './geometry.ts'
 
 /** All world coordinates are centimetres; units.ts turns them into display text. */
 export const SNAP_ANGLE = 15
@@ -14,55 +15,24 @@ export const PointSchema = z.object({ x: z.number(), y: z.number() })
 export const ColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 
 export const ClosetAttachmentSchema = z.object({
-  /** The room whose outside face this closet sits against. */
-  roomId: z.string(),
+  /** The wall run this closet is attached to. */
+  runId: z.string(),
   wall: z.number().int().min(0),
   /** Centre of the closet, as a fraction along the host wall. */
   t: z.number().min(0).max(1),
 })
 
-export const RoomSchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    color: ColorSchema.optional(),
-    points: z.array(PointSchema).min(2),
-    /** False while walls are still open. Older rooms are closed by default. */
-    closed: z.boolean().optional(),
-    /** Ordinary rooms omit this; closets carry their wall attachment below. */
-    kind: z.literal('closet').optional(),
-    attachment: ClosetAttachmentSchema.optional(),
-    /**
-     * A locked room keeps its shape and its place: it can still be selected and
-     * renamed, and doors and closets can still be put in its walls, but nothing
-     * moves it, reshapes it, or deletes it until it is unlocked. A room is
-     * drawn unlocked and stays that way until the padlock is put on it, which
-     * is also how the spaces its walls close in are held: locking one of those
-     * locks every run around it. Missing from plans saved before rooms could be
-     * locked, which reads as unlocked.
-     */
-    locked: z.boolean().optional(),
-  })
-  .refine((room) => room.closed === false || room.points.length >= 3, {
-    message: 'A closed room needs at least three corners.',
-    path: ['points'],
-  })
+/** Consecutive points are walls. There is never an implicit closing edge. */
+export const WallRunSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  points: z.array(PointSchema).min(2),
+  kind: z.literal('closet').optional(),
+  attachment: ClosetAttachmentSchema.optional(),
+  locked: z.boolean().optional(),
+})
 
-/**
- * A name and a colour put on one of the spaces the walls close in.
- *
- * There is no id here for the space itself, because a space does not have one
- * to hold: it is worked out from the walls every time they change, and moving
- * a wall by a centimetre replaces every space that wall touches. What is held
- * instead is a point that was inside the space when the name was put on it —
- * and a point stays put while the walls move around it. `enclosures.ts` reads
- * the name back onto whichever space now contains the point.
- *
- * Rooms traced right round and closed carry their own name and colour, in the
- * room. This is for every other space: the ones walled in against a wall that
- * was already there, which nobody drew as a room because there was no room
- * left to draw.
- */
+/** Names and colours belong to the enclosed floor, independently of its walls. */
 export const SpaceSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -126,16 +96,16 @@ export const OpeningKindSchema = z.enum([
 /**
  * A break in a wall: a door, a window, or a plain gap.
  *
- * An opening belongs to one wall of one room — the edge running from
+ * An opening belongs to one segment of a wall run — the edge running from
  * `points[wall]` to the point after it — and holds its place along that wall as
- * a fraction of its length, so it stays where it was put when the room is
+ * a fraction of its length, so it stays where it was put when the wall is
  * resized or a corner is dragged. Its width, like every other length here, is
  * in centimetres.
  */
 export const OpeningSchema = z.object({
   id: z.string(),
   kind: OpeningKindSchema,
-  roomId: z.string(),
+  runId: z.string(),
   wall: z.number().int().min(0),
   /** Centre of the opening, as a fraction along its wall. */
   t: z.number().min(0).max(1),
@@ -147,32 +117,123 @@ export const OpeningSchema = z.object({
   swing: z.enum(['in', 'out']),
 })
 
-export const PlanSchema = z.object({
-  version: z.literal(1),
-  rooms: z.array(RoomSchema),
-  furniture: z.array(FurnitureSchema),
-  /** Missing from plans saved before walls could be broken into. */
-  openings: z.array(OpeningSchema).default([]),
-  /** Missing from plans saved before walls alone could enclose a room. */
+// Version 1 stored closed room polygons and open wall runs in the same array.
+// This is the only place that understands that representation.
+const LegacyRoomSchema = WallRunSchema.omit({ attachment: true })
+  .extend({
+    color: ColorSchema.optional(),
+    closed: z.boolean().optional(),
+    attachment: ClosetAttachmentSchema.omit({ runId: true })
+      .extend({ roomId: z.string() })
+      .optional(),
+  })
+  .refine((room) => room.closed === false || room.points.length >= 3)
+const LegacyOpeningSchema = OpeningSchema.omit({ runId: true }).extend({
+  roomId: z.string(),
+})
+const LegacyGeometrySchema = z.object({
+  rooms: z.array(LegacyRoomSchema),
+  openings: z.array(LegacyOpeningSchema).default([]),
   spaces: z.array(SpaceSchema).default([]),
 })
 
-/**
- * A plan under a name of its own.
- *
- * A project is the plan and nothing besides: units, snapping and the rest
- * belong to whoever is drawing rather than to any one plan, and stay in the
- * preferences, where switching from one project to another leaves them alone.
- */
-export const ProjectSchema = PlanSchema.omit({ version: true }).extend({
-  /**
-   * A UUID, which is also the name the plan answers to in the URL. Anything
-   * read back that is not one — a plan saved before they were — is given one
-   * here rather than costing the reader the plan.
-   */
-  id: z.uuid().catch(() => crypto.randomUUID()),
-  name: z.string(),
+function migrateLegacyPlan(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const record = value as Record<string, unknown>
+  if ('walls' in record || !('rooms' in record)) return value
+  if (record.version !== undefined && record.version !== 1) return value
+  if (record.schemaVersion !== undefined && record.schemaVersion !== 1)
+    return value
+  const parsed = LegacyGeometrySchema.safeParse(value)
+  if (!parsed.success) return value
+  const { rooms, openings, spaces } = parsed.data
+  const reversed = new Map(
+    rooms.map((room) => [
+      room.id,
+      room.closed !== false && outwardSign(room.points) < 0,
+    ]),
+  )
+  const attachment = (old: { roomId: string; wall: number; t: number }) => {
+    const host = rooms.find((room) => room.id === old.roomId)
+    return {
+      runId: old.roomId,
+      wall:
+        reversed.get(old.roomId) && host
+          ? host.points.length - 1 - old.wall
+          : old.wall,
+      t: reversed.get(old.roomId) ? 1 - old.t : old.t,
+    }
+  }
+  return {
+    ...record,
+    ...(record.version === 1 ? { version: 2 } : {}),
+    ...(record.schemaVersion === 1 ? { schemaVersion: 2 } : {}),
+    walls: rooms.map((room, index) => {
+      const points =
+        room.closed === false
+          ? room.points
+          : reversed.get(room.id)
+            ? [
+                room.points[0],
+                ...room.points.slice(1).reverse(),
+                room.points[0],
+              ]
+            : [...room.points, room.points[0]]
+      return {
+        id: room.id,
+        name:
+          room.kind === 'closet' || room.closed === false
+            ? room.name
+            : `Walls ${index + 1}`,
+        points,
+        ...(room.kind ? { kind: room.kind } : {}),
+        ...(room.locked === undefined ? {} : { locked: room.locked }),
+        ...(room.attachment ? { attachment: attachment(room.attachment) } : {}),
+      }
+    }),
+    openings: openings.map(({ roomId, ...opening }) => ({
+      ...opening,
+      ...attachment({ roomId, wall: opening.wall, t: opening.t }),
+      hinge: reversed.get(roomId)
+        ? opening.hinge === 'start'
+          ? 'end'
+          : 'start'
+        : opening.hinge,
+    })),
+    spaces: [
+      ...rooms
+        .filter((room) => room.closed !== false)
+        .map((room) => ({
+          id: `room-label:${room.id}`,
+          name: room.name,
+          ...(room.color ? { color: room.color } : {}),
+          seed: interiorPoint(room.points),
+        })),
+      ...spaces,
+    ],
+  }
+}
+
+const PlanGeometrySchema = z.object({
+  walls: z.array(WallRunSchema),
+  furniture: z.array(FurnitureSchema),
+  openings: z.array(OpeningSchema).default([]),
+  spaces: z.array(SpaceSchema).default([]),
 })
+
+export const PlanSchema = z.preprocess(
+  migrateLegacyPlan,
+  PlanGeometrySchema.extend({ version: z.literal(2) }),
+)
+
+/** A named plan. Preferences belong to the editor, not the plan. */
+export const ProjectSchema = z.preprocess(
+  migrateLegacyPlan,
+  PlanGeometrySchema.extend({
+    id: z.uuid().catch(() => crypto.randomUUID()),
+    name: z.string(),
+  }),
+)
 
 /**
  * Every project saved. Which one is open is not in here: that is what the URL
@@ -198,7 +259,7 @@ export const StoredLibrarySchema = LibrarySchema.extend({
   revision: z.number().int().nonnegative().optional(),
 })
 
-export const PROJECT_SCHEMA_VERSION = 1 as const
+export const PROJECT_SCHEMA_VERSION = 2 as const
 
 /** A plan name as it may leave the browser. */
 export const ProjectNameSchema = z.string().trim().min(1, 'Enter a plan name.')
@@ -214,16 +275,19 @@ export const ProjectNameSchema = z.string().trim().min(1, 'Enter a plan name.')
  * is also its filename, and a reader that invents an id on the way in would
  * commit the same plan back under a second name.
  */
-export const ProjectRecordSchema = z.object({
-  schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
-  id: z.uuid(),
-  name: ProjectNameSchema,
-  rooms: z.array(RoomSchema),
-  furniture: z.array(FurnitureSchema),
-  openings: z.array(OpeningSchema),
-  /** Missing from files written before walls alone could enclose a room. */
-  spaces: z.array(SpaceSchema).default([]),
-})
+export const ProjectRecordSchema = z.preprocess(
+  migrateLegacyPlan,
+  z.object({
+    schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
+    id: z.uuid(),
+    name: ProjectNameSchema,
+    walls: z.array(WallRunSchema),
+    furniture: z.array(FurnitureSchema),
+    openings: z.array(OpeningSchema),
+    /** Missing from files written before walls alone could enclose a room. */
+    spaces: z.array(SpaceSchema).default([]),
+  }),
+)
 
 export const LIBRARY_BACKUP_SCHEMA_VERSION = 1 as const
 
@@ -275,9 +339,9 @@ export const PrefsSchema = z.object({
 
 export type Point = z.infer<typeof PointSchema>
 export type WallDraft =
-  { start: Point } | { roomId: string; end: 'start' | 'end' }
+  { start: Point } | { runId: string; end: 'start' | 'end' }
 export type ClosetAttachment = z.infer<typeof ClosetAttachmentSchema>
-export type Room = z.infer<typeof RoomSchema>
+export type WallRun = z.infer<typeof WallRunSchema>
 export type Space = z.infer<typeof SpaceSchema>
 export type FurnitureKind = z.infer<typeof FurnitureKindSchema>
 export type Furniture = z.infer<typeof FurnitureSchema>
@@ -297,7 +361,7 @@ export type Rect = { x: number; y: number; w: number; h: number }
 
 export type Selection =
   | {
-      type: 'room' | 'furniture' | 'opening'
+      type: 'run' | 'furniture' | 'opening'
       id: string
     }
   | {
@@ -311,9 +375,9 @@ export type Selection =
       id: string
     }
   | {
-      /** A room edge, running from `points[index]` to the next corner. */
+      /** A wall segment, running from `points[index]` to the next corner. */
       type: 'wall'
-      /** The room that owns the edge. */
+      /** The run that contains the segment. */
       id: string
       index: number
     }
@@ -325,7 +389,7 @@ export type Selection =
  * nothing to rename.
  */
 export type Rename = {
-  type: 'room' | 'furniture' | 'enclosure'
+  type: 'run' | 'furniture' | 'enclosure'
   id: string
 } | null
 
@@ -339,7 +403,7 @@ export type Rename = {
  * outlives the original being changed, or deleted out from under it.
  */
 export type Clipboard =
-  | { type: 'room'; room: Room; openings: Array<Opening> }
+  | { type: 'run'; run: WallRun; openings: Array<Opening> }
   | { type: 'furniture'; item: Furniture }
   | { type: 'opening'; opening: Opening }
 
@@ -360,7 +424,7 @@ export type StyleBrush = { color: string | undefined; sticky: boolean }
  * What the pointer is for. `move` and `edit` both work on what is already on
  * the plan; the rest put something new down.
  */
-export type Tool = 'move' | 'edit' | 'room' | 'rect' | 'opening' | 'closet'
+export type Tool = 'move' | 'edit' | 'run' | 'rect' | 'opening' | 'closet'
 
 /**
  * The two tools that take hold of what is already there.
@@ -382,7 +446,7 @@ export function isPointerTool(tool: Tool): tool is PointerTool {
   return tool === 'move' || tool === 'edit'
 }
 
-/** The two opposite corners of a rectangle room being dragged out. */
+/** The two opposite corners of rectangular walls being drawn. */
 export type RectDraft = { start: Point; end: Point }
 
 /** screen = world * scale + (tx, ty) */

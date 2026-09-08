@@ -5,7 +5,6 @@ import { Input } from '#/components/ui/input.tsx'
 import {
   handlePosition,
   normalizeAngle,
-  polygonArea,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 import { formatArea, formatLength, formatSize } from '#/lib/planner/units.ts'
@@ -19,7 +18,7 @@ import {
 } from '#/lib/planner/dimensions.ts'
 import {
   openingEnds,
-  roomWallAt,
+  runWallAt,
   wallCount,
   wallSegments,
 } from '#/lib/planner/openings.ts'
@@ -31,7 +30,7 @@ import type {
   Opening,
   Point,
   RectDraft,
-  Room,
+  WallRun,
   Units,
   Viewport,
 } from '#/lib/planner/types.ts'
@@ -312,39 +311,6 @@ function FloorText({
   )
 }
 
-export function RoomLabels({
-  rooms,
-  viewport,
-  units,
-  /** The room whose name is being typed over, and so is not written here. */
-  renaming,
-}: {
-  rooms: Array<Room>
-  viewport: Viewport
-  units: Units
-  renaming?: string
-}) {
-  return (
-    <g className="pointer-events-none">
-      {rooms
-        .filter((room) => room.closed !== false)
-        .map((room) => (
-          <FloorText
-            key={room.id}
-            label={floorLabel(
-              room.points,
-              room.name,
-              polygonArea(room.points),
-              viewport,
-              units,
-            )}
-            renaming={room.id === renaming}
-          />
-        ))}
-    </g>
-  )
-}
-
 /** Spaces formed by walls stay blank until they have a name. */
 export function EnclosureLabels({
   enclosures,
@@ -527,13 +493,13 @@ export function WallDimensions({
   onSelect,
 }: {
   labels: Array<WallLabel>
-  selected?: { roomId: string; wall: number }
-  onSelect?: (roomId: string, wall: number) => void
+  selected?: { runId: string; wall: number }
+  onSelect?: (runId: string, wall: number) => void
 }) {
   return (
     <g className={onSelect ? undefined : 'pointer-events-none'}>
-      {labels.map(({ key, roomId, roomName, wall, text, box, leader }) => {
-        const active = selected?.roomId === roomId && selected.wall === wall
+      {labels.map(({ key, runId, runName, wall, text, box, leader }) => {
+        const active = selected?.runId === runId && selected.wall === wall
         return (
           <g
             key={key}
@@ -541,7 +507,7 @@ export function WallDimensions({
             tabIndex={onSelect ? 0 : undefined}
             aria-label={
               onSelect
-                ? `Edit wall ${wall + 1} of ${roomName}, ${text}`
+                ? `Edit wall ${wall + 1} of ${runName}, ${text}`
                 : undefined
             }
             aria-pressed={onSelect ? active : undefined}
@@ -551,7 +517,7 @@ export function WallDimensions({
             onPointerDown={(event) => {
               if (!onSelect || event.button !== 0) return
               event.stopPropagation()
-              onSelect(roomId, wall)
+              onSelect(runId, wall)
             }}
             onDoubleClick={(event) => {
               if (onSelect) event.stopPropagation()
@@ -562,7 +528,7 @@ export function WallDimensions({
               }
               event.preventDefault()
               event.stopPropagation()
-              onSelect(roomId, wall)
+              onSelect(runId, wall)
             }}
           >
             {leader && (
@@ -614,46 +580,25 @@ export function WallDimensions({
  * browser hands the double-click to whatever holds the capture rather than to
  * the band under the pointer. The canvas takes it and finds the wall itself.
  */
-export function RoomEditor({
-  room,
+export function RunEditor({
+  run,
   gaps,
   viewport,
   selectedWall,
   onVertexDown,
   onWallDown,
-  onRotateDown,
 }: {
-  room: Room
+  run: WallRun
   /** What is cut through each wall, wall by wall: the doorways and windows. */
   gaps: Array<Array<Span>>
   viewport: Viewport
   selectedWall?: number
   onVertexDown?: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
-  onRotateDown?: (event: React.PointerEvent) => void
 }) {
-  const topY = Math.min(...room.points.map((point) => point.y))
-  const topWall = room.points
-    .slice(0, wallCount(room))
-    .findIndex((point, index) => {
-      const next = room.points[(index + 1) % room.points.length]
-      return Math.abs(point.y - topY) < 1e-6 && Math.abs(next.y - topY) < 1e-6
-    })
-  const topPoint =
-    topWall >= 0
-      ? {
-          x:
-            (room.points[topWall].x +
-              room.points[(topWall + 1) % room.points.length].x) /
-            2,
-          y: topY,
-        }
-      : room.points.find((point) => Math.abs(point.y - topY) < 1e-6)!
-  const top = worldToScreen(topPoint, viewport)
-  const rotateHandle = { x: top.x, y: top.y - ROTATE_OFFSET }
-  const walls = room.points.slice(0, wallCount(room)).map((point, i) => {
-    const next = room.points[(i + 1) % room.points.length]
-    const frame = roomWallAt(room, i)
+  const walls = run.points.slice(0, wallCount(run)).map((point, i) => {
+    const next = run.points[(i + 1) % run.points.length]
+    const frame = runWallAt(run, i)
     const a = worldToScreen(point, viewport)
     const b = worldToScreen(next, viewport)
     // The wall as it is actually built: the stretches either side of every
@@ -740,7 +685,7 @@ export function RoomEditor({
       )}
       {/* Corners last, so the one at the end of a wall wins the pointer. */}
       {onVertexDown &&
-        room.points.map((point, i) => (
+        run.points.map((point, i) => (
           <Square
             key={`vertex-${i}`}
             at={worldToScreen(point, viewport)}
@@ -748,26 +693,6 @@ export function RoomEditor({
             onPointerDown={(event) => onVertexDown(i, event)}
           />
         ))}
-      {onRotateDown && (
-        <>
-          <line
-            x1={top.x}
-            y1={top.y}
-            x2={rotateHandle.x}
-            y2={rotateHandle.y}
-            className="stroke-foreground pointer-events-none"
-            strokeWidth={1}
-          />
-          <circle
-            cx={rotateHandle.x}
-            cy={rotateHandle.y}
-            r={5}
-            className="fill-background stroke-foreground cursor-grab"
-            strokeWidth={1.5}
-            onPointerDown={onRotateDown}
-          />
-        </>
-      )}
     </g>
   )
 }

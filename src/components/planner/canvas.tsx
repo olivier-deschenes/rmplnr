@@ -11,8 +11,7 @@ import {
   FurnitureShape,
   OpeningShape,
   OpeningTarget,
-  RoomFloor,
-  RoomWalls,
+  RunWalls,
   SelectedWall,
   SharedWalls,
 } from './shapes.tsx'
@@ -25,15 +24,14 @@ import {
   NameEditor,
   OpeningEditor,
   RectPreview,
-  RoomEditor,
-  RoomLabels,
+  RunEditor,
   SnapGuides,
   WALL_GRAB,
   WallDimensions,
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
-import { enclosureAt, freeEnclosures } from '#/lib/planner/enclosures.ts'
+import { enclosureAt, enclosuresOf } from '#/lib/planner/enclosures.ts'
 import {
   closingIssue,
   draftPoints,
@@ -48,7 +46,7 @@ import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
 import {
   furnitureNames,
-  roomLabelBoxes,
+  runLabelBoxes,
   wallLabels,
 } from '#/lib/planner/dimensions.ts'
 import {
@@ -80,15 +78,14 @@ import {
   pointOnWall,
   openingWall,
   projectT,
-  roomWallAt,
+  runWallAt,
   wallAt,
 } from '#/lib/planner/openings.ts'
 import {
-  angleBetween,
+  loopsBack,
   distance,
   furnitureCorners,
   pointInPolygon,
-  polygonBounds,
   polygonCentroid,
   resizeRotated,
   rotationFor,
@@ -96,7 +93,6 @@ import {
   slideWall,
   snapPoint,
   snapValue,
-  translatePolygon,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 
@@ -107,10 +103,10 @@ import type {
   OpeningKind,
   Point,
   Rename,
-  Room,
+  WallRun,
   Viewport,
 } from '#/lib/planner/types.ts'
-import { SNAP_ANGLE, isPointerTool } from '#/lib/planner/types.ts'
+import { isPointerTool } from '#/lib/planner/types.ts'
 import type { DrawTool } from '#/lib/planner/shortcuts.ts'
 import type { Hotkey } from '@tanstack/react-hotkeys'
 import type { Guide } from '#/lib/planner/snapping.ts'
@@ -141,7 +137,7 @@ const DRAG_SLOP_PX = 4
  * called anything of its own. `reach` is how near counts as on it.
  */
 function nameableAt(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   enclosures: Array<Enclosure>,
   furniture: Array<Furniture>,
   world: Point,
@@ -153,14 +149,7 @@ function nameableAt(
       return { type: 'furniture', id: item.id }
     }
   }
-  if (nearestWall(rooms, world, reach)) return null
-  for (let i = rooms.length - 1; i >= 0; i--) {
-    if (rooms[i].closed !== false && pointInPolygon(world, rooms[i].points)) {
-      return { type: 'room', id: rooms[i].id }
-    }
-  }
-  // Last, because a space is whatever ground no room claimed: a click that
-  // fell in one fell nowhere else.
+  if (nearestWall(walls, world, reach)) return null
   const enclosure = enclosureAt(enclosures, world)
   return enclosure ? { type: 'enclosure', id: enclosure.key } : null
 }
@@ -173,7 +162,7 @@ function nameableAt(
  * Null once whatever was being renamed has gone from under the field.
  */
 function editedName(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   enclosures: Array<Enclosure>,
   furniture: Array<Furniture>,
   renaming: Rename,
@@ -194,11 +183,11 @@ function editedName(
       name: enclosure.space?.name ?? '',
     }
   }
-  if (renaming.type === 'room') {
-    const room = rooms.find((r) => r.id === renaming.id)
-    if (!room) return null
-    const at = worldToScreen(polygonCentroid(room.points), viewport)
-    return { key, at: { x: at.x, y: at.y - NAME_LIFT }, name: room.name }
+  if (renaming.type === 'run') {
+    const run = walls.find((r) => r.id === renaming.id)
+    if (!run) return null
+    const at = worldToScreen(polygonCentroid(run.points), viewport)
+    return { key, at: { x: at.x, y: at.y - NAME_LIFT }, name: run.name }
   }
   const item = furniture.find((f) => f.id === renaming.id)
   if (!item) return null
@@ -218,22 +207,13 @@ type Drag =
       moved: boolean
     }
   | { mode: 'move-furniture'; id: string; grab: Point; origin: Furniture }
-  | { mode: 'move-room'; id: string; grab: Point; origin: Array<Point> }
   | { mode: 'move-closet'; id: string; grabT: number }
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string; origin: Furniture }
-  | {
-      mode: 'rotate-room'
-      id: string
-      centre: Point
-      pointerAngle: number
-      total: number
-      applied: number
-    }
-  | { mode: 'vertex'; roomId: string; index: number }
+  | { mode: 'vertex'; runId: string; index: number }
   | {
       mode: 'wall'
-      roomId: string
+      runId: string
       index: number
       grab: Point
       origin: Array<Point>
@@ -279,7 +259,7 @@ export function Canvas() {
   const spaceHeld = useKeyHold(EDIT_KEYS.pan)
 
   const {
-    rooms,
+    walls,
     spaces,
     furniture: allFurniture,
     showFurniture,
@@ -297,16 +277,8 @@ export function Canvas() {
     size,
   } = useSelector(plannerStore)
   const furniture = showFurniture ? allFurniture : []
-  /**
-   * The spaces the walls close in that were not drawn as rooms of their own.
-   * Worked out from the walls, so it is redone whenever a wall moves — and
-   * only then, since the store hands back new arrays rather than editing the
-   * ones it has.
-   */
-  const enclosures = useMemo(
-    () => freeEnclosures(rooms, spaces),
-    [rooms, spaces],
-  )
+  /** All floors are recalculated from the current walls. */
+  const enclosures = useMemo(() => enclosuresOf(walls, spaces), [walls, spaces])
   const { underlay, positioning: positioningUnderlay } =
     useSelector(underlayStore)
   const underlayUrl = useBlobUrl(underlay?.blob ?? null)
@@ -321,13 +293,13 @@ export function Canvas() {
   const [dragMode, setDragMode] = useState<Drag['mode'] | null>(null)
   /** The wall an opening or closet tool is hovering, and where along it. */
   const [ghost, setGhost] = useState<{
-    roomId: string
+    runId: string
     wall: number
     t: number
   } | null>(null)
 
   const actions = plannerStore.actions
-  const drawnPoints = draftPoints(rooms, draft)
+  const drawnPoints = draftPoints(walls, draft)
   const drawingAnchor = drawnPoints.at(-1)
   const drawCursor =
     cursor && drawingAnchor && straightWalls
@@ -357,7 +329,7 @@ export function Canvas() {
     const state = plannerStore.state
     const fit = alignTo(
       [p],
-      snapTargets(state.rooms, exclude),
+      snapTargets(state.walls, exclude),
       SNAP_REACH_PX / state.viewport.scale,
     )
     setGuides(fit.guides)
@@ -373,8 +345,8 @@ export function Canvas() {
     const state = plannerStore.state
     const result = snapDrawingPoint({
       point,
-      rooms: state.rooms,
-      anchor: draftPoints(state.rooms, state.draft).at(-1),
+      walls: state.walls,
+      anchor: draftPoints(state.walls, state.draft).at(-1),
       straight: state.straightWalls,
       reach: SNAP_REACH_PX / state.viewport.scale,
       step: activeSnapStep(state),
@@ -393,7 +365,7 @@ export function Canvas() {
    * way a corner does; one on the diagonal has no coordinate to be round in, so
    * it lands a round distance from where it started instead.
    */
-  const settleWall = (frame: Wall, roomId: string, across: number): number => {
+  const settleWall = (frame: Wall, runId: string, across: number): number => {
     const state = plannerStore.state
     const slid = [frame.a, frame.b].map((p) => ({
       x: p.x + frame.normal.x * across,
@@ -402,7 +374,7 @@ export function Canvas() {
     const fit = alignWall(
       slid,
       frame.normal,
-      snapTargets(state.rooms, roomId),
+      snapTargets(state.walls, runId),
       SNAP_REACH_PX / state.viewport.scale,
     )
     setGuides(fit.guides)
@@ -658,21 +630,21 @@ export function Canvas() {
 
     // Wall tools: the click lands on whichever wall the ghost has found.
     if (state.tool === 'opening' || state.tool === 'closet') {
-      const eligibleRooms =
+      const eligibleRuns =
         state.tool === 'closet'
-          ? state.rooms.filter((room) => room.kind !== 'closet')
-          : state.rooms
+          ? state.walls.filter((run) => run.kind !== 'closet')
+          : state.walls
       const spot = nearestWall(
-        eligibleRooms,
+        eligibleRuns,
         toWorld(event),
         WALL_REACH_PX / state.viewport.scale,
       )
       if (spot) {
-        const t = snapAlong(spot.roomId, spot.wall, spot.t)
+        const t = snapAlong(spot.runId, spot.wall, spot.t)
         if (state.tool === 'closet') {
-          actions.addCloset(spot.roomId, spot.wall, t)
+          actions.addCloset(spot.runId, spot.wall, t)
         } else {
-          actions.addOpening(state.openingKind, spot.roomId, spot.wall, t)
+          actions.addOpening(state.openingKind, spot.runId, spot.wall, t)
         }
         setGhost(null)
       }
@@ -687,14 +659,14 @@ export function Canvas() {
     }
 
     // A tap places an endpoint; a drag can draw the first wall in one gesture.
-    const started = draftPoints(state.rooms, state.draft).length === 0
+    const started = draftPoints(state.walls, state.draft).length === 0
     if (started) {
       const end = nearestOpenEnd(
-        state.rooms,
+        state.walls,
         toWorld(event),
         CLOSE_PX / state.viewport.scale,
       )
-      if (end) actions.continueWalls(end.roomId, end.end)
+      if (end) actions.continueWalls(end.runId, end.end)
       else actions.addDraftPoint(settleDrawing(toWorld(event)))
     }
     setCursor(settleDrawing(toWorld(event)))
@@ -703,7 +675,7 @@ export function Canvas() {
 
   function placeWall(event: { clientX: number; clientY: number }) {
     const state = plannerStore.state
-    const points = draftPoints(state.rooms, state.draft)
+    const points = draftPoints(state.walls, state.draft)
     if (!points.length) return
     const point = settleDrawing(toWorld(event))
     if (
@@ -729,10 +701,10 @@ export function Canvas() {
    * An opening slides along one line, so the step is applied to the distance
    * from the wall's first corner rather than to a point on the grid.
    */
-  function snapAlong(roomId: string, wall: number, t: number): number {
+  function snapAlong(runId: string, wall: number, t: number): number {
     const state = plannerStore.state
-    const room = state.rooms.find((r) => r.id === roomId)
-    const frame = room && roomWallAt(room, wall)
+    const run = state.walls.find((r) => r.id === runId)
+    const frame = run && runWallAt(run, wall)
     const step = activeSnapStep(state)
     if (!frame || step === null) return t
     return snapValue(t * frame.length, step) / frame.length
@@ -740,21 +712,21 @@ export function Canvas() {
 
   function onPointerMove(event: React.PointerEvent) {
     const state = plannerStore.state
-    if (state.tool === 'room') setCursor(settleDrawing(toWorld(event)))
+    if (state.tool === 'run') setCursor(settleDrawing(toWorld(event)))
     if (state.tool === 'opening' || state.tool === 'closet') {
-      const eligibleRooms =
+      const eligibleRuns =
         state.tool === 'closet'
-          ? state.rooms.filter((room) => room.kind !== 'closet')
-          : state.rooms
+          ? state.walls.filter((run) => run.kind !== 'closet')
+          : state.walls
       const spot = nearestWall(
-        eligibleRooms,
+        eligibleRuns,
         toWorld(event),
         WALL_REACH_PX / state.viewport.scale,
       )
       setGhost(
         spot && {
           ...spot,
-          t: snapAlong(spot.roomId, spot.wall, spot.t),
+          t: snapAlong(spot.runId, spot.wall, spot.t),
         },
       )
     }
@@ -803,48 +775,16 @@ export function Canvas() {
         actions.previewFurnitureMove(drag.id, x, y)
         break
       }
-      case 'move-room': {
-        // The whole outline is offered to the plan at once, so any of the
-        // room's corners or faces may be the one that finds a line to lock
-        // onto — which is what lets a room be dragged up against a neighbour
-        // by whichever of its edges happens to be facing it.
-        const points = translatePolygon(
-          drag.origin,
-          world.x - drag.grab.x,
-          world.y - drag.grab.y,
-        )
-        const fit = alignTo(
-          points,
-          snapTargets(state.rooms, drag.id),
-          SNAP_REACH_PX / state.viewport.scale,
-        )
-        setGuides(fit.guides)
-        const step = activeSnapStep(state)
-        const bounds = polygonBounds(points)
-        const grid =
-          step === null
-            ? { x: bounds.x, y: bounds.y }
-            : snapPoint({ x: bounds.x, y: bounds.y }, step)
-        actions.updateRoom(drag.id, {
-          points: translatePolygon(
-            points,
-            fit.dx ?? grid.x - bounds.x,
-            fit.dy ?? grid.y - bounds.y,
-          ),
-        })
-        break
-      }
       case 'move-closet': {
-        const closet = state.rooms.find((room) => room.id === drag.id)
+        const closet = state.walls.find((run) => run.id === drag.id)
         const attachment = closet?.attachment
         const host =
-          attachment &&
-          state.rooms.find((room) => room.id === attachment.roomId)
-        const wall = host && roomWallAt(host, attachment.wall)
+          attachment && state.walls.find((run) => run.id === attachment.runId)
+        const wall = host && runWallAt(host, attachment.wall)
         if (!attachment || !wall) break
         actions.updateCloset(drag.id, {
           t: snapAlong(
-            attachment.roomId,
+            attachment.runId,
             attachment.wall,
             projectT(wall, world) - drag.grabT,
           ),
@@ -871,21 +811,8 @@ export function Canvas() {
         }
         break
       }
-      case 'rotate-room': {
-        const nextAngle = angleBetween(drag.centre, world)
-        const delta = ((nextAngle - drag.pointerAngle + 540) % 360) - 180
-        drag.pointerAngle = nextAngle
-        drag.total += delta
-        const wanted =
-          state.snap || event.shiftKey
-            ? snapValue(drag.total, SNAP_ANGLE)
-            : drag.total
-        actions.rotateRoom(drag.id, wanted - drag.applied)
-        drag.applied = wanted
-        break
-      }
       case 'vertex': {
-        actions.moveVertex(drag.roomId, drag.index, settle(world, drag.roomId))
+        actions.moveVertex(drag.runId, drag.index, settle(world, drag.runId))
         break
       }
       case 'wall': {
@@ -893,31 +820,28 @@ export function Canvas() {
         // the way it travels cannot drift as it goes, and the outline is built
         // afresh from that same starting shape each frame rather than pushed
         // again and again from wherever the last frame left it.
-        const closed =
-          state.rooms.find((room) => room.id === drag.roomId)?.closed !== false
-        const frame = wallAt(drag.origin, drag.index, closed)
+        const frame = wallAt(drag.origin, drag.index)
         if (!frame) break
         const across =
           (world.x - drag.grab.x) * frame.normal.x +
           (world.y - drag.grab.y) * frame.normal.y
         actions.moveWall(
-          drag.roomId,
+          drag.runId,
           drag.index,
           slideWall(
             drag.origin,
             drag.index,
-            settleWall(frame, drag.roomId, across),
-            closed,
+            settleWall(frame, drag.runId, across),
           ),
         )
         break
       }
       case 'opening': {
         const opening = state.openings.find((o) => o.id === drag.id)
-        const wall = opening && openingWall(state.rooms, opening)
+        const wall = opening && openingWall(state.walls, opening)
         if (!opening || !wall) break
         actions.updateOpening(drag.id, {
-          t: snapAlong(opening.roomId, opening.wall, projectT(wall, world)),
+          t: snapAlong(opening.runId, opening.wall, projectT(wall, world)),
         })
         break
       }
@@ -925,7 +849,7 @@ export function Canvas() {
         // One jamb follows the pointer and the other stays where it is, so the
         // width and the centre both come out of where the two now stand.
         const opening = state.openings.find((o) => o.id === drag.id)
-        const wall = opening && openingWall(state.rooms, opening)
+        const wall = opening && openingWall(state.walls, opening)
         if (!opening || !wall) break
         const ends = openingEnds(wall, opening)
         const fixed =
@@ -985,7 +909,7 @@ export function Canvas() {
     slopRef.current = null
     setDragMode(null)
     setPanning(false)
-    if (plannerStore.state.tool !== 'room') setGuides([])
+    if (plannerStore.state.tool !== 'run') setGuides([])
     if (svgRef.current?.hasPointerCapture(event.pointerId)) {
       svgRef.current.releasePointerCapture(event.pointerId)
     }
@@ -1013,7 +937,7 @@ export function Canvas() {
   function onDoubleClick(event: React.MouseEvent) {
     if (underlayStore.state.positioning) return
     const state = plannerStore.state
-    if (state.tool === 'room' && state.draft) {
+    if (state.tool === 'run' && state.draft) {
       actions.cancelDraft()
       return
     }
@@ -1023,27 +947,27 @@ export function Canvas() {
     if (state.brush) return
     const world = toWorld(event)
 
-    const room =
-      state.selection?.type === 'room' || state.selection?.type === 'wall'
-        ? state.rooms.find((r) => r.id === state.selection?.id)
+    const run =
+      state.selection?.type === 'run' || state.selection?.type === 'wall'
+        ? state.walls.find((r) => r.id === state.selection?.id)
         : undefined
     const spot =
-      room && nearestWall([room], world, WALL_GRAB / 2 / state.viewport.scale)
-    const frame = room && spot && roomWallAt(room, spot.wall)
+      run && nearestWall([run], world, WALL_GRAB / 2 / state.viewport.scale)
+    const frame = run && spot && runWallAt(run, spot.wall)
     // Breaking a wall to add a corner reshapes the room, so it belongs to the
     // edit tool. Under move the click falls through to the rename below, which
     // is what a double click on a room means when its shape is off limits.
     if (
       state.tool === 'edit' &&
-      room?.kind !== 'closet' &&
-      !room?.locked &&
+      run?.kind !== 'closet' &&
+      !run?.locked &&
       spot &&
       frame
     ) {
       actions.insertVertex(
-        room.id,
+        run.id,
         spot.wall,
-        settle(pointOnWall(frame, spot.t), room.id),
+        settle(pointOnWall(frame, spot.t), run.id),
       )
       actions.sealHistory()
       // `settle` puts up the guides a drag would want; there is no drag here.
@@ -1052,8 +976,8 @@ export function Canvas() {
     }
 
     const target = nameableAt(
-      state.rooms,
-      freeEnclosures(state.rooms, state.spaces),
+      state.walls,
+      enclosuresOf(state.walls, state.spaces),
       state.showFurniture ? state.furniture : [],
       world,
       WALL_GRAB / 2 / state.viewport.scale,
@@ -1070,49 +994,13 @@ export function Canvas() {
   function commitRename(name: string) {
     const target = plannerStore.state.renaming
     if (!target) return
-    if (target.type === 'room') actions.updateRoom(target.id, { name })
+    if (target.type === 'run') actions.updateRun(target.id, { name })
     else if (target.type === 'enclosure')
       actions.updateEnclosure(target.id, { name })
     else actions.updateFurniture(target.id, { name })
     // A rename is one step to undo, and the next one starts a step of its own.
     actions.sealHistory()
     actions.endRename()
-  }
-
-  function onRoomPointerDown(room: Room, event: React.PointerEvent) {
-    if (event.button === 1 || spaceHeld) return beginPan(event)
-    if (event.button !== 0) return
-    event.stopPropagation()
-    actions.select({ type: 'room', id: room.id })
-    // A locked room still takes the click — it can be selected, renamed and
-    // built into — but the drag that would carry it off never starts.
-    if (room.locked) return
-    const attachment = room.attachment
-    if (room.kind === 'closet' && attachment) {
-      const host = plannerStore.state.rooms.find(
-        (candidate) => candidate.id === attachment.roomId,
-      )
-      const wall = host && roomWallAt(host, attachment.wall)
-      if (!wall) return
-      begin(
-        {
-          mode: 'move-closet',
-          id: room.id,
-          grabT: projectT(wall, toWorld(event)) - attachment.t,
-        },
-        event,
-      )
-      return
-    }
-    begin(
-      {
-        mode: 'move-room',
-        id: room.id,
-        grab: toWorld(event),
-        origin: room.points,
-      },
-      event,
-    )
   }
 
   function onFurniturePointerDown(item: Furniture, event: React.PointerEvent) {
@@ -1155,29 +1043,6 @@ export function Canvas() {
     begin({ mode: 'rotate', id: current.id, origin: item }, event)
   }
 
-  function onRoomRotateHandleDown(event: React.PointerEvent) {
-    event.stopPropagation()
-    const current = plannerStore.state.selection
-    if (current?.type !== 'room' && current?.type !== 'wall') return
-    const room = plannerStore.state.rooms.find(
-      (candidate) => candidate.id === current.id,
-    )
-    if (!room || room.kind === 'closet' || room.locked) return
-    actions.select({ type: 'room', id: room.id })
-    const centre = polygonCentroid(room.points)
-    begin(
-      {
-        mode: 'rotate-room',
-        id: room.id,
-        centre,
-        pointerAngle: angleBetween(centre, toWorld(event)),
-        total: 0,
-        applied: 0,
-      },
-      event,
-    )
-  }
-
   function onOpeningPointerDown(opening: Opening, event: React.PointerEvent) {
     if (event.button === 1 || spaceHeld) return beginPan(event)
     if (event.button !== 0) return
@@ -1196,9 +1061,9 @@ export function Canvas() {
   function onVertexDown(index: number, event: React.PointerEvent) {
     event.stopPropagation()
     const current = plannerStore.state.selection
-    if (current?.type !== 'room' && current?.type !== 'wall') return
-    actions.select({ type: 'room', id: current.id })
-    begin({ mode: 'vertex', roomId: current.id, index }, event)
+    if (current?.type !== 'run' && current?.type !== 'wall') return
+    actions.select({ type: 'run', id: current.id })
+    begin({ mode: 'vertex', runId: current.id, index }, event)
   }
 
   /** Take hold of a whole side of the selected room, to push it across. */
@@ -1207,25 +1072,25 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     const current = plannerStore.state.selection
-    if (current?.type !== 'room' && current?.type !== 'wall') return
-    const room = plannerStore.state.rooms.find((r) => r.id === current.id)
-    if (!room) return
+    if (current?.type !== 'run' && current?.type !== 'wall') return
+    const run = plannerStore.state.walls.find((r) => r.id === current.id)
+    if (!run) return
     actions.select({ type: 'wall', id: current.id, index })
     begin(
       {
         mode: 'wall',
-        roomId: current.id,
+        runId: current.id,
         index,
         grab: toWorld(event),
-        origin: room.points,
+        origin: run.points,
       },
       event,
     )
   }
 
-  const selectedRoom =
-    selection?.type === 'room' || selection?.type === 'wall'
-      ? rooms.find((r) => r.id === selection.id)
+  const selectedRun =
+    selection?.type === 'run' || selection?.type === 'wall'
+      ? walls.find((r) => r.id === selection.id)
       : undefined
   const selectedFurniture =
     selection?.type === 'furniture'
@@ -1234,7 +1099,7 @@ export function Canvas() {
   // Every opening paired with the wall it is drawn along; one whose wall has
   // gone — a room mid-edit — simply drops out of the drawing.
   const placed = openings.flatMap((opening) => {
-    const wall = openingWall(rooms, opening)
+    const wall = openingWall(walls, opening)
     return wall ? [{ opening, wall }] : []
   })
   const selectedOpening =
@@ -1245,20 +1110,20 @@ export function Canvas() {
   const ghostWall =
     tool === 'opening' &&
     ghost &&
-    wallAt(rooms.find((r) => r.id === ghost.roomId)?.points ?? [], ghost.wall)
+    wallAt(walls.find((r) => r.id === ghost.runId)?.points ?? [], ghost.wall)
 
   const closetHost =
     tool === 'closet' && ghost
-      ? rooms.find((room) => room.id === ghost.roomId)
+      ? walls.find((run) => run.id === ghost.runId)
       : undefined
   const closetHostWall =
-    closetHost && ghost ? roomWallAt(closetHost, ghost.wall) : null
+    closetHost && ghost ? runWallAt(closetHost, ghost.wall) : null
   const closetGhostPlacement =
     closetHostWall && ghost
       ? placeCloset(
           closetHostWall,
           {
-            roomId: ghost.roomId,
+            runId: ghost.runId,
             wall: ghost.wall,
             t: ghost.t,
           },
@@ -1266,7 +1131,7 @@ export function Canvas() {
           DEFAULT_CLOSET.depth,
         )
       : null
-  const closetGhostRoom: Room | null = closetGhostPlacement
+  const closetGhostRun: WallRun | null = closetGhostPlacement
     ? {
         id: 'closet-ghost',
         kind: 'closet',
@@ -1275,12 +1140,12 @@ export function Canvas() {
         attachment: closetGhostPlacement.attachment,
       }
     : null
-  const closetGhostWall = closetGhostRoom && roomWallAt(closetGhostRoom, 0)
+  const closetGhostWall = closetGhostRun && runWallAt(closetGhostRun, 0)
   const closetGhostOpening: Opening | null = closetGhostWall
     ? openingInWall(closetGhostWall, {
         id: 'closet-opening-ghost',
         kind: 'sliding-door',
-        roomId: 'closet-ghost',
+        runId: 'closet-ghost',
         wall: 0,
         t: 0.5,
       })
@@ -1290,7 +1155,7 @@ export function Canvas() {
       ? openingInWall(ghostWall, {
           id: 'opening-ghost',
           kind: openingKind,
-          roomId: ghost.roomId,
+          runId: ghost.runId,
           wall: ghost.wall,
           t: ghost.t,
         })
@@ -1308,7 +1173,7 @@ export function Canvas() {
   // One layout, shared: the wall dimensions are drawn from it, and the
   // selection's own readout reads it to keep out of their way.
   const dimensions = wallLabels(
-    rooms,
+    walls,
     furniture,
     openings,
     viewport,
@@ -1319,7 +1184,7 @@ export function Canvas() {
 
   // Where each item's own name is written across it, which is worked out the
   // same way and against the same room labels.
-  const names = furnitureNames(rooms, furniture, viewport, units, enclosures)
+  const names = furnitureNames(walls, furniture, viewport, units, enclosures)
 
   // Everything already written on the plan by the time a selection's own
   // readout looks for somewhere to sit. The order is what settles a clash: the
@@ -1341,22 +1206,22 @@ export function Canvas() {
   // give way.
   const clearances =
     !dragMode || MEASURED.includes(dragMode)
-      ? clearancesFor(selection, rooms, furniture, openings)
+      ? clearancesFor(selection, walls, furniture, openings)
       : []
   const spoken =
     clearances.length === 0
       ? written
-      : [...written, ...roomLabelBoxes(rooms, viewport, units, enclosures)]
+      : [...written, ...runLabelBoxes(walls, viewport, units, enclosures)]
 
   // Every room's walls, with the openings of any room sharing them already cut
   // through. Recomputed each render, as the dimensions are: the plans this
   // holds are a handful of rooms, and walls that lagged a drag by a frame would
   // read as the rooms coming apart.
-  const walls = planWallPath(rooms, openings)
+  const wallDrawing = planWallPath(walls, openings)
 
   // Where the name being typed over stands on the page, if one is: read on
   // every render, so the field rides along with a pan or a zoom.
-  const rename = editedName(rooms, enclosures, furniture, renaming, viewport)
+  const rename = editedName(walls, enclosures, furniture, renaming, viewport)
 
   const cursorClass = panning
     ? 'cursor-grabbing'
@@ -1412,20 +1277,6 @@ export function Canvas() {
           by a neighbour's floor, which is what drawing each room whole in turn
           would do.
         */}
-        {rooms.map((room) => (
-          <RoomFloor
-            key={room.id}
-            room={room}
-            selected={selection?.type === 'room' && room.id === selection.id}
-            onPointerDown={(event) => onRoomPointerDown(room, event)}
-          />
-        ))}
-        {/*
-          And the floors of the spaces that were closed in without ever being
-          drawn as a room. They take no clicks off the rooms, standing as they
-          do on the ground no room claimed, so they can go down here beside
-          them — under the walls, like every other floor.
-        */}
         {enclosures.map((enclosure) => (
           <EnclosureFloor
             key={enclosure.key}
@@ -1441,36 +1292,51 @@ export function Canvas() {
             }}
           />
         ))}
-        {rooms
-          .filter((room) => room.closed === false)
-          .map((room) => (
-            <path
-              key={`open-${room.id}`}
-              data-open-walls={room.id}
-              d={wallPath(rooms, openings, room)}
-              fill="none"
-              stroke="transparent"
-              strokeWidth={WALL_GRAB / viewport.scale}
-              onPointerDown={(event) => {
-                if (event.button !== 0 || spaceHeld) return
-                event.stopPropagation()
-                const spot = nearestWall(
-                  [room],
-                  toWorld(event),
-                  WALL_GRAB / viewport.scale,
+        {walls.map((run) => (
+          <path
+            key={`open-${run.id}`}
+            data-open-walls={run.id}
+            d={wallPath(walls, openings, run)}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={WALL_GRAB / viewport.scale}
+            onPointerDown={(event) => {
+              if (event.button !== 0 || spaceHeld) return
+              event.stopPropagation()
+              if (run.kind === 'closet' && run.attachment) {
+                actions.select({ type: 'run', id: run.id })
+                const host = walls.find(
+                  (candidate) => candidate.id === run.attachment?.runId,
                 )
-                if (spot)
-                  actions.select({
-                    type: 'wall',
-                    id: room.id,
-                    index: spot.wall,
-                  })
-              }}
-            />
-          ))}
-        {closetGhostRoom && (
+                const frame = host && runWallAt(host, run.attachment.wall)
+                if (frame && !run.locked)
+                  begin(
+                    {
+                      mode: 'move-closet',
+                      id: run.id,
+                      grabT: projectT(frame, toWorld(event)) - run.attachment.t,
+                    },
+                    event,
+                  )
+                return
+              }
+              const spot = nearestWall(
+                [run],
+                toWorld(event),
+                WALL_GRAB / viewport.scale,
+              )
+              if (spot)
+                actions.select({
+                  type: 'wall',
+                  id: run.id,
+                  index: spot.wall,
+                })
+            }}
+          />
+        ))}
+        {closetGhostRun && (
           <polygon
-            points={closetGhostRoom.points
+            points={closetGhostRun.points
               .map((point) => `${point.x},${point.y}`)
               .join(' ')}
             className="fill-muted opacity-50"
@@ -1505,23 +1371,23 @@ export function Canvas() {
           trimming by it rather than sitting on top of it.
         */}
         <g className="pointer-events-none">
-          <RoomWalls d={walls} scale={viewport.scale} />
-          {closetGhostRoom && closetGhostOpening && (
+          <RunWalls d={wallDrawing} scale={viewport.scale} />
+          {closetGhostRun && closetGhostOpening && (
             <g className="opacity-40">
-              <RoomWalls
+              <RunWalls
                 d={wallPath(
-                  [...rooms, closetGhostRoom],
+                  [...walls, closetGhostRun],
                   [closetGhostOpening],
-                  closetGhostRoom,
+                  closetGhostRun,
                 )}
                 scale={viewport.scale}
               />
             </g>
           )}
-          {selectedRoom && (
+          {selectedRun && (
             <SharedWalls
-              room={selectedRoom}
-              spans={sharedSpansOf(rooms, openings, selectedRoom.id)}
+              run={selectedRun}
+              spans={sharedSpansOf(walls, openings, selectedRun.id)}
               scale={viewport.scale}
             />
           )}
@@ -1529,11 +1395,11 @@ export function Canvas() {
             Over the shared-wall marks, so that on a wall which is both, what
             the pointer has hold of is what shows.
           */}
-          {selectedRoom && selection?.type === 'wall' && (
+          {selectedRun && selection?.type === 'wall' && (
             <SelectedWall
-              room={selectedRoom}
+              run={selectedRun}
               index={selection.index}
-              gaps={wallGaps(rooms, openings, selectedRoom.id, selection.index)}
+              gaps={wallGaps(walls, openings, selectedRun.id, selection.index)}
               scale={viewport.scale}
             />
           )}
@@ -1562,12 +1428,6 @@ export function Canvas() {
         </g>
       </g>
 
-      <RoomLabels
-        rooms={rooms}
-        viewport={viewport}
-        units={units}
-        renaming={renaming?.type === 'room' ? renaming.id : undefined}
-      />
       <EnclosureLabels
         enclosures={enclosures}
         viewport={viewport}
@@ -1582,30 +1442,30 @@ export function Canvas() {
         labels={dimensions}
         selected={
           selection?.type === 'wall'
-            ? { roomId: selection.id, wall: selection.index }
+            ? { runId: selection.id, wall: selection.index }
             : undefined
         }
         onSelect={
           isPointerTool(tool) && !positioningUnderlay
-            ? (roomId, wall) => {
-                const room = plannerStore.state.rooms.find(
-                  (candidate) => candidate.id === roomId,
+            ? (runId, wall) => {
+                const run = plannerStore.state.walls.find(
+                  (candidate) => candidate.id === runId,
                 )
                 // A single wall is a thing to push under either pointer
                 // tool, so the dimension picks out the wall it measures. A
                 // closet's walls are never its own, and the click takes the
                 // closet instead.
                 actions.select(
-                  room?.kind === 'closet'
-                    ? { type: 'room', id: roomId }
-                    : { type: 'wall', id: roomId, index: wall },
+                  run?.kind === 'closet'
+                    ? { type: 'run', id: runId }
+                    : { type: 'wall', id: runId, index: wall },
                 )
               }
             : undefined
         }
       />
       <SnapGuides guides={guides} viewport={viewport} />
-      {tool === 'room' && cursor && drawingSnap?.label && !nearFirst && (
+      {tool === 'run' && cursor && drawingSnap?.label && !nearFirst && (
         <g className="pointer-events-none" aria-label={drawingSnap.label}>
           <rect
             x={worldToScreen(drawingSnap.point, viewport).x - 4}
@@ -1641,13 +1501,13 @@ export function Canvas() {
         the edit tool and are simply not passed under move.
       */}
       {isPointerTool(tool) &&
-        selectedRoom?.kind !== 'closet' &&
-        !selectedRoom?.locked &&
-        selectedRoom && (
-          <RoomEditor
-            room={selectedRoom}
-            gaps={selectedRoom.points.map((_, i) =>
-              wallGaps(rooms, openings, selectedRoom.id, i),
+        selectedRun?.kind !== 'closet' &&
+        !selectedRun?.locked &&
+        selectedRun && (
+          <RunEditor
+            run={selectedRun}
+            gaps={selectedRun.points.map((_, i) =>
+              wallGaps(walls, openings, selectedRun.id, i),
             )}
             viewport={viewport}
             selectedWall={
@@ -1655,7 +1515,6 @@ export function Canvas() {
             }
             onVertexDown={tool === 'edit' ? onVertexDown : undefined}
             onWallDown={onWallDown}
-            onRotateDown={tool === 'edit' ? onRoomRotateHandleDown : undefined}
           />
         )}
       {/*
@@ -1686,17 +1545,17 @@ export function Canvas() {
       {rectDraft && (
         <RectPreview rect={rectDraft} viewport={viewport} units={units} />
       )}
-      {tool === 'room' &&
+      {tool === 'run' &&
         !draft &&
-        rooms
-          .filter((room) => room.closed === false && !room.locked)
-          .flatMap((room) =>
-            [room.points[0], room.points[room.points.length - 1]].map(
+        walls
+          .filter((run) => !loopsBack(run.points) && !run.locked)
+          .flatMap((run) =>
+            [run.points[0], run.points[run.points.length - 1]].map(
               (point, index) => {
                 const at = worldToScreen(point, viewport)
                 return (
                   <circle
-                    key={`${room.id}-${index}`}
+                    key={`${run.id}-${index}`}
                     cx={at.x}
                     cy={at.y}
                     r={5}
@@ -1707,7 +1566,7 @@ export function Canvas() {
               },
             ),
           )}
-      {tool === 'room' && drawnPoints.length > 0 && (
+      {tool === 'run' && drawnPoints.length > 0 && (
         <DraftOverlay
           draft={drawnPoints}
           cursor={nearFirst ? drawnPoints[0] : drawCursor}

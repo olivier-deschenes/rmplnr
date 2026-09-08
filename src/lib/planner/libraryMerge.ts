@@ -37,14 +37,14 @@ function same(a: unknown, b: unknown): boolean {
  * enclose a room has none, and comparing it against one that does must say
  * they are the same plan rather than fail to typecheck against history.
  */
-type Drawing = Pick<Project, 'rooms' | 'furniture' | 'openings'> & {
+type Drawing = Pick<Project, 'walls' | 'furniture' | 'openings'> & {
   spaces?: Project['spaces']
 }
 
 /** Whether two plans hold the same drawing. Their names are not part of it. */
 export function samePlan(a: Drawing, b: Drawing): boolean {
   return (
-    same(a.rooms, b.rooms) &&
+    same(a.walls, b.walls) &&
     same(a.furniture, b.furniture) &&
     same(a.openings, b.openings) &&
     // What the rooms the walls close in are called is part of the drawing too,

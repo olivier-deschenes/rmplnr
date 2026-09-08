@@ -1,10 +1,10 @@
 import { straightPoint } from './drawing.ts'
 import { distance, snapPoint } from './geometry.ts'
-import { pointOnWall, projectT, roomWallAt, wallCount } from './openings.ts'
+import { pointOnWall, projectT, runWallAt, wallCount } from './openings.ts'
 import { alignTo, snapTargets } from './snapping.ts'
 
 import type { Guide } from './snapping.ts'
-import type { Point, Room } from './types.ts'
+import type { Point, WallRun } from './types.ts'
 
 export type DrawingSnap = {
   point: Point
@@ -15,7 +15,7 @@ export type DrawingSnap = {
 /** Resolve the preview and placed endpoint together, before grid rounding. */
 export function snapDrawingPoint({
   point: raw,
-  rooms,
+  walls,
   anchor,
   straight,
   reach,
@@ -23,7 +23,7 @@ export function snapDrawingPoint({
   previous = [],
 }: {
   point: Point
-  rooms: Array<Room>
+  walls: Array<WallRun>
   anchor?: Point
   straight: boolean
   reach: number
@@ -32,7 +32,7 @@ export function snapDrawingPoint({
 }): DrawingSnap {
   const point = anchor && straight ? straightPoint(anchor, raw) : raw
   const locked = anchor && straight ? (point.y === anchor.y ? 'y' : 'x') : null
-  const targets = snapTargets(rooms)
+  const targets = snapTargets(walls)
   if (anchor) {
     targets.xs.push({ value: anchor.x, from: anchor.y, to: anchor.y })
     targets.ys.push({ value: anchor.y, from: anchor.x, to: anchor.x })
@@ -44,12 +44,12 @@ export function snapDrawingPoint({
     label: DrawingSnap['label']
     rank: number
   }> = []
-  for (const room of rooms) {
-    for (const corner of room.points) {
+  for (const run of walls) {
+    for (const corner of run.points) {
       candidates.push({ point: corner, label: 'Corner', rank: 0 })
     }
-    for (let i = 0; i < wallCount(room); i++) {
-      const wall = roomWallAt(room, i)
+    for (let i = 0; i < wallCount(run); i++) {
+      const wall = runWallAt(run, i)
       if (!wall) continue
       candidates.push({
         point: pointOnWall(wall, 0.5),

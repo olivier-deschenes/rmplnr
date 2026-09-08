@@ -1,17 +1,22 @@
-import { distance, outlineIssue } from './geometry.ts'
+import {
+  closeWallPoints,
+  distance,
+  drawnWallIssue,
+  loopsBack,
+} from './geometry.ts'
 
-import type { Point, Room, WallDraft } from './types.ts'
+import type { Point, WallRun, WallDraft } from './types.ts'
 
 /** Read the active end from saved geometry, including edits made while drawing. */
 export function draftPoints(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   draft: WallDraft | null,
 ): Array<Point> {
   if (!draft) return []
   if ('start' in draft) return [draft.start]
-  const room = rooms.find((candidate) => candidate.id === draft.roomId)
-  if (!room || room.closed !== false || room.locked) return []
-  return draft.end === 'start' ? [...room.points].reverse() : room.points
+  const run = walls.find((candidate) => candidate.id === draft.runId)
+  if (!run || run.locked) return []
+  return draft.end === 'start' ? [...run.points].reverse() : run.points
 }
 
 /** Apply the axis lock after snapping so another wall cannot pull it off-axis. */
@@ -36,24 +41,24 @@ export function closingIssue(
   ) {
     return 'Add another corner to close the room with a horizontal or vertical wall.'
   }
-  return outlineIssue(points, points)
+  return drawnWallIssue(closeWallPoints(points))
 }
 
 export function nearestOpenEnd(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   point: Point,
   reach: number,
-): { roomId: string; end: 'start' | 'end'; point: Point } | null {
-  let best: { roomId: string; end: 'start' | 'end'; point: Point } | null = null
+): { runId: string; end: 'start' | 'end'; point: Point } | null {
+  let best: { runId: string; end: 'start' | 'end'; point: Point } | null = null
   let nearest = reach
-  for (const room of rooms) {
-    if (room.closed !== false || room.locked) continue
+  for (const run of walls) {
+    if (loopsBack(run.points) || run.locked) continue
     for (const end of ['start', 'end'] as const) {
       const at =
-        end === 'start' ? room.points[0] : room.points[room.points.length - 1]
+        end === 'start' ? run.points[0] : run.points[run.points.length - 1]
       const gap = distance(point, at)
       if (gap <= nearest) {
-        best = { roomId: room.id, end, point: at }
+        best = { runId: run.id, end, point: at }
         nearest = gap
       }
     }

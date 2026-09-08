@@ -105,8 +105,8 @@ Changing the domain means changing `SITE_URL` in `src/lib/seo.ts`,
 | Action                                           | Shortcut                           |
 | ------------------------------------------------ | ---------------------------------- |
 | Select                                           | `V`                                |
-| Draw polygon room                                | `R`                                |
-| Draw rectangular room                            | `E`                                |
+| Draw walls                                       | `R`                                |
+| Draw rectangular walls                           | `E`                                |
 | Add door / window / opening                      | `D` / `W` / `O`                    |
 | Undo / redo                                      | `Mod+Z` / `Mod+Shift+Z` or `Mod+Y` |
 | Copy / paste / duplicate                         | `Mod+C` / `Mod+V` / `Mod+D`        |

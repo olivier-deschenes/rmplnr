@@ -12,13 +12,13 @@ import {
 } from './closets.ts'
 import {
   clampScale,
+  closeWallPoints,
   distance,
   fitViewport,
   interiorPoint,
   planBounds,
   drawnWallIssue,
   rectPolygon,
-  rotatePolygon,
   screenToWorld,
   snapPoint,
   snapValue,
@@ -32,7 +32,7 @@ import {
   openingInWall,
   openingWall,
   reattachOpenings,
-  roomWallAt,
+  runWallAt,
 } from './openings.ts'
 import {
   blockersFor,
@@ -41,18 +41,28 @@ import {
   settleFurnitureDrop,
 } from './collision.ts'
 import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
-import { enclosureName, enclosureWalls, freeEnclosures } from './enclosures.ts'
+import {
+  enclosureAt,
+  enclosureName,
+  enclosureWalls,
+  enclosuresOf,
+} from './enclosures.ts'
 import { mergeLibraries, sameLibrary, samePlan } from './libraryMerge.ts'
 import { EMPTY_HISTORY, pushHistory, snapshotOf } from './history.ts'
 import {
   describeFurniture,
   describeOpening,
-  describeRoom,
+  describeRun,
   openingName,
   selectionName,
 } from './describe.ts'
 import { SNAP_STEP } from './units.ts'
-import { editConnectedWall, openOutline, wallFullyOpen } from './walls.ts'
+import {
+  editConnectedWall,
+  reshapeConnectedWalls,
+  removeWallGeometry,
+  wallFullyOpen,
+} from './walls.ts'
 import {
   DEFAULT_SCALE,
   LibrarySchema,
@@ -82,7 +92,7 @@ import type {
   Project,
   RectDraft,
   Rename,
-  Room,
+  WallRun,
   Selection,
   Space,
   StyleBrush,
@@ -118,7 +128,7 @@ export type TabConflict = { plans: Array<ConflictedPlan> }
 export type PlannerState = {
   /**
    * Every plan saved, the open one among them. Its entry here is the copy last
-   * written down: the plan actually being drawn on is `rooms`, `furniture` and
+   * written down: the plan actually being drawn on is `walls`, `furniture` and
    * `openings` below, and is read back into its entry whenever the library as
    * a whole is wanted — which is what `libraryOf` is for.
    */
@@ -132,11 +142,11 @@ export type PlannerState = {
    */
   restored: boolean
   /**
-   * The plan the URL names, and so the one `rooms`, `furniture` and `openings`
+   * The plan the URL names, and so the one `walls`, `furniture` and `openings`
    * hold. Null on any page that is not looking at a plan.
    */
   projectId: string | null
-  rooms: Array<Room>
+  walls: Array<WallRun>
   furniture: Array<Furniture>
   /** Reusable footprints saved locally from furniture in any plan. */
   customFurniturePresets: Array<CustomFurniturePreset>
@@ -199,7 +209,7 @@ const initialState: PlannerState = {
   projects: [],
   restored: false,
   projectId: null,
-  rooms: [],
+  walls: [],
   furniture: [],
   customFurniturePresets: [],
   openings: [],
@@ -274,7 +284,7 @@ function restore(state: PlannerState, step: Snapshot): PlannerState {
     ...step,
     rect: null,
     renaming: null,
-    tool: step.draft ? 'room' : state.draft ? state.pointerTool : state.tool,
+    tool: step.draft ? 'run' : state.draft ? state.pointerTool : state.tool,
   }
 }
 
@@ -294,24 +304,34 @@ function viewCentre(state: PlannerState): Point {
   )
 }
 
-/** Add a finished polygon as a room, select it, and hand the tool back. */
-function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
-  // A room lands unlocked: it has just been drawn, and what usually follows is
-  // putting it where it belongs. The inspector's padlock holds it once it is
-  // there.
-  const room: Room = {
+/** Draw a rectangle as walls and label the floor it encloses. */
+function withRun(state: PlannerState, points: Array<Point>): PlannerState {
+  const run: WallRun = {
     id: newId(),
-    name: `Room ${state.rooms.length + 1}`,
-    points,
+    name: nextRunName(state),
+    points: closeWallPoints(points),
   }
+  const walls = [...state.walls, run]
+  const space: Space = {
+    id: newId(),
+    name: nextRoomName(state),
+    seed: interiorPoint(points),
+  }
+  const spaces = [...state.spaces, space]
+  const enclosure = enclosuresOf(walls, spaces).find(
+    (floor) => floor.space?.id === space.id,
+  )
   return {
     ...state,
-    history: commit(state, null, `Added ${room.name}`),
-    rooms: [...state.rooms, room],
+    history: commit(state, null, 'Drew rectangular walls'),
+    walls,
+    spaces,
     draft: null,
     rect: null,
     tool: state.pointerTool,
-    selection: { type: 'room', id: room.id },
+    selection: enclosure
+      ? { type: 'enclosure', id: enclosure.key }
+      : { type: 'wall', id: run.id, index: 0 },
   }
 }
 
@@ -322,123 +342,51 @@ function withRoom(state: PlannerState, points: Array<Point>): PlannerState {
  */
 function reshaped(
   state: PlannerState,
-  room: Room,
+  run: WallRun,
   points: Array<Point>,
 ): PlannerState {
-  const rooms = reattachClosets(
-    state.rooms.map((r) => (r.id === room.id ? { ...r, points } : r)),
-    room.id,
-    room.points,
+  const walls = reattachClosets(
+    state.walls.map((r) => (r.id === run.id ? { ...r, points } : r)),
+    run.id,
+    run.points,
     points,
-    room.closed !== false,
+    false,
   )
   const openings = reattachOpenings(
     state.openings,
-    room.id,
-    room.points,
+    run.id,
+    run.points,
     points,
-    room.closed !== false,
+    false,
   )
   return {
     ...state,
-    ...flowedClosets(rooms, openings),
+    ...flowedClosets(walls, openings),
   }
 }
 
-/**
- * Take a wall out of the run it was drawn as part of.
- *
- * Only a run has a wall to give up. A room is a closed outline, and taking a
- * wall out of it would leave it neither closed nor a room — so a room is asked
- * to become its walls first, which is a step the reader takes rather than one
- * taken quietly under them, and then any of those walls can go.
- */
+/** Removing a wall is one undoable change, wherever it was drawn. */
 function withoutWall(
   state: PlannerState,
-  roomId: string,
+  runId: string,
   index: number,
 ): { state: PlannerState; error: string | null } {
-  const room = state.rooms.find((candidate) => candidate.id === roomId)
-  if (!room) return { state, error: 'This room no longer exists.' }
-  if (room.kind === 'closet') {
-    return {
-      state,
-      error: 'A closet keeps its four walls; resize it instead.',
-    }
-  }
-  if (room.locked) {
-    return { state, error: `Unlock ${room.name} to remove its walls.` }
-  }
-  if (room.closed === false) {
-    if (!roomWallAt(room, index))
-      return { state, error: 'This wall no longer exists.' }
-    // Removing a middle wall leaves two independent, resumable runs.
-    const parts = [
-      room.points.slice(0, index + 1),
-      room.points.slice(index + 1),
-    ]
-      .map((points, part) => ({ points, offset: part === 0 ? 0 : index + 1 }))
-      .filter((part) => part.points.length >= 2)
-      .map((part, i) => ({
-        ...part,
-        room: { ...room, id: i === 0 ? room.id : newId(), points: part.points },
-      }))
-    const movedAttachment = (wall: number) =>
-      parts.find(
-        (part) =>
-          wall >= part.offset && wall < part.offset + part.points.length - 1,
-      )
-    const removedClosets = new Set(
-      state.rooms
-        .filter(
-          (r) => r.attachment?.roomId === roomId && r.attachment.wall === index,
-        )
-        .map((r) => r.id),
-    )
-    const rooms = state.rooms
-      .filter((r) => r.id !== roomId && !removedClosets.has(r.id))
-      .map((r) => {
-        if (r.attachment?.roomId !== roomId) return r
-        const part = movedAttachment(r.attachment.wall)
-        return part
-          ? {
-              ...r,
-              attachment: {
-                ...r.attachment,
-                roomId: part.room.id,
-                wall: r.attachment.wall - part.offset,
-              },
-            }
-          : r
-      })
-    const openings = state.openings
-      .filter((o) => !removedClosets.has(o.roomId))
-      .flatMap((o) => {
-        if (o.roomId !== roomId) return [o]
-        const part = movedAttachment(o.wall)
-        return part
-          ? [{ ...o, roomId: part.room.id, wall: o.wall - part.offset }]
-          : []
-      })
-    return {
-      state: {
-        ...state,
-        history: commit(state, null, 'Removed a wall'),
-        rooms: [...rooms, ...parts.map((part) => part.room)],
-        openings,
-        draft: null,
-        tool: state.pointerTool,
-        selection: parts.length ? { type: 'room', id: parts[0].room.id } : null,
-      },
-      error: null,
-    }
-  }
-  if (!roomWallAt(room, index)) {
-    return { state, error: 'This wall no longer exists.' }
-  }
+  const result = removeWallGeometry(state.walls, state.openings, runId, index)
+  if (!result.ok) return { state, error: result.error }
+  const remaining = result.walls.find((run) => run.id === runId)
   return {
-    state,
-    error: `Convert ${room.name} to walls to take one of them out.`,
+    state: {
+      ...state,
+      history: commit(state, null, 'Removed a wall'),
+      walls: result.walls,
+      openings: result.openings,
+      draft: null,
+      tool: state.pointerTool,
+      selection: remaining
+        ? { type: 'wall', id: remaining.id, index: 0 }
+        : null,
+    },
+    error: null,
   }
 }
 
@@ -450,14 +398,14 @@ function withoutWall(
  */
 function heldPlan(
   state: PlannerState,
-  roomId: string,
+  runId: string,
   before: Array<Point>,
-  rooms: Array<Room>,
-): { rooms: Array<Room>; openings: Array<Opening> } {
-  const moved = new Map([[roomId, before]])
+  walls: Array<WallRun>,
+): { walls: Array<WallRun>; openings: Array<Opening> } {
+  const moved = new Map([[runId, before]])
   return flowedClosets(
-    heldClosets(rooms, moved),
-    heldOpenings(state.openings, moved, rooms),
+    heldClosets(walls, moved),
+    heldOpenings(state.openings, moved, walls),
   )
 }
 
@@ -466,17 +414,17 @@ function heldPlan(
  * riding on their walls if the closet became shorter.
  */
 function flowedClosets(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-): { rooms: Array<Room>; openings: Array<Opening> } {
-  const flowed = reflowClosets(rooms)
+): { walls: Array<WallRun>; openings: Array<Opening> } {
+  const flowed = reflowClosets(walls)
   const closets = new Set(
-    flowed.filter((room) => room.kind === 'closet').map((room) => room.id),
+    flowed.filter((run) => run.kind === 'closet').map((run) => run.id),
   )
   return {
-    rooms: flowed,
+    walls: flowed,
     openings: openings.map((opening) => {
-      if (!closets.has(opening.roomId)) return opening
+      if (!closets.has(opening.runId)) return opening
       const wall = openingWall(flowed, opening)
       if (!wall) return opening
       const width = fittedWidth(opening.width, wall.length)
@@ -492,7 +440,7 @@ function flowedClosets(
  */
 function inTheWayOf(state: PlannerState, exclude?: string) {
   return state.collide
-    ? blockersFor(state.rooms, state.furniture, state.openings, exclude)
+    ? blockersFor(state.walls, state.furniture, state.openings, exclude)
     : []
 }
 
@@ -688,7 +636,7 @@ function freeNames(
   count: number,
 ): Array<string> {
   const taken = new Set([
-    ...state.rooms.map((room) => room.name),
+    ...state.walls.map((run) => run.name),
     ...state.spaces.map((space) => space.name),
   ])
   const names: Array<string> = []
@@ -703,7 +651,7 @@ function freeName(state: PlannerState, word: string): string {
 }
 
 /**
- * The next `Room n` free on the plan, counting the rooms that were drawn as
+ * The next `WallRun n` free on the plan, counting the rooms that were drawn as
  * rooms and the spaces that were only ever walled in.
  */
 function nextRoomName(state: PlannerState): string {
@@ -723,14 +671,6 @@ function nextRunName(state: PlannerState): string {
   return freeName(state, 'Walls')
 }
 
-/** The same, for a room coming apart into more runs of walls than one. */
-function nextRunNames(state: PlannerState, count: number): Array<string> {
-  return freeNames(state, 'Walls', count)
-}
-
-/** Whether a name is one the editor gave a run rather than one anybody chose. */
-const AUTO_RUN_NAME = /^Walls \d+$/
-
 /**
  * Put a name or a colour on one of the spaces the walls close in, adding the
  * record that holds it if this is the first thing said about that space.
@@ -745,7 +685,7 @@ function withSpace(
   key: string,
   patch: { name?: string; color?: string | undefined },
 ): PlannerState | null {
-  const enclosure = freeEnclosures(state.rooms, state.spaces).find(
+  const enclosure = enclosuresOf(state.walls, state.spaces).find(
     (found) => found.key === key,
   )
   if (!enclosure) return null
@@ -756,7 +696,7 @@ function withSpace(
       : `Recoloured ${held.name}`
     : patch.name !== undefined
       ? `Named ${patch.name}`
-      : `Coloured ${nextRoomName(state)}`
+      : `Coloured ${nextRunName(state)}`
   const spaces = held
     ? state.spaces.map((space) =>
         space.id === held.id
@@ -767,7 +707,7 @@ function withSpace(
         ...state.spaces,
         {
           id: newId(),
-          name: patch.name ?? nextRoomName(state),
+          name: patch.name ?? nextRunName(state),
           ...(patch.color ? { color: patch.color } : {}),
           seed: enclosure.centre,
         },
@@ -783,18 +723,18 @@ function withSpace(
 function copyOf(state: PlannerState): Clipboard | null {
   const selection = state.selection
   if (!selection) return null
-  if (selection.type === 'room') {
-    const room = state.rooms.find((r) => r.id === selection.id)
+  if (selection.type === 'run') {
+    const run = state.walls.find((r) => r.id === selection.id)
     // A closet's place comes from its host wall, so an offset paste would no
     // longer be attached. Add another from the wall instead.
-    if (room?.kind === 'closet') return null
+    if (run?.kind === 'closet') return null
     // A room is copied with the doors and windows cut into it, the same way it
     // is deleted with them: without those it is an outline rather than a room.
-    return room
+    return run
       ? {
-          type: 'room',
-          room,
-          openings: state.openings.filter((o) => o.roomId === room.id),
+          type: 'run',
+          run,
+          openings: state.openings.filter((o) => o.runId === run.id),
         }
       : null
   }
@@ -819,30 +759,29 @@ function copyOf(state: PlannerState): Clipboard | null {
 function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
   const offset = pasteOffset(state)
 
-  if (clipboard.type === 'room') {
-    const room: Room = {
+  if (clipboard.type === 'run') {
+    const run: WallRun = {
       id: newId(),
-      color: clipboard.room.color,
       name: copyName(
-        clipboard.room.name,
-        state.rooms.map((r) => r.name),
+        clipboard.run.name,
+        state.walls.map((r) => r.name),
       ),
-      points: translatePolygon(clipboard.room.points, offset, offset),
+      points: translatePolygon(clipboard.run.points, offset, offset),
     }
     // The openings come across on the same walls of the same outline, so they
     // need nothing but the new room to belong to.
     const openings = clipboard.openings.map((o) => ({
       ...o,
       id: newId(),
-      roomId: room.id,
+      runId: run.id,
     }))
     return {
       ...state,
-      history: commit(state, null, `Added ${room.name}`),
-      rooms: [...state.rooms, room],
+      history: commit(state, null, `Added ${run.name}`),
+      walls: [...state.walls, run],
       openings: [...state.openings, ...openings],
-      clipboard: { type: 'room', room, openings },
-      selection: { type: 'room', id: room.id },
+      clipboard: { type: 'run', run, openings },
+      selection: { type: 'run', id: run.id },
       tool: state.pointerTool,
     }
   }
@@ -880,9 +819,9 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
   // An opening has nowhere to be but a wall, so a copy goes back on the wall
   // it came off — and nowhere at all once that wall has been taken down.
   const source = clipboard.opening
-  const room = state.rooms.find((r) => r.id === source.roomId)
-  const wall = room && roomWallAt(room, source.wall)
-  if (!room || !wall) return state
+  const run = state.walls.find((r) => r.id === source.runId)
+  const wall = run && runWallAt(run, source.wall)
+  if (!run || !wall) return state
   const width = fittedWidth(source.width, wall.length)
   // One width along the wall, or back the other way when the original is
   // already at that end, so the copy stands beside it rather than inside it.
@@ -898,7 +837,7 @@ function pasted(state: PlannerState, clipboard: Clipboard): PlannerState {
     history: commit(
       state,
       null,
-      `Added ${openingName(opening.kind)} to ${room.name}`,
+      `Added ${openingName(opening.kind)} to ${run.name}`,
     ),
     openings: [...state.openings, opening],
     clipboard: { type: 'opening', opening },
@@ -926,9 +865,9 @@ function zoomCentred(state: PlannerState, nextScale: number): Viewport {
  */
 function framedOn(
   state: PlannerState,
-  plan: { rooms: Array<Room>; furniture: Array<Furniture> },
+  plan: { walls: Array<WallRun>; furniture: Array<Furniture> },
 ): Viewport {
-  const bounds = planBounds(plan.rooms, plan.furniture)
+  const bounds = planBounds(plan.walls, plan.furniture)
   if (!bounds || state.size.width === 0) {
     return {
       tx: state.size.width / 2,
@@ -953,7 +892,7 @@ function libraryOf(state: PlannerState): Library {
       p.id === state.projectId
         ? {
             ...p,
-            rooms: state.rooms,
+            walls: state.walls,
             furniture: state.furniture,
             openings: state.openings,
             spaces: state.spaces,
@@ -964,7 +903,7 @@ function libraryOf(state: PlannerState): Library {
 }
 
 /** A plan with nothing on it: what the editor shows when the URL names none. */
-const NO_PLAN = { rooms: [], furniture: [], openings: [], spaces: [] }
+const NO_PLAN = { walls: [], furniture: [], openings: [], spaces: [] }
 
 /**
  * Open the project the URL names: its plan becomes the plan being edited,
@@ -984,7 +923,7 @@ function opened(
     ...state,
     projects: library.projects,
     projectId: id,
-    rooms: plan.rooms,
+    walls: plan.walls,
     furniture: plan.furniture,
     openings: plan.openings,
     spaces: plan.spaces,
@@ -1009,7 +948,7 @@ function blankProject(taken: Array<string>): Project {
   return {
     id: newId(),
     name: `Plan ${n}`,
-    rooms: [],
+    walls: [],
     furniture: [],
     openings: [],
     spaces: [],
@@ -1027,7 +966,7 @@ function adopted(state: PlannerState, library: Library): PlannerState {
   return {
     ...state,
     projects,
-    rooms: open.rooms,
+    walls: open.walls,
     furniture: open.furniture,
     openings: open.openings,
     selection: null,
@@ -1054,7 +993,7 @@ function upserted(state: PlannerState, incoming: Array<Project>): PlannerState {
   return {
     ...state,
     projects,
-    rooms: open.rooms,
+    walls: open.walls,
     furniture: open.furniture,
     openings: open.openings,
     spaces: open.spaces,
@@ -1078,7 +1017,7 @@ function withTool(state: PlannerState, tool: Tool): PlannerState {
     ...state,
     tool,
     pointerTool: isPointerTool(tool) ? tool : state.pointerTool,
-    draft: tool === 'room' ? state.draft : null,
+    draft: tool === 'run' ? state.draft : null,
     rect: tool === 'rect' ? state.rect : null,
     renaming: null,
     brush: null,
@@ -1195,7 +1134,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * than in the inspector's field for it. What is being renamed is selected in
    * the same move, so the panel is describing the thing under the cursor.
    */
-  beginRename(type: 'room' | 'furniture' | 'enclosure', id: string) {
+  beginRename(type: 'run' | 'furniture' | 'enclosure', id: string) {
     setState((s) => ({
       ...s,
       selection: { type, id },
@@ -1307,21 +1246,26 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         y: centre.y - span.y - span.h / 2,
       }
 
-      const roomNames = s.rooms.map((room) => room.name)
-      const rooms = placements.map(({ room, rect }) => {
-        const name = roomNames.includes(room.name)
-          ? copyName(room.name, roomNames)
-          : room.name
-        roomNames.push(name)
+      const runNames = [
+        ...s.spaces.map((space) => space.name),
+        ...s.walls.map((run) => run.name),
+      ]
+      const walls = placements.map(({ room: run, rect }) => {
+        const name = runNames.includes(run.name)
+          ? copyName(run.name, runNames)
+          : run.name
+        runNames.push(name)
         const corner = { x: origin.x + rect.x, y: origin.y + rect.y }
         return {
           id: newId(),
           name,
-          points: rectPolygon(corner, {
-            x: corner.x + rect.w,
-            y: corner.y + rect.h,
-          }),
-        } satisfies Room
+          points: closeWallPoints(
+            rectPolygon(corner, {
+              x: corner.x + rect.w,
+              y: corner.y + rect.h,
+            }),
+          ),
+        } satisfies WallRun
       })
 
       // Furniture goes into the first room of the import when there is one,
@@ -1334,7 +1278,24 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             }
           : centre
 
-      let next: PlannerState = { ...s, rooms: [...s.rooms, ...rooms] }
+      let next: PlannerState = {
+        ...s,
+        walls: [
+          ...s.walls,
+          ...walls.map((run, index) => ({
+            ...run,
+            name: `Walls ${s.walls.length + index + 1}`,
+          })),
+        ],
+        spaces: [
+          ...s.spaces,
+          ...walls.map((run) => ({
+            id: newId(),
+            name: run.name,
+            seed: interiorPoint(run.points),
+          })),
+        ],
+      }
       let lastItem: string | null = null
       for (const item of plan.furniture) {
         const taken = next.furniture.map((f) => f.name)
@@ -1357,10 +1318,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         lastItem = dropped.id
       }
 
-      const lastRoom = rooms[rooms.length - 1]
+      const lastRun = walls[walls.length - 1]
       const selection: Selection = lastItem
         ? { type: 'furniture', id: lastItem }
-        : { type: 'room', id: lastRoom.id }
+        : (() => {
+            const floor = enclosuresOf(next.walls, next.spaces).find(
+              (found) => found.space?.name === lastRun.name,
+            )
+            return floor
+              ? { type: 'enclosure' as const, id: floor.key }
+              : { type: 'wall' as const, id: lastRun.id, index: 0 }
+          })()
 
       return {
         ...next,
@@ -1424,35 +1392,34 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * Put an open-front recess against the outside of a wall, then add an ordinary
    * sliding door to it. The door stays independently selectable and editable.
    */
-  addCloset(roomId: string, wall: number, t: number) {
+  addCloset(runId: string, wall: number, t: number) {
     const state = get()
-    const host = state.rooms.find(
-      (room) => room.id === roomId && room.kind !== 'closet',
+    const host = state.walls.find(
+      (run) => run.id === runId && run.kind !== 'closet',
     )
-    const frame = host && roomWallAt(host, wall)
+    const frame = host && runWallAt(host, wall)
     if (!host || !frame) return
 
     const id = newId()
-    const count =
-      state.rooms.filter((room) => room.kind === 'closet').length + 1
-    const attachment = { roomId, wall, t }
+    const count = state.walls.filter((run) => run.kind === 'closet').length + 1
+    const attachment = { runId, wall, t }
     const placement = placeCloset(
       frame,
       attachment,
       DEFAULT_CLOSET.width,
       DEFAULT_CLOSET.depth,
     )
-    const closet: Room = {
+    const closet: WallRun = {
       id,
       kind: 'closet',
       name: `Closet ${count}`,
       points: placement.points,
       attachment: placement.attachment,
     }
-    const opening = openingInWall(roomWallAt(closet, 0)!, {
+    const opening = openingInWall(runWallAt(closet, 0)!, {
       id: newId(),
       kind: 'sliding-door',
-      roomId: id,
+      runId: id,
       wall: 0,
       t: 0.5,
     })
@@ -1460,9 +1427,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => ({
       ...s,
       history: commit(s, null, `Added ${closet.name} to ${host.name}`),
-      rooms: [...s.rooms, closet],
+      walls: [...s.walls, closet],
+      spaces: [
+        ...s.spaces,
+        {
+          id: `closet-label:${id}`,
+          name: closet.name,
+          seed: interiorPoint(closet.points),
+        },
+      ],
       openings: [...s.openings, opening],
-      selection: { type: 'room', id },
+      selection: { type: 'run', id },
       tool: s.pointerTool,
     }))
   },
@@ -1473,15 +1448,19 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     patch: { width?: number; depth?: number; t?: number },
   ) {
     setState((s) => {
-      const closet = s.rooms.find(
-        (room) => room.id === id && room.kind === 'closet' && room.attachment,
+      const closet = s.walls.find(
+        (run) => run.id === id && run.kind === 'closet' && run.attachment,
       )
       const attachment = closet?.attachment
       const host =
-        attachment && s.rooms.find((room) => room.id === attachment.roomId)
-      const frame = host && roomWallAt(host, attachment.wall)
-      if (!closet || !attachment || !frame) return s
+        attachment && s.walls.find((run) => run.id === attachment.runId)
+      const frame = host && runWallAt(host, attachment.wall)
+      if (!closet || closet.locked || !attachment || !frame) return s
 
+      const label = enclosureAt(
+        enclosuresOf(s.walls, s.spaces),
+        interiorPoint(closet.points),
+      )?.space
       const current = closetSize(closet)
       const placement = placeCloset(
         frame,
@@ -1489,17 +1468,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         patch.width ?? current.width,
         patch.depth ?? current.depth,
       )
-      const rooms = s.rooms.map((room) =>
-        room.id === id
+      const walls = s.walls.map((run) =>
+        run.id === id
           ? {
-              ...room,
+              ...run,
               points: placement.points,
               attachment: placement.attachment,
             }
-          : room,
+          : run,
       )
       const openings = s.openings.map((opening) => {
-        if (opening.roomId !== closet.id) return opening
+        if (opening.runId !== closet.id) return opening
         const width = fittedWidth(opening.width, placement.width)
         return {
           ...opening,
@@ -1516,8 +1495,13 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             ? `Resized ${closet.name}`
             : `Moved ${closet.name}`,
         ),
-        rooms,
+        walls,
         openings,
+        spaces: s.spaces.map((space) =>
+          space.id === label?.id
+            ? { ...space, seed: interiorPoint(placement.points) }
+            : space,
+        ),
       }
     })
   },
@@ -1537,24 +1521,24 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * Cut an opening into a wall and hand the tool back, the way finishing a room
    * does: the new door lands selected, with its handles up, ready to be sized.
    */
-  addOpening(kind: OpeningKind, roomId: string, wall: number, t: number) {
+  addOpening(kind: OpeningKind, runId: string, wall: number, t: number) {
     const state = get()
-    const room = state.rooms.find((r) => r.id === roomId)
-    if (!room) return
-    const frame = roomWallAt(room, wall)
+    const run = state.walls.find((r) => r.id === runId)
+    if (!run) return
+    const frame = runWallAt(run, wall)
     if (!frame) return
     // A door or window cannot hang in an edge that has no wall left.
-    if (wallFullyOpen(state.rooms, state.openings, roomId, wall)) return
+    if (wallFullyOpen(state.walls, state.openings, runId, wall)) return
     const opening = openingInWall(frame, {
       id: newId(),
       kind,
-      roomId,
+      runId,
       wall,
       t,
     })
     setState((s) => ({
       ...s,
-      history: commit(s, null, `Added ${openingName(kind)} to ${room.name}`),
+      history: commit(s, null, `Added ${openingName(kind)} to ${run.name}`),
       openings: [...s.openings, opening],
       selection: { type: 'opening', id: opening.id },
       tool: s.pointerTool,
@@ -1580,7 +1564,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         openings: s.openings.map((o) => {
           if (o.id !== id) return o
           const next = { ...o, ...patch }
-          const wall = openingWall(s.rooms, next)
+          const wall = openingWall(s.walls, next)
           if (!wall) return next
           const width = fittedWidth(next.width, wall.length)
           return { ...next, width, t: clampT(next.t, width, wall.length) }
@@ -1728,230 +1712,61 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
-  updateRoom(id: string, patch: Partial<Room>) {
+  updateRun(id: string, patch: Partial<WallRun>) {
     setState((s) => {
-      const current = s.rooms.find((r) => r.id === id)
+      const current = s.walls.find((r) => r.id === id)
       if (!current) return s
       // A locked room still answers to a rename and to the padlock itself;
       // it is only its outline that is held.
       if (patch.points && current.locked) return s
-      const rooms = s.rooms.map((room) =>
-        room.id === id ? { ...room, ...patch } : room,
+      const label =
+        current.kind === 'closet'
+          ? enclosureAt(
+              enclosuresOf(s.walls, s.spaces),
+              interiorPoint(current.points),
+            )?.space
+          : null
+      const walls = s.walls.map((run) =>
+        run.id === id ? { ...run, ...patch } : run,
       )
       const plan = patch.points
-        ? heldPlan(s, id, current.points, rooms)
-        : { rooms, openings: s.openings }
+        ? heldPlan(s, id, current.points, walls)
+        : { walls, openings: s.openings }
       return {
         ...s,
         history: commit(
           s,
-          patchLabel('room', id, patch),
-          describeRoom(current, patch),
+          patchLabel('run', id, patch),
+          describeRun(current, patch),
         ),
         ...plan,
-      }
-    })
-  },
-
-  /** Turn an ordinary room around its centre, carrying its attachments with it. */
-  rotateRoom(id: string, degrees: number) {
-    setState((s) => {
-      const room = s.rooms.find((candidate) => candidate.id === id)
-      const turn = degrees % 360
-      if (
-        !room ||
-        room.kind === 'closet' ||
-        room.locked ||
-        !Number.isFinite(turn) ||
-        Math.abs(turn) < 1e-9
-      ) {
-        return s
-      }
-
-      const rooms = s.rooms.map((candidate) =>
-        candidate.id === id
-          ? { ...candidate, points: rotatePolygon(candidate.points, turn) }
-          : candidate,
-      )
-      return {
-        ...s,
-        history: commit(s, `rotate-room:${id}`, `Rotated ${room.name}`),
-        ...flowedClosets(rooms, s.openings),
+        spaces:
+          patch.name !== undefined && label
+            ? s.spaces.map((space) =>
+                space.id === label.id ? { ...space, name: patch.name! } : space,
+              )
+            : s.spaces,
       }
     })
   },
 
   /** Hold a room where it is, or let it go again. */
-  setRoomLocked(id: string, locked: boolean) {
+  setRunLocked(id: string, locked: boolean) {
     setState((s) => {
-      const room = s.rooms.find((r) => r.id === id)
-      if (!room || room.locked === locked) return s
+      const run = s.walls.find((r) => r.id === id)
+      if (!run || run.locked === locked) return s
       return {
         ...s,
         history: commit(
           s,
           null,
-          `${locked ? 'Locked' : 'Unlocked'} ${room.name}`,
+          `${locked ? 'Locked' : 'Unlocked'} ${run.name}`,
         ),
-        rooms: s.rooms.map((candidate) =>
+        walls: s.walls.map((candidate) =>
           candidate.id === id ? { ...candidate, locked } : candidate,
         ),
       }
     })
-  },
-
-  /**
-   * Let a room go back to being the walls it was drawn as.
-   *
-   * Nothing about the drawing changes, and that is the point: the same walls
-   * stand in the same places, with the same doors and windows cut through
-   * them, and the same floor between them. What is given up is the outline —
-   * the one object that could be dragged, resized, rotated and turned round as
-   * a piece. Afterwards there are only walls, each to be pushed about on its
-   * own, which is what a reader wants the moment a room stops being a rectangle
-   * they are moving and becomes walls they are rearranging.
-   *
-   * The name and the colour do not go with the walls. They belong to the floor,
-   * and the floor is still there — the walls close it in exactly as they did —
-   * so both are handed to the space the walls now leave between them, anchored
-   * on a point inside it. The plan therefore reads the same after this as
-   * before it, which is the test of having converted rather than deleted.
-   *
-   * An edge with nothing left standing in it is not a wall and does not become
-   * one: the room is left with the walls it was actually showing, in as many
-   * runs as the gaps between them leave. Doors and closets go with the walls
-   * they were hanging on, wherever those walls end up — and down with the ones
-   * that were never there.
-   */
-  convertRoomToWalls(id: string): { ok: true } | { ok: false; error: string } {
-    let outcome: { ok: true } | { ok: false; error: string } = {
-      ok: false,
-      error: 'This room could not be converted to walls.',
-    }
-    setState((s) => {
-      const room = s.rooms.find((candidate) => candidate.id === id)
-      if (!room) {
-        outcome = { ok: false, error: 'This room no longer exists.' }
-        return s
-      }
-      if (room.closed === false) {
-        outcome = { ok: false, error: `${room.name} is already walls.` }
-        return s
-      }
-      if (room.kind === 'closet') {
-        outcome = {
-          ok: false,
-          error: 'A closet is a recess in the wall it hangs on, not a room.',
-        }
-        return s
-      }
-      if (room.locked) {
-        outcome = {
-          ok: false,
-          error: `Unlock ${room.name} to convert it to walls.`,
-        }
-        return s
-      }
-
-      const outline = openOutline(room.points, (wall) =>
-        wallFullyOpen(s.rooms, s.openings, id, wall),
-      )
-      if (outline.runs.length === 0) {
-        outcome = {
-          ok: false,
-          error: `None of ${room.name}'s walls are there to keep.`,
-        }
-        return s
-      }
-
-      // The first run keeps the room's id, so the plan holds on to a name for
-      // what it was; the rest are runs of their own. Only a room walked
-      // backwards turns its walls round, and then whatever hangs on one is
-      // turned with it: the far end of a wall is its near end once it runs the
-      // other way, and a door hinged at one is hinged at the other.
-      const names = nextRunNames(s, outline.runs.length)
-      const runs = outline.runs.map((run, index) => ({
-        walls: run.walls,
-        room: {
-          ...room,
-          id: index === 0 ? room.id : newId(),
-          name: names[index],
-          color: undefined,
-          points: run.points,
-          closed: false,
-        } satisfies Room,
-      }))
-      const landed = new Map<number, { roomId: string; wall: number }>()
-      for (const run of runs) {
-        run.walls.forEach((wall, at) =>
-          landed.set(wall, { roomId: run.room.id, wall: at }),
-        )
-      }
-      /** Where what stood at `t` on the room's wall `wall` stands now. */
-      const moved = (wall: number, t: number) => {
-        const found = landed.get(wall)
-        return found && { ...found, t: outline.reversed ? 1 - t : t }
-      }
-
-      // A closet on a wall that was never there has nothing left to hang on,
-      // and comes down along with whatever was cut into its own walls.
-      const felled = new Set<string>()
-      const rooms: Array<Room> = []
-      for (const candidate of s.rooms) {
-        if (candidate.id === id) continue
-        const attachment = candidate.attachment
-        if (attachment?.roomId !== id) {
-          rooms.push(candidate)
-          continue
-        }
-        const to = moved(attachment.wall, attachment.t)
-        if (to)
-          rooms.push({ ...candidate, attachment: { ...attachment, ...to } })
-        else felled.add(candidate.id)
-      }
-      rooms.push(...runs.map((run) => run.room))
-
-      const openings: Array<Opening> = []
-      for (const opening of s.openings) {
-        if (felled.has(opening.roomId)) continue
-        if (opening.roomId !== id) {
-          openings.push(opening)
-          continue
-        }
-        // An opening that took a whole wall out is the reason that wall is not
-        // here, and there is nothing left for it to be a hole in.
-        const to = moved(opening.wall, opening.t)
-        if (!to) continue
-        openings.push({
-          ...opening,
-          ...to,
-          hinge: !outline.reversed
-            ? opening.hinge
-            : opening.hinge === 'start'
-              ? 'end'
-              : 'start',
-        })
-      }
-
-      outcome = { ok: true }
-      return {
-        ...s,
-        history: commit(s, null, `Converted ${room.name} to walls`),
-        ...flowedClosets(rooms, openings),
-        spaces: [
-          ...s.spaces,
-          {
-            id: newId(),
-            name: room.name,
-            ...(room.color ? { color: room.color } : {}),
-            seed: interiorPoint(room.points),
-          },
-        ],
-        selection: { type: 'room', id },
-        renaming: null,
-      }
-    })
-    return outcome
   },
 
   /**
@@ -1966,17 +1781,17 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    */
   setEnclosureLocked(key: string, locked: boolean) {
     setState((s) => {
-      const enclosure = freeEnclosures(s.rooms, s.spaces).find(
+      const enclosure = enclosuresOf(s.walls, s.spaces).find(
         (found) => found.key === key,
       )
       if (!enclosure) return s
       const held = new Set(
-        enclosureWalls(s.rooms, enclosure).map((room) => room.id),
+        enclosureWalls(s.walls, enclosure).map((run) => run.id),
       )
       // Nothing to hold, or nothing that is not held already: either way this
       // is not a change, and must not leave a step to undo.
-      const changed = s.rooms.some(
-        (room) => held.has(room.id) && (room.locked === true) !== locked,
+      const changed = s.walls.some(
+        (run) => held.has(run.id) && (run.locked === true) !== locked,
       )
       if (!changed) return s
       return {
@@ -1986,8 +1801,8 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           null,
           `${locked ? 'Locked' : 'Unlocked'} ${enclosureName(enclosure)}`,
         ),
-        rooms: s.rooms.map((room) =>
-          held.has(room.id) ? { ...room, locked } : room,
+        walls: s.walls.map((run) =>
+          held.has(run.id) ? { ...run, locked } : run,
         ),
       }
     })
@@ -2010,7 +1825,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   /** Take the name and the colour back off a space, leaving its walls alone. */
   clearEnclosure(key: string) {
     setState((s) => {
-      const enclosure = freeEnclosures(s.rooms, s.spaces).find(
+      const enclosure = enclosuresOf(s.walls, s.spaces).find(
         (found) => found.key === key,
       )
       const held = enclosure?.space
@@ -2024,26 +1839,25 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
-  moveVertex(roomId: string, index: number, point: Point) {
+  moveVertex(runId: string, index: number, point: Point) {
     setState((s) => {
-      const room = s.rooms.find((r) => r.id === roomId)
-      if (!room || room.locked) return s
-      const rooms = s.rooms.map((candidate) =>
-        candidate.id === roomId
-          ? {
-              ...candidate,
-              points: candidate.points.map((p, i) => (i === index ? point : p)),
-            }
-          : candidate,
+      const run = s.walls.find((r) => r.id === runId)
+      if (!run || run.locked) return s
+      const points = run.points.map((p, i) =>
+        i === index || distance(p, run.points[index]) < 1e-6 ? point : p,
       )
+      const changed = reshapeConnectedWalls(s.walls, s.openings, runId, points)
+      if (!changed.ok) return s
+
       return {
         ...s,
         history: commit(
           s,
-          `vertex:${roomId}:${index}`,
-          `Moved a corner of ${room.name}`,
+          `vertex:${runId}:${index}`,
+          `Moved a corner of ${run.name}`,
         ),
-        ...heldPlan(s, roomId, room.points, rooms),
+        walls: changed.walls,
+        openings: changed.openings,
       }
     })
   },
@@ -2057,26 +1871,27 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * `index` names the wall only so that the history can tell one push from the
    * next: pushing two sides in turn is two steps to undo, not one.
    */
-  moveWall(roomId: string, index: number, points: Array<Point>) {
+  moveWall(runId: string, index: number, points: Array<Point>) {
     setState((s) => {
-      const room = s.rooms.find((r) => r.id === roomId)
-      if (!room || room.locked) return s
+      const run = s.walls.find((r) => r.id === runId)
+      if (!run || run.locked) return s
       // A push that went nowhere — held at the far side of the room, or not far
       // enough to cross a snap step — is not a change, and must not leave a
       // step to undo. Both presses of a double-click land as a still pointer,
       // and would otherwise bury the corner they add under a pair of no-ops.
-      if (sameOutline(room.points, points)) return s
-      const rooms = s.rooms.map((candidate) =>
-        candidate.id === roomId ? { ...candidate, points } : candidate,
-      )
+      if (sameOutline(run.points, points)) return s
+      const changed = reshapeConnectedWalls(s.walls, s.openings, runId, points)
+      if (!changed.ok) return s
+
       return {
         ...s,
         history: commit(
           s,
-          `wall:${roomId}:${index}`,
-          `Moved a wall of ${room.name}`,
+          `wall:${runId}:${index}`,
+          `Moved a wall of ${run.name}`,
         ),
-        ...heldPlan(s, roomId, room.points, rooms),
+        walls: changed.walls,
+        openings: changed.openings,
       }
     })
   },
@@ -2087,7 +1902,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * returns its explanation and changes nothing.
    */
   setWallDimensions(
-    roomId: string,
+    runId: string,
     index: number,
     change: WallGeometryChange,
   ): { ok: true } | { ok: false; error: string } {
@@ -2096,15 +1911,15 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       error: 'The wall could not be changed.',
     }
     setState((s) => {
-      const room = s.rooms.find((candidate) => candidate.id === roomId)
-      if (!room) {
+      const run = s.walls.find((candidate) => candidate.id === runId)
+      if (!run) {
         outcome = { ok: false, error: 'This room no longer exists.' }
         return s
       }
       const result = editConnectedWall(
-        s.rooms,
+        s.walls,
         s.openings,
-        roomId,
+        runId,
         index,
         change,
       )
@@ -2113,48 +1928,43 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         return s
       }
       outcome = { ok: true }
-      if (result.rooms === s.rooms && result.openings === s.openings) return s
+      if (result.walls === s.walls && result.openings === s.openings) return s
       return {
         ...s,
-        history: commit(s, null, `Changed wall ${index + 1} of ${room.name}`),
-        rooms: result.rooms,
+        history: commit(s, null, `Changed wall ${index + 1} of ${run.name}`),
+        walls: result.walls,
         openings: result.openings,
-        selection: { type: 'wall', id: roomId, index },
+        selection: { type: 'wall', id: runId, index },
       }
     })
     return outcome
   },
 
-  insertVertex(roomId: string, afterIndex: number, point: Point) {
+  insertVertex(runId: string, afterIndex: number, point: Point) {
     setState((s) => {
-      const room = s.rooms.find((r) => r.id === roomId)
-      if (!room || room.locked) return s
-      const points = [...room.points]
+      const run = s.walls.find((r) => r.id === runId)
+      if (!run || run.locked) return s
+      const points = [...run.points]
       points.splice(afterIndex + 1, 0, point)
       return reshaped(
-        { ...s, history: commit(s, null, `Added a corner to ${room.name}`) },
-        room,
+        { ...s, history: commit(s, null, `Added a corner to ${run.name}`) },
+        run,
         points,
       )
     })
   },
 
-  deleteVertex(roomId: string, index: number) {
+  deleteVertex(runId: string, index: number) {
     setState((s) => {
-      const room = s.rooms.find((r) => r.id === roomId)
-      if (
-        !room ||
-        room.locked ||
-        room.points.length <= (room.closed === false ? 2 : 3)
-      )
-        return s
+      const run = s.walls.find((r) => r.id === runId)
+      if (!run || run.locked || run.points.length <= 2) return s
       return reshaped(
         {
           ...s,
-          history: commit(s, null, `Removed a corner from ${room.name}`),
+          history: commit(s, null, `Removed a corner from ${run.name}`),
         },
-        room,
-        room.points.filter((_, i) => i !== index),
+        run,
+        run.points.filter((_, i) => i !== index),
       )
     })
   },
@@ -2164,7 +1974,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
    * history step. A wall that cannot go explains itself and changes nothing.
    */
   removeWall(
-    roomId: string,
+    runId: string,
     index: number,
   ): { ok: true } | { ok: false; error: string } {
     let outcome: { ok: true } | { ok: false; error: string } = {
@@ -2172,7 +1982,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       error: 'The wall could not be removed.',
     }
     setState((s) => {
-      const { state, error } = withoutWall(s, roomId, index)
+      const { state, error } = withoutWall(s, runId, index)
       outcome = error === null ? { ok: true } : { ok: false, error }
       return state
     })
@@ -2191,7 +2001,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       // close it in were drawn as part of something else, and stay. So delete
       // clears the name, and the space itself goes on being a space.
       if (type === 'enclosure') {
-        const held = freeEnclosures(s.rooms, s.spaces).find(
+        const held = enclosuresOf(s.walls, s.spaces).find(
           (found) => found.key === id,
         )?.space
         if (!held) return { ...s, selection: null, renaming: null }
@@ -2202,32 +2012,32 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           renaming: null,
         }
       }
-      const removedRooms = new Set<string>()
-      if (type === 'room') {
+      const removedRuns = new Set<string>()
+      if (type === 'run') {
         // A locked room is held against deletion too, and holds the closets
         // that would have come down with it.
-        if (s.rooms.find((room) => room.id === id)?.locked) return s
-        removedRooms.add(id)
+        if (s.walls.find((run) => run.id === id)?.locked) return s
+        removedRuns.add(id)
         // A host room takes its attached closets with it; otherwise they would
         // be left floating with a reference to a wall that no longer exists.
-        for (const room of s.rooms) {
-          if (room.attachment?.roomId === id) removedRooms.add(room.id)
+        for (const run of s.walls) {
+          if (run.attachment?.runId === id) removedRuns.add(run.id)
         }
       }
       return {
         ...s,
         history: commit(s, null, `Deleted ${selectionName(s)}`),
-        rooms:
-          type === 'room'
-            ? s.rooms.filter((room) => !removedRooms.has(room.id))
-            : s.rooms,
+        walls:
+          type === 'run'
+            ? s.walls.filter((run) => !removedRuns.has(run.id))
+            : s.walls,
         furniture:
           type === 'furniture'
             ? s.furniture.filter((f) => f.id !== id)
             : s.furniture,
         // A room takes its doors and windows down with it.
         openings: s.openings.filter((o) =>
-          type === 'room' ? !removedRooms.has(o.roomId) : o.id !== id,
+          type === 'run' ? !removedRuns.has(o.runId) : o.id !== id,
         ),
         selection: null,
         renaming: null,
@@ -2251,7 +2061,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         // An opening has one degree of freedom, so an arrow key is read as how
         // far it pushes the opening along its own wall.
         const opening = s.openings.find((o) => o.id === id)
-        const wall = opening && openingWall(s.rooms, opening)
+        const wall = opening && openingWall(s.walls, opening)
         if (!opening || !wall) return s
         const along = dx * wall.tangent.x + dy * wall.tangent.y
         return {
@@ -2267,18 +2077,18 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           ),
         }
       }
-      if (type === 'room') {
-        const room = s.rooms.find((candidate) => candidate.id === id)
-        if (room?.locked) return s
-        const attachment = room?.attachment
-        if (room?.kind === 'closet' && attachment) {
-          const host = s.rooms.find(
-            (candidate) => candidate.id === attachment.roomId,
+      if (type === 'run') {
+        const run = s.walls.find((candidate) => candidate.id === id)
+        if (run?.locked) return s
+        const attachment = run?.attachment
+        if (run?.kind === 'closet' && attachment) {
+          const host = s.walls.find(
+            (candidate) => candidate.id === attachment.runId,
           )
-          const wall = host && roomWallAt(host, attachment.wall)
+          const wall = host && runWallAt(host, attachment.wall)
           if (!wall) return s
           const along = dx * wall.tangent.x + dy * wall.tangent.y
-          const size = closetSize(room)
+          const size = closetSize(run)
           const placement = placeCloset(
             wall,
             { ...attachment, t: attachment.t + along / wall.length },
@@ -2288,7 +2098,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
           return {
             ...s,
             history,
-            rooms: s.rooms.map((candidate) =>
+            walls: s.walls.map((candidate) =>
               candidate.id === id
                 ? {
                     ...candidate,
@@ -2299,7 +2109,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             ),
           }
         }
-        const rooms = s.rooms.map((candidate) =>
+        const walls = s.walls.map((candidate) =>
           candidate.id === id
             ? {
                 ...candidate,
@@ -2310,7 +2120,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         return {
           ...s,
           history,
-          ...flowedClosets(rooms, s.openings),
+          ...flowedClosets(walls, s.openings),
         }
       }
       return {
@@ -2327,7 +2137,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
     setState((s) => {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return s
-      const points = draftPoints(s.rooms, s.draft)
+      const points = draftPoints(s.walls, s.draft)
       if (points.length === 0) {
         return { ...s, draft: { start: point }, selection: null }
       }
@@ -2343,49 +2153,48 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       }
       const drawing = s.draft!
       if ('start' in drawing) {
-        const room: Room = {
+        const run: WallRun = {
           id: newId(),
           name: nextRunName(s),
           points: next,
-          closed: false,
           locked: false,
         }
         return {
           ...s,
           history: commit(s, null, 'Drew a wall'),
-          rooms: [...s.rooms, room],
-          draft: { roomId: room.id, end: 'end' },
-          selection: { type: 'wall', id: room.id, index: 0 },
+          walls: [...s.walls, run],
+          draft: { runId: run.id, end: 'end' },
+          selection: { type: 'wall', id: run.id, index: 0 },
         }
       }
       const prepend = drawing.end === 'start'
       return {
         ...s,
         history: commit(s, null, 'Drew a wall'),
-        rooms: s.rooms.map((room) => {
-          if (room.id === drawing.roomId)
-            return { ...room, points: prepend ? [...next].reverse() : next }
-          if (prepend && room.attachment?.roomId === drawing.roomId) {
+        walls: s.walls.map((run) => {
+          if (run.id === drawing.runId)
+            return { ...run, points: prepend ? [...next].reverse() : next }
+          if (prepend && run.attachment?.runId === drawing.runId) {
             return {
-              ...room,
+              ...run,
               attachment: {
-                ...room.attachment,
-                wall: room.attachment.wall + 1,
+                ...run.attachment,
+                wall: run.attachment.wall + 1,
               },
             }
           }
-          return room
+          return run
         }),
         openings: prepend
           ? s.openings.map((opening) =>
-              opening.roomId === drawing.roomId
+              opening.runId === drawing.runId
                 ? { ...opening, wall: opening.wall + 1 }
                 : opening,
             )
           : s.openings,
         selection: {
           type: 'wall',
-          id: drawing.roomId,
+          id: drawing.runId,
           index: prepend ? 0 : next.length - 2,
         },
       }
@@ -2393,21 +2202,21 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     return outcome
   },
 
-  continueWalls(roomId: string, end: 'start' | 'end' = 'end') {
+  continueWalls(runId: string, end: 'start' | 'end' = 'end') {
     setState((s) => {
-      const room = s.rooms.find((candidate) => candidate.id === roomId)
-      if (!room || room.closed !== false || room.locked) return s
+      const run = s.walls.find((candidate) => candidate.id === runId)
+      if (!run || run.locked) return s
       return {
         ...s,
-        tool: 'room',
-        draft: { roomId, end },
+        tool: 'run',
+        draft: { runId, end },
         rect: null,
         renaming: null,
         brush: null,
         selection: {
           type: 'wall',
-          id: roomId,
-          index: end === 'start' ? 0 : room.points.length - 2,
+          id: runId,
+          index: end === 'start' ? 0 : run.points.length - 2,
         },
       }
     })
@@ -2418,28 +2227,28 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
       const drawing = s.draft
       if (!drawing) return s
       if ('start' in drawing) return { ...s, draft: null }
-      const room = s.rooms.find((candidate) => candidate.id === drawing.roomId)
-      if (!room || room.locked) return s
+      const run = s.walls.find((candidate) => candidate.id === drawing.runId)
+      if (!run || run.locked) return s
       const prepend = drawing.end === 'start'
-      const points = prepend ? room.points.slice(1) : room.points.slice(0, -1)
-      const removed = prepend ? 0 : room.points.length - 2
-      const removedRooms = new Set(
-        s.rooms
+      const points = prepend ? run.points.slice(1) : run.points.slice(0, -1)
+      const removed = prepend ? 0 : run.points.length - 2
+      const removedRuns = new Set(
+        s.walls
           .filter(
             (r) =>
-              r.attachment?.roomId === room.id && r.attachment.wall === removed,
+              r.attachment?.runId === run.id && r.attachment.wall === removed,
           )
           .map((r) => r.id),
       )
-      if (points.length < 2) removedRooms.add(room.id)
+      if (points.length < 2) removedRuns.add(run.id)
       return {
         ...s,
         history: commit(s, null, 'Undid a wall'),
-        rooms: s.rooms
-          .filter((r) => !removedRooms.has(r.id))
+        walls: s.walls
+          .filter((r) => !removedRuns.has(r.id))
           .map((r) => {
-            if (r.id === room.id) return { ...r, points }
-            if (prepend && r.attachment?.roomId === room.id) {
+            if (r.id === run.id) return { ...r, points }
+            if (prepend && r.attachment?.runId === run.id) {
               return {
                 ...r,
                 attachment: { ...r.attachment, wall: r.attachment.wall - 1 },
@@ -2450,11 +2259,11 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
         openings: s.openings
           .filter(
             (opening) =>
-              !removedRooms.has(opening.roomId) &&
-              !(opening.roomId === room.id && opening.wall === removed),
+              !removedRuns.has(opening.runId) &&
+              !(opening.runId === run.id && opening.wall === removed),
           )
           .map((opening) =>
-            prepend && opening.roomId === room.id
+            prepend && opening.runId === run.id
               ? { ...opening, wall: opening.wall - 1 }
               : opening,
           ),
@@ -2464,7 +2273,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             ? null
             : {
                 type: 'wall',
-                id: room.id,
+                id: run.id,
                 index: prepend ? 0 : points.length - 2,
               },
       }
@@ -2489,32 +2298,26 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
     setState((s) => {
       if (!s.draft) return s
-      const error = closingIssue(draftPoints(s.rooms, s.draft), s.straightWalls)
+      const error = closingIssue(draftPoints(s.walls, s.draft), s.straightWalls)
       if (error) {
         outcome = { ok: false, error }
         return s
       }
       if ('start' in s.draft) return s
-      const id = s.draft.roomId
+      const id = s.draft.runId
       return {
         ...s,
-        history: commit(s, null, 'Closed a room'),
-        // Closed, the run is a room, and takes a room's name — unless somebody
-        // had already given it one of their own, which stands.
-        rooms: s.rooms.map((room) =>
-          room.id === id
-            ? {
-                ...room,
-                name: AUTO_RUN_NAME.test(room.name)
-                  ? nextRoomName(s)
-                  : room.name,
-                closed: undefined,
-              }
-            : room,
+        history: commit(s, null, 'Joined the last wall'),
+        walls: s.walls.map((run) =>
+          run.id === id ? { ...run, points: closeWallPoints(run.points) } : run,
         ),
         draft: null,
         tool: s.pointerTool,
-        selection: { type: 'room', id },
+        selection: {
+          type: 'wall',
+          id,
+          index: s.walls.find((run) => run.id === id)!.points.length - 1,
+        },
       }
     })
     return outcome
@@ -2551,7 +2354,7 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
             },
           )
         : rectPolygon(start, end)
-      return withRoom(s, corners)
+      return withRun(s, corners)
     })
   },
 
@@ -2880,12 +2683,12 @@ function failureOf(error: unknown): SaveFailure {
  * plan doing nothing for ever.
  */
 function attached(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
 ): Array<Opening> {
   return openings.filter((o) => {
-    const room = rooms.find((r) => r.id === o.roomId)
-    return room !== undefined && roomWallAt(room, o.wall) !== null
+    const run = walls.find((r) => r.id === o.runId)
+    return run !== undefined && runWallAt(run, o.wall) !== null
   })
 }
 
@@ -2900,13 +2703,13 @@ function loadStoredPlan(storage: PlannerStorage): Project | null {
   if (!raw) return null
   const parsed = PlanSchema.safeParse(JSON.parse(raw))
   if (!parsed.success) return null
-  const { rooms, furniture, openings } = parsed.data
+  const { walls, furniture, openings } = parsed.data
   return {
     id: newId(),
     name: 'Plan 1',
-    rooms,
+    walls,
     furniture,
-    openings: attached(rooms, openings),
+    openings: attached(walls, openings),
     spaces: parsed.data.spaces,
   }
 }
@@ -2932,7 +2735,7 @@ function readLibrary(storage: PlannerStorage | null): Library | null {
       version: 1,
       projects: parsed.data.projects.map((p) => ({
         ...p,
-        openings: attached(p.rooms, p.openings),
+        openings: attached(p.walls, p.openings),
       })),
     }
   } catch {
@@ -2999,7 +2802,7 @@ function persistedOf(state: PlannerState): Persisted {
   return [
     state.projects,
     state.projectId,
-    state.rooms,
+    state.walls,
     state.furniture,
     state.openings,
     state.spaces,

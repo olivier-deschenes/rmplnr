@@ -155,7 +155,7 @@ const DRAW_TOOLS: Array<{
   {
     tool: 'move',
     icon: IconPointer,
-    label: 'Select, drag things about, and push a room’s walls in and out',
+    label: 'Move furniture, openings and walls',
     name: 'Move',
   },
   {
@@ -167,11 +167,11 @@ const DRAW_TOOLS: Array<{
   {
     tool: 'rect',
     icon: IconRectangle,
-    label: 'Drag out a rectangular room',
+    label: 'Draw four walls as a rectangle',
     name: 'Rectangle',
   },
   {
-    tool: 'room',
+    tool: 'run',
     icon: IconVectorTriangle,
     label: 'Draw walls, pause, and continue',
     name: 'Walls',

@@ -1,7 +1,7 @@
 import type {
   Furniture,
   Opening,
-  Room,
+  WallRun,
   Selection,
   Space,
   WallDraft,
@@ -25,7 +25,7 @@ const UNDONE_ROWS = 3
  * everything the change left alone is shared with the state it came from.
  */
 export type Snapshot = {
-  rooms: Array<Room>
+  walls: Array<WallRun>
   furniture: Array<Furniture>
   openings: Array<Opening>
   spaces: Array<Space>
@@ -61,7 +61,7 @@ export const EMPTY_HISTORY: History = { past: [], future: [], label: null }
 /** Lift the undoable part out of a wider state. */
 export function snapshotOf(state: Snapshot): Snapshot {
   return {
-    rooms: state.rooms,
+    walls: state.walls,
     furniture: state.furniture,
     openings: state.openings,
     spaces: state.spaces,

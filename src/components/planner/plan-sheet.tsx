@@ -5,21 +5,15 @@ import {
   EnclosureFloor,
   FurnitureShape,
   OpeningShape,
-  RoomFloor,
-  RoomWalls,
+  RunWalls,
 } from './shapes.tsx'
 import { UnderlayImage } from './underlay.tsx'
 import { blobDataUrl, inlineSvgStyles } from './planImage.tsx'
-import {
-  EnclosureLabels,
-  FurnitureLabels,
-  RoomLabels,
-  WallDimensions,
-} from './overlay.tsx'
+import { EnclosureLabels, FurnitureLabels, WallDimensions } from './overlay.tsx'
 
 import { downloadFile, projectFileName } from '#/lib/planner/projectExport.ts'
 import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
-import { freeEnclosures, planFloors } from '#/lib/planner/enclosures.ts'
+import { enclosuresOf, planFloors } from '#/lib/planner/enclosures.ts'
 import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { planWallPath } from '#/lib/planner/walls.ts'
@@ -76,7 +70,7 @@ const FALLBACK_EXTENT: Rect = { x: 0, y: 0, w: 400, h: 300 }
 export function sheetExtent(project: Project, underlay?: Underlay): Rect {
   return (
     unionRect(
-      planBounds(project.rooms, project.furniture),
+      planBounds(project.walls, project.furniture),
       underlayRect(underlay),
     ) ?? FALLBACK_EXTENT
   )
@@ -157,7 +151,7 @@ function TitleBlock({
   const top = page.height - SHEET_MARGIN - TITLE_BLOCK_HEIGHT
   const left = SHEET_MARGIN
   const right = page.width - SHEET_MARGIN
-  const floors = planFloors(project.rooms, project.spaces)
+  const floors = planFloors(project.walls, project.spaces)
   const printedOn = new Date().toLocaleDateString()
 
   return (
@@ -241,13 +235,13 @@ export function PlanSheet({
   const clipId = 'plan-sheet-frame'
 
   const placed = project.openings.flatMap((opening) => {
-    const wall = openingWall(project.rooms, opening)
+    const wall = openingWall(project.walls, opening)
     return wall ? [{ opening, wall }] : []
   })
-  const enclosures = freeEnclosures(project.rooms, project.spaces)
+  const enclosures = enclosuresOf(project.walls, project.spaces)
   const dimensions = options.dimensions
     ? wallLabels(
-        project.rooms,
+        project.walls,
         project.furniture,
         project.openings,
         viewport,
@@ -257,7 +251,7 @@ export function PlanSheet({
       )
     : []
   const names = furnitureNames(
-    project.rooms,
+    project.walls,
     project.furniture,
     viewport,
     units,
@@ -295,14 +289,7 @@ export function PlanSheet({
               href={underlayHref}
             />
           )}
-          {project.rooms.map((room) => (
-            <RoomFloor
-              key={room.id}
-              room={room}
-              selected={false}
-              onPointerDown={() => undefined}
-            />
-          ))}
+
           {enclosures.map((enclosure) => (
             <EnclosureFloor
               key={enclosure.key}
@@ -318,16 +305,14 @@ export function PlanSheet({
               onPointerDown={() => undefined}
             />
           ))}
-          <RoomWalls
-            d={planWallPath(project.rooms, project.openings)}
+          <RunWalls
+            d={planWallPath(project.walls, project.openings)}
             scale={viewport.scale}
           />
           {placed.map(({ opening, wall }) => (
             <OpeningShape key={opening.id} opening={opening} wall={wall} />
           ))}
         </g>
-
-        <RoomLabels rooms={project.rooms} viewport={viewport} units={units} />
         <EnclosureLabels
           enclosures={enclosures}
           viewport={viewport}

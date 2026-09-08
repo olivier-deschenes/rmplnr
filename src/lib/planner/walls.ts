@@ -5,22 +5,18 @@ import {
   openingSpan,
   outlinePath,
   projectAlong,
-  roomWallAt,
+  pointOnWall,
+  runWallAt,
   wallAt,
   wallCount,
   wallSegments,
 } from './openings.ts'
 import { closetSize, heldClosets, reflowClosets } from './closets.ts'
-import {
-  distance,
-  editWallGeometry,
-  outlineIssue,
-  outwardSign,
-} from './geometry.ts'
+import { distance, editWallGeometry, wallRunIssue } from './geometry.ts'
 import { OPENING_PRESETS } from './presets.ts'
 import { MIN_SIZE } from './types.ts'
 
-import type { Opening, Point, Room } from './types.ts'
+import type { Opening, Point, WallRun } from './types.ts'
 import type { Span, Wall } from './openings.ts'
 import type { WallGeometryChange } from './geometry.ts'
 
@@ -49,7 +45,7 @@ const MIN_SHARE = 20
 
 /** A stretch of one room's wall that another room's wall runs along. */
 export type Share = {
-  roomId: string
+  runId: string
   wall: number
   frame: Wall
   span: Span
@@ -87,40 +83,43 @@ export function sharedSpan(wall: Wall, other: Wall): Span | null {
 
 /** Every wall of another room that runs along this one, party-wall fashion. */
 export function sharedWalls(
-  rooms: Array<Room>,
-  roomId: string,
+  walls: Array<WallRun>,
+  runId: string,
   index: number,
 ): Array<Share> {
-  const room = rooms.find((r) => r.id === roomId)
-  const frame = room ? roomWallAt(room, index) : null
-  if (!room || !frame) return []
+  const run = walls.find((r) => r.id === runId)
+  const frame = run ? runWallAt(run, index) : null
+  if (!run || !frame) return []
 
   const shares: Array<Share> = []
-  for (const other of rooms) {
-    if (other.id === roomId) continue
+  for (const other of walls) {
+    if (other.id === runId) continue
     for (let i = 0; i < other.points.length; i++) {
-      const face = roomWallAt(other, i)
+      const face = runWallAt(other, i)
       if (!face) continue
       const span = sharedSpan(frame, face)
-      if (span) shares.push({ roomId: other.id, wall: i, frame: face, span })
+      if (span) shares.push({ runId: other.id, wall: i, frame: face, span })
     }
   }
   return shares
 }
 
 /** The rooms this one holds a wall in common with. */
-export function neighbours(rooms: Array<Room>, roomId: string): Array<Room> {
-  const room = rooms.find((r) => r.id === roomId)
-  if (!room) return []
+export function neighbours(
+  walls: Array<WallRun>,
+  runId: string,
+): Array<WallRun> {
+  const run = walls.find((r) => r.id === runId)
+  if (!run) return []
   const ids = new Set<string>()
-  for (let i = 0; i < room.points.length; i++) {
-    for (const share of sharedWalls(rooms, roomId, i)) ids.add(share.roomId)
+  for (let i = 0; i < run.points.length; i++) {
+    for (const share of sharedWalls(walls, runId, i)) ids.add(share.runId)
   }
-  return rooms.filter((r) => ids.has(r.id))
+  return walls.filter((r) => ids.has(r.id))
 }
 
 export type ConnectedWallEditResult =
-  | { ok: true; rooms: Array<Room>; openings: Array<Opening> }
+  | { ok: true; walls: Array<WallRun>; openings: Array<Opening> }
   | { ok: false; error: string }
 
 /** Put a point through the length-and-angle change made to `from`. */
@@ -134,26 +133,6 @@ function mapWithWall(point: Point, from: Wall, to: Wall): Point {
     x: to.a.x + to.tangent.x * stretched + to.normal.x * across,
     y: to.a.y + to.tangent.y * stretched + to.normal.y * across,
   }
-}
-
-/** Stable identities for every ordinary pair of walls currently shared. */
-function sharedPairs(rooms: Array<Room>): Set<string> {
-  const pairs = new Set<string>()
-  for (const room of rooms) {
-    if (room.kind === 'closet') continue
-    for (let wall = 0; wall < room.points.length; wall++) {
-      for (const share of sharedWalls(rooms, room.id, wall)) {
-        const other = rooms.find((candidate) => candidate.id === share.roomId)
-        if (other?.kind === 'closet') continue
-        const sides = [
-          `${room.id}\u0000${wall}`,
-          `${share.roomId}\u0000${share.wall}`,
-        ].sort()
-        pairs.add(JSON.stringify(sides))
-      }
-    }
-  }
-  return pairs
 }
 
 /** Whether two point lists describe the same outline to drawing precision. */
@@ -175,94 +154,89 @@ function samePoints(a: Array<Point>, b: Array<Point>): boolean {
  * preserved makes the edit fail as a whole, leaving the plan untouched.
  */
 export function editConnectedWall(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  roomId: string,
+  runId: string,
   index: number,
   change: WallGeometryChange,
 ): ConnectedWallEditResult {
-  const room = rooms.find((candidate) => candidate.id === roomId)
-  if (!room) return { ok: false, error: 'This room no longer exists.' }
-  if (room.kind === 'closet') {
+  const run = walls.find((candidate) => candidate.id === runId)
+  if (!run) return { ok: false, error: 'This room no longer exists.' }
+  if (run.kind === 'closet') {
     return {
       ok: false,
       error: 'Edit this closet with its width and depth controls.',
     }
   }
-  if (room.locked) {
-    return { ok: false, error: `Unlock ${room.name} to edit its walls.` }
+  if (run.locked) {
+    return { ok: false, error: `Unlock ${run.name} to edit its walls.` }
   }
 
-  const from = roomWallAt(room, index)
+  const from = runWallAt(run, index)
   if (!from) return { ok: false, error: 'This wall no longer exists.' }
-  const geometry = editWallGeometry(
-    room.points,
-    index,
-    change,
-    room.closed !== false,
-  )
+  const geometry = editWallGeometry(run.points, index, change)
   if (!geometry.ok) return geometry
-  const to = wallAt(geometry.points, index, room.closed !== false)
-  if (!to) return { ok: false, error: 'That change would remove the wall.' }
+  return reshapeConnectedWalls(walls, openings, runId, geometry.points)
+}
 
-  const directShares = sharedWalls(rooms, roomId, index).filter(
-    (share) =>
-      rooms.find((candidate) => candidate.id === share.roomId)?.kind !==
-      'closet',
-  )
-  for (const share of directShares) {
-    const other = rooms.find((candidate) => candidate.id === share.roomId)
-    if (other?.locked) {
+/** Move connected corners and junctions together, regardless of drawing order. */
+export function reshapeConnectedWalls(
+  walls: Array<WallRun>,
+  openings: Array<Opening>,
+  runId: string,
+  points: Array<Point>,
+): ConnectedWallEditResult {
+  const source = walls.find((run) => run.id === runId)
+  if (!source || source.points.length !== points.length)
+    return { ok: false, error: 'This wall no longer exists.' }
+  if (source.locked)
+    return { ok: false, error: `Unlock ${source.name} to edit its walls.` }
+  const changed = new Map<string, Array<Point>>([[runId, points]])
+  const junction = (point: Point): Point => {
+    const corner = source.points.findIndex(
+      (before) => distance(before, point) < 1e-6,
+    )
+    if (corner >= 0) return points[corner]
+    for (let i = 0; i < source.points.length - 1; i++) {
+      const from = wallAt(source.points, i)
+      const to = wallAt(points, i)
+      if (!from || !to || Math.abs(offset(from, point)) > 1e-6) continue
+      const along = projectAlong(from, point)
+      if (along > 0 && along < 1) return mapWithWall(point, from, to)
+    }
+    return point
+  }
+  const movedRuns = walls.map((run) => {
+    if (run.id === runId) return { ...run, points }
+    if (run.kind === 'closet') return run
+    const next = run.points.map(junction)
+    if (samePoints(run.points, next)) return run
+    changed.set(run.id, next)
+    return { ...run, points: next }
+  })
+  for (const [id, next] of changed) {
+    const before = walls.find((run) => run.id === id)!
+    if (before.locked)
       return {
         ok: false,
-        error: `Unlock ${other.name} to keep the shared wall connected.`,
+        error: `Unlock ${before.name} to keep the shared wall connected.`,
       }
-    }
-  }
-
-  const changed = new Map<string, Array<Point>>([[roomId, geometry.points]])
-  for (const share of directShares) {
-    const other = rooms.find((candidate) => candidate.id === share.roomId)
-    if (!other) continue
-    const points = [...(changed.get(other.id) ?? other.points)]
-    const end = (share.wall + 1) % points.length
-    points[share.wall] = mapWithWall(other.points[share.wall], from, to)
-    points[end] = mapWithWall(other.points[end], from, to)
-    changed.set(other.id, points)
-  }
-
-  const movedRooms = rooms.map((candidate) => {
-    const points = changed.get(candidate.id)
-    return points ? { ...candidate, points } : candidate
-  })
-  for (const [id, points] of changed) {
-    const before = rooms.find((candidate) => candidate.id === id)
-    if (!before) continue
-    const issue = outlineIssue(before.points, points, before.closed !== false)
+    const issue = wallRunIssue(next)
     if (issue) return { ok: false, error: issue }
   }
 
-  const beforeShares = sharedPairs(rooms)
-  const afterShares = sharedPairs(movedRooms)
-  if ([...beforeShares].some((pair) => !afterShares.has(pair))) {
-    return {
-      ok: false,
-      error: 'That change would pull apart another shared wall.',
-    }
-  }
-
-  const affectedRooms = new Set(changed.keys())
-  for (const closet of rooms) {
+  const affectedRuns = new Set(changed.keys())
+  for (const closet of walls) {
     const attachment = closet.kind === 'closet' ? closet.attachment : undefined
-    if (!attachment || !changed.has(attachment.roomId)) continue
-    const host = movedRooms.find(
-      (candidate) => candidate.id === attachment.roomId,
+    if (!attachment || !changed.has(attachment.runId)) continue
+    const host = movedRuns.find(
+      (candidate) => candidate.id === attachment.runId,
     )
-    const hostWall = host && roomWallAt(host, attachment.wall)
+    const hostWall = host && runWallAt(host, attachment.wall)
     if (!host || !hostWall) {
       return {
         ok: false,
-        error: `That change would detach ${closet.name} from its room.`,
+        error: `That change would detach ${closet.name} from its run.`,
       }
     }
     if (closetSize(closet).width > hostWall.length + 1e-6) {
@@ -271,28 +245,26 @@ export function editConnectedWall(
         error: `${closet.name} is wider than the edited wall.`,
       }
     }
-    affectedRooms.add(closet.id)
+    affectedRuns.add(closet.id)
   }
 
   // The rooms reshaped here have walls that grew or shrank, and what hangs on
   // those walls stays where it was put rather than sliding along with them.
   const stretched = new Map(
     [...changed.keys()].flatMap((id) => {
-      const before = rooms.find((candidate) => candidate.id === id)
+      const before = walls.find((candidate) => candidate.id === id)
       return before ? [[id, before.points] as const] : []
     }),
   )
-  const flowedRooms = reflowClosets(heldClosets(movedRooms, stretched))
+  const flowedRuns = reflowClosets(heldClosets(movedRuns, stretched))
   const fittedOpenings: Array<Opening> = []
   for (const opening of openings) {
-    if (!affectedRooms.has(opening.roomId)) {
+    if (!affectedRuns.has(opening.runId)) {
       fittedOpenings.push(opening)
       continue
     }
-    const owner = flowedRooms.find(
-      (candidate) => candidate.id === opening.roomId,
-    )
-    const wall = owner && roomWallAt(owner, opening.wall)
+    const owner = flowedRuns.find((candidate) => candidate.id === opening.runId)
+    const wall = owner && runWallAt(owner, opening.wall)
     if (!owner || !wall) {
       return {
         ok: false,
@@ -305,7 +277,7 @@ export function editConnectedWall(
         error: `${OPENING_PRESETS[opening.kind].label} in ${owner.name} is wider than the edited wall.`,
       }
     }
-    const before = stretched.get(opening.roomId)
+    const before = stretched.get(opening.runId)
     fittedOpenings.push(
       before
         ? heldOpening(opening, before, owner.points)
@@ -315,97 +287,132 @@ export function editConnectedWall(
 
   // Avoid manufacturing a change when the entered value is already exact.
   if (
-    rooms.every((candidate, i) =>
-      samePoints(candidate.points, flowedRooms[i].points),
+    walls.every((candidate, i) =>
+      samePoints(candidate.points, flowedRuns[i].points),
     ) &&
     openings.every(
       (opening, i) =>
         opening === fittedOpenings[i] || opening.t === fittedOpenings[i].t,
     )
   ) {
-    return { ok: true, rooms, openings }
+    return { ok: true, walls, openings }
   }
 
-  return { ok: true, rooms: flowedRooms, openings: fittedOpenings }
+  return { ok: true, walls: flowedRuns, openings: fittedOpenings }
 }
 
-/**
- * A closed outline read back as the runs of walls it was drawn as.
- *
- * A room and a run of walls are the same walls written down two ways, and this
- * is the way back from the first to the second: the outline's own corners,
- * walked round and back to the one they started at. Not a corner moves, and
- * the walk keeps exactly the walls the room had — the closing wall included,
- * which is the whole reason it comes back to where it began rather than
- * stopping one wall short of it.
- *
- * Except for the walls that are not there. A wall opened end to end is a way
- * through, and `absent` is how the caller says so: the walk steps over it
- * rather than laying it down, which breaks the loop and leaves a run either
- * side of the gap. That is the honest answer — the walls that are there are
- * these, and they no longer close anything — and it is why this returns runs
- * rather than a run.
- *
- * The one thing that cannot be carried straight across is which side of a wall
- * is the outside. A room settles that by its winding, whichever way round it
- * was traced; a run has no inside to wind about, so `wallAt` reads its outside
- * off the one winding it assumes. A room traced the other way is therefore
- * walked backwards here, which puts its walls back the way round the run
- * expects and leaves every door swinging and every closet standing exactly
- * where it stood. `walls` says where each of the room's walls ended up, for
- * whatever was hanging on it.
- */
-export type OpenedRun = {
-  /** This run's corners, in the order it is walked. */
-  points: Array<Point>
-  /** Which wall of the closed outline each of this run's walls came from. */
-  walls: Array<number>
-}
-
-export type OpenedOutline = {
-  /** Whether the outline's walls are walked the other way about. */
-  reversed: boolean
-  /** What is left, in walk order: one run, or several where a wall is absent. */
-  runs: Array<OpenedRun>
-}
-
-export function openOutline(
-  points: Array<Point>,
-  absent: (index: number) => boolean = () => false,
-): OpenedOutline {
-  const count = points.length
-  const reversed = outwardSign(points) < 0
-  // Which wall the walk takes at each step, and which way round it then runs.
-  const order = Array.from({ length: count }, (_, step) =>
-    reversed ? count - 1 - step : step,
-  )
-  const from = (index: number) =>
-    reversed ? points[(index + 1) % count] : points[index]
-  const to = (index: number) =>
-    reversed ? points[index] : points[(index + 1) % count]
-
-  const walked: Array<Array<number>> = []
-  let current: Array<number> | null = null
-  for (const index of order) {
-    if (absent(index)) {
-      current = null
+/** Remove the physical wall, including coincident copies drawn in other runs. */
+export function removeWallGeometry(
+  walls: Array<WallRun>,
+  openings: Array<Opening>,
+  runId: string,
+  index: number,
+): ConnectedWallEditResult {
+  const source = walls.find((run) => run.id === runId)
+  const target = source && runWallAt(source, index)
+  if (!target) return { ok: false, error: 'This wall no longer exists.' }
+  type Piece = { wall: number; from: number; to: number; a: Point; b: Point }
+  type Landing = { runId: string; wall: number; from: number; to: number }
+  const landings = new Map<string, Array<Landing>>()
+  const changed = new Set<string>()
+  const next: Array<WallRun> = []
+  for (const run of walls) {
+    const groups: Array<Array<Piece>> = []
+    let group: Array<Piece> = []
+    const finish = () => {
+      if (group.length) groups.push(group)
+      group = []
+    }
+    for (let wall = 0; wall < wallCount(run); wall++) {
+      const frame = runWallAt(run, wall)!
+      const cut =
+        run.id === runId && wall === index ? [0, 1] : sharedSpan(frame, target)
+      if (cut) changed.add(run.id)
+      const spans: Array<Span> = cut
+        ? [
+            [0, cut[0]],
+            [cut[1], 1],
+          ]
+        : [[0, 1]]
+      for (const [from, to] of spans) {
+        if ((to - from) * frame.length < 1e-6) {
+          finish()
+          continue
+        }
+        const a = pointOnWall(frame, from),
+          b = pointOnWall(frame, to)
+        if (group.length && distance(group[group.length - 1].b, a) > 1e-6)
+          finish()
+        group.push({ wall, from, to, a, b })
+      }
+    }
+    finish()
+    if (!changed.has(run.id)) {
+      next.push(run)
       continue
     }
-    if (current) current.push(index)
-    else walked.push((current = [index]))
+    if (run.locked)
+      return { ok: false, error: `Unlock ${run.name} to remove its walls.` }
+    groups.forEach((pieces, groupIndex) => {
+      const id = groupIndex === 0 ? run.id : crypto.randomUUID()
+      const { kind: _kind, attachment: _attachment, ...ordinary } = run
+      next.push({
+        ...ordinary,
+        id,
+        points: [pieces[0].a, ...pieces.map((piece) => piece.b)],
+      })
+      pieces.forEach((piece, wall) => {
+        const key = `${run.id}:${piece.wall}`
+        const destinations = landings.get(key) ?? []
+        destinations.push({ runId: id, wall, from: piece.from, to: piece.to })
+        landings.set(key, destinations)
+      })
+    })
   }
-  // The walk is a loop, so a run reaching the last wall carries straight on
-  // into the one that set off from the first.
-  if (walked.length > 1 && !absent(order[0]) && !absent(order[count - 1])) {
-    walked[0] = [...walked.pop()!, ...walked[0]]
+  const remap = (owner: string, wall: number, t: number, width: number) => {
+    if (!changed.has(owner)) return { runId: owner, wall, t }
+    const before = walls.find((run) => run.id === owner)!
+    const length = runWallAt(before, wall)!.length
+    const half = width / length / 2
+    const piece = landings
+      .get(`${owner}:${wall}`)
+      ?.find(
+        (part) => t - half >= part.from - 1e-6 && t + half <= part.to + 1e-6,
+      )
+    return piece
+      ? {
+          runId: piece.runId,
+          wall: piece.wall,
+          t: (t - piece.from) / (piece.to - piece.from),
+        }
+      : null
   }
-
+  const removedClosets = new Set<string>()
+  const attached = next.flatMap((run) => {
+    if (!run.attachment) return [run]
+    const attachment = remap(
+      run.attachment.runId,
+      run.attachment.wall,
+      run.attachment.t,
+      closetSize(run).width,
+    )
+    if (attachment) return [{ ...run, attachment }]
+    removedClosets.add(run.id)
+    return []
+  })
   return {
-    reversed,
-    runs: walked.map((walls) => ({
-      points: [from(walls[0]), ...walls.map(to)],
-      walls,
-    })),
+    ok: true,
+    walls: attached,
+    openings: openings.flatMap((opening) => {
+      if (removedClosets.has(opening.runId)) return []
+      const destination = remap(
+        opening.runId,
+        opening.wall,
+        opening.t,
+        opening.width,
+      )
+      return destination ? [{ ...opening, ...destination }] : []
+    }),
   }
 }
 
@@ -430,15 +437,15 @@ function without(span: Span, gaps: Array<Span>): Array<Span> {
  * so the openings are taken back out.
  */
 export function sharedSpansOf(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  roomId: string,
+  runId: string,
 ): Array<{ wall: number; span: Span }> {
-  const room = rooms.find((r) => r.id === roomId)
-  if (!room) return []
-  return room.points.flatMap((_, wall) => {
-    const gaps = wallGaps(rooms, openings, roomId, wall)
-    return sharedWalls(rooms, roomId, wall).flatMap((share) =>
+  const run = walls.find((r) => r.id === runId)
+  if (!run) return []
+  return run.points.flatMap((_, wall) => {
+    const gaps = wallGaps(walls, openings, runId, wall)
+    return sharedWalls(walls, runId, wall).flatMap((share) =>
       without(share.span, gaps).map((span) => ({ wall, span })),
     )
   })
@@ -451,44 +458,44 @@ export function sharedSpansOf(
  * simply fill it back in.
  */
 export function wallGaps(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  roomId: string,
+  runId: string,
   index: number,
 ): Array<Span> {
-  const room = rooms.find((r) => r.id === roomId)
-  const frame = room ? roomWallAt(room, index) : null
-  if (!room || !frame) return []
+  const run = walls.find((r) => r.id === runId)
+  const frame = run ? runWallAt(run, index) : null
+  if (!run || !frame) return []
 
   const gaps: Array<Span> = []
 
   // A closet is an open-front recess, not a small room with another copy of
   // the host wall across its face. Keep its front open even when it has no
   // door, and carry that same opening through every room sharing the host wall.
-  if (room.kind === 'closet' && index === 0) gaps.push([0, 1])
-  for (const closet of rooms) {
+  if (run.kind === 'closet' && index === 0) gaps.push([0, 1])
+  for (const closet of walls) {
     const attachment = closet.kind === 'closet' ? closet.attachment : undefined
     if (!attachment) continue
-    if (closet.id === roomId && index === 0) continue
-    const host = rooms.find((candidate) => candidate.id === attachment.roomId)
-    const hostWall = host && roomWallAt(host, attachment.wall)
-    const front = roomWallAt(closet, 0)
+    if (closet.id === runId && index === 0) continue
+    const host = walls.find((candidate) => candidate.id === attachment.runId)
+    const hostWall = host && runWallAt(host, attachment.wall)
+    const front = runWallAt(closet, 0)
     if (!hostWall || !front) continue
-    const isHostWall = roomId === attachment.roomId && index === attachment.wall
+    const isHostWall = runId === attachment.runId && index === attachment.wall
     if (!isHostWall && !sharedSpan(frame, hostWall)) continue
     const span = spanBetween(frame, front.a, front.b)
     if (span) gaps.push(span)
   }
 
   for (const opening of openings) {
-    if (opening.roomId === roomId && opening.wall === index) {
+    if (opening.runId === runId && opening.wall === index) {
       gaps.push(openingSpan(frame, opening))
     }
   }
 
-  for (const share of sharedWalls(rooms, roomId, index)) {
+  for (const share of sharedWalls(walls, runId, index)) {
     for (const opening of openings) {
-      if (opening.roomId !== share.roomId) continue
+      if (opening.runId !== share.runId) continue
       if (opening.wall !== share.wall) continue
       const { start, end } = openingEnds(share.frame, opening)
       const span = spanBetween(frame, start, end)
@@ -512,42 +519,42 @@ export function wallGaps(
  * scrap too short to be drawn as a wall of its own counts for nothing.
  */
 export function wallFullyOpen(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  roomId: string,
+  runId: string,
   index: number,
 ): boolean {
-  const room = rooms.find((candidate) => candidate.id === roomId)
-  const frame = room && roomWallAt(room, index)
+  const run = walls.find((candidate) => candidate.id === runId)
+  const frame = run && runWallAt(run, index)
   if (!frame) return false
-  return wallSegments(frame, wallGaps(rooms, openings, roomId, index)).every(
+  return wallSegments(frame, wallGaps(walls, openings, runId, index)).every(
     ([a, b]) => distance(a, b) < MIN_SIZE,
   )
 }
 
 /** A room's walls as path data, with every opening through them cut out. */
 export function wallPath(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  room: Room,
+  run: WallRun,
 ): string {
   return outlinePath(
-    room.points,
-    room.points.map((_, i) => wallGaps(rooms, openings, room.id, i)),
-    room.closed !== false,
+    run.points,
+    run.points.map((_, i) => wallGaps(walls, openings, run.id, i)),
+    false,
   )
 }
 
 /** Solid wall segments, with doors, windows and shared openings cut out. */
 export function standingWalls(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
 ): Array<[Point, Point]> {
-  return rooms.flatMap((room) =>
-    Array.from({ length: wallCount(room) }, (_, index) => {
-      const frame = roomWallAt(room, index)
+  return walls.flatMap((run) =>
+    Array.from({ length: wallCount(run) }, (_, index) => {
+      const frame = runWallAt(run, index)
       return frame
-        ? wallSegments(frame, wallGaps(rooms, openings, room.id, index))
+        ? wallSegments(frame, wallGaps(walls, openings, run.id, index))
         : []
     }).flat(),
   )
@@ -559,11 +566,11 @@ export function standingWalls(
  * jambs retain their butt caps. Keep wallPath separate for per-room hit targets.
  */
 export function planWallPath(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
 ): string {
-  const paths = rooms.map((room) => wallPath(rooms, openings, room))
-  const ends = standingWalls(rooms, openings).flatMap(([a, b]) => [
+  const paths = walls.map((run) => wallPath(walls, openings, run))
+  const ends = standingWalls(walls, openings).flatMap(([a, b]) => [
     { at: a, from: b },
     { at: b, from: a },
   ])

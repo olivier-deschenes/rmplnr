@@ -6,14 +6,14 @@ import {
   fittedWidth,
   openingWall,
   pointOnWall,
-  roomWallAt,
+  runWallAt,
   wallAt,
 } from './openings.ts'
 import { wallGaps } from './walls.ts'
 
 import type { Blocker } from './collision.ts'
 import type { Span, Wall } from './openings.ts'
-import type { Furniture, Opening, Point, Room, Selection } from './types.ts'
+import type { Furniture, Opening, Point, WallRun, Selection } from './types.ts'
 
 /**
  * How much room is left around the thing being moved.
@@ -160,7 +160,7 @@ export function furnitureClearances(
   const clearances: Array<Clearance> = []
 
   for (let i = 0; i < corners.length; i++) {
-    const face = wallAt(corners, i)
+    const face = wallAt(corners, i, true)
     if (!face) continue
     const found = reach(corners, face.normal, blockers)
     if (!found || found.gap < TOUCHING) continue
@@ -225,11 +225,11 @@ function alongWall(
  * door through a party wall is one hole, whichever room it is listed under.
  */
 export function openingClearances(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
   opening: Opening,
 ): Array<Clearance> {
-  const wall = openingWall(rooms, opening)
+  const wall = openingWall(walls, opening)
   if (!wall) return []
   const width = fittedWidth(opening.width, wall.length)
   const centre = clampT(opening.t, opening.width, wall.length) * wall.length
@@ -237,9 +237,9 @@ export function openingClearances(
     wall,
     [centre - width / 2, centre + width / 2],
     wallGaps(
-      rooms,
+      walls,
       openings.filter((other) => other.id !== opening.id),
-      opening.roomId,
+      opening.runId,
       opening.wall,
     ),
   )
@@ -250,14 +250,14 @@ export function openingClearances(
  * does, and takes up the stretch of it that its open front covers.
  */
 export function closetClearances(
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   openings: Array<Opening>,
-  closet: Room,
+  closet: WallRun,
 ): Array<Clearance> {
   const attachment = closet.attachment
   if (!attachment) return []
-  const host = rooms.find((room) => room.id === attachment.roomId)
-  const wall = host && roomWallAt(host, attachment.wall)
+  const host = walls.find((run) => run.id === attachment.runId)
+  const wall = host && runWallAt(host, attachment.wall)
   if (!wall) return []
 
   const width = fittedWidth(closetSize(closet).width, wall.length)
@@ -268,9 +268,9 @@ export function closetClearances(
     // The closet is taken out of the plan first: the stretch of wall it stands
     // on is what is being measured, not something for it to run into.
     wallGaps(
-      rooms.filter((room) => room.id !== closet.id),
+      walls.filter((run) => run.id !== closet.id),
       openings,
-      attachment.roomId,
+      attachment.runId,
       attachment.wall,
     ),
   )
@@ -287,7 +287,7 @@ export function closetClearances(
  */
 export function clearancesFor(
   selection: Selection,
-  rooms: Array<Room>,
+  walls: Array<WallRun>,
   furniture: Array<Furniture>,
   openings: Array<Opening>,
 ): Array<Clearance> {
@@ -298,18 +298,18 @@ export function clearancesFor(
     return item
       ? furnitureClearances(
           item,
-          blockersFor(rooms, furniture, openings, item.id),
+          blockersFor(walls, furniture, openings, item.id),
         )
       : []
   }
 
   if (selection.type === 'opening') {
     const opening = openings.find((o) => o.id === selection.id)
-    return opening ? openingClearances(rooms, openings, opening) : []
+    return opening ? openingClearances(walls, openings, opening) : []
   }
 
   if (selection.type === 'wall') return []
 
-  const room = rooms.find((r) => r.id === selection.id)
-  return room?.kind === 'closet' ? closetClearances(rooms, openings, room) : []
+  const run = walls.find((r) => r.id === selection.id)
+  return run?.kind === 'closet' ? closetClearances(walls, openings, run) : []
 }

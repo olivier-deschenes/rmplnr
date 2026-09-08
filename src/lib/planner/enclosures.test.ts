@@ -1,3 +1,4 @@
+import { closeWallPoints, polygonArea } from './geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
 import {
@@ -5,19 +6,16 @@ import {
   enclosureLocked,
   enclosureWalls,
   enclosuresOf,
-  freeEnclosures,
   wallLoops,
 } from './enclosures.ts'
-import { polygonArea } from './geometry.ts'
 
-import type { Point, Room, Space } from './types.ts'
+import type { Point, WallRun, Space } from './types.ts'
 
-function room(id: string, points: Array<Point>, closed = true): Room {
+function run(id: string, points: Array<Point>, closed = true): WallRun {
   return {
     id,
     name: id,
-    points,
-    ...(closed ? {} : { closed: false }),
+    points: closed ? closeWallPoints(points) : points,
   }
 }
 
@@ -31,21 +29,21 @@ function rect(x: number, y: number, w: number, h: number): Array<Point> {
 }
 
 /** Areas of every loop found, largest first, so a test can read them off. */
-function areas(rooms: Array<Room>): Array<number> {
-  return wallLoops(rooms)
+function areas(walls: Array<WallRun>): Array<number> {
+  return wallLoops(walls)
     .map(polygonArea)
     .sort((a, b) => b - a)
 }
 
 describe('wallLoops', () => {
   it('finds the one loop a closed room makes', () => {
-    expect(areas([room('a', rect(0, 0, 100, 200))])).toEqual([20_000])
+    expect(areas([run('a', rect(0, 0, 100, 200))])).toEqual([20_000])
   })
 
   it('finds nothing in a run of walls that closes nothing', () => {
     expect(
       areas([
-        room(
+        run(
           'a',
           [
             { x: 0, y: 0 },
@@ -59,9 +57,9 @@ describe('wallLoops', () => {
   })
 
   it('closes three open walls against a wall already there', () => {
-    const closed = room('a', rect(0, 0, 400, 300))
+    const closed = run('a', rect(0, 0, 400, 300))
     // Out from the left wall, round, and back onto it higher up.
-    const open = room(
+    const open = run(
       'b',
       [
         { x: 0, y: 0 },
@@ -75,14 +73,14 @@ describe('wallLoops', () => {
   })
 
   it('reads a wall two rooms share as one wall', () => {
-    const left = room('a', rect(0, 0, 100, 100))
-    const right = room('b', rect(100, 0, 100, 100))
+    const left = run('a', rect(0, 0, 100, 100))
+    const right = run('b', rect(100, 0, 100, 100))
     expect(areas([left, right])).toEqual([10_000, 10_000])
   })
 
   it('splits a room in two when a wall is drawn across it', () => {
-    const outer = room('a', rect(0, 0, 200, 100))
-    const divider = room(
+    const outer = run('a', rect(0, 0, 200, 100))
+    const divider = run(
       'b',
       [
         { x: 100, y: 0 },
@@ -94,8 +92,8 @@ describe('wallLoops', () => {
   })
 
   it('ignores a wall that leads nowhere inside a room', () => {
-    const outer = room('a', rect(0, 0, 200, 100))
-    const stub = room(
+    const outer = run('a', rect(0, 0, 200, 100))
+    const stub = run(
       'b',
       [
         { x: 100, y: 0 },
@@ -111,8 +109,8 @@ describe('wallLoops', () => {
   })
 
   it('finds the four rooms a cross of walls makes', () => {
-    const outer = room('a', rect(0, 0, 200, 200))
-    const across = room(
+    const outer = run('a', rect(0, 0, 200, 200))
+    const across = run(
       'b',
       [
         { x: 0, y: 100 },
@@ -120,7 +118,7 @@ describe('wallLoops', () => {
       ],
       false,
     )
-    const down = room(
+    const down = run(
       'c',
       [
         { x: 100, y: 0 },
@@ -134,7 +132,7 @@ describe('wallLoops', () => {
   })
 
   it('closes a loop made only of open runs that cross each other', () => {
-    const across = room(
+    const across = run(
       'a',
       [
         { x: -50, y: 0 },
@@ -143,7 +141,7 @@ describe('wallLoops', () => {
       ],
       false,
     )
-    const back = room(
+    const back = run(
       'b',
       [
         { x: 200, y: 100 },
@@ -156,7 +154,7 @@ describe('wallLoops', () => {
   })
 
   it('welds corners that rounding left a hair apart', () => {
-    const open = room(
+    const open = run(
       'b',
       [
         { x: 0.0000001, y: 0 },
@@ -167,7 +165,7 @@ describe('wallLoops', () => {
       false,
     )
     expect(areas([open])).toEqual([])
-    const closing = room(
+    const closing = run(
       'a',
       [
         { x: 0, y: 0 },
@@ -180,8 +178,8 @@ describe('wallLoops', () => {
 })
 
 describe('enclosuresOf', () => {
-  const closed = room('a', rect(0, 0, 400, 300))
-  const open = room(
+  const closed = run('a', rect(0, 0, 400, 300))
+  const open = run(
     'b',
     [
       { x: 0, y: 0 },
@@ -192,15 +190,14 @@ describe('enclosuresOf', () => {
     false,
   )
 
-  it('gives the room it was drawn as back to a closed room', () => {
+  it('derives both floors from the walls', () => {
     const found = enclosuresOf([closed, open])
     expect(found).toHaveLength(2)
-    expect(found[0].roomId).toBe('a')
-    expect(found[1].roomId).toBeNull()
+    expect(found.map((floor) => floor.area)).toEqual([120000, 30000])
   })
 
-  it('leaves out a space walled off inside a room already drawn', () => {
-    const divider = room(
+  it('splits a floor when a dividing wall is drawn', () => {
+    const divider = run(
       'c',
       [
         { x: 200, y: 0 },
@@ -208,8 +205,8 @@ describe('enclosuresOf', () => {
       ],
       false,
     )
-    const found = freeEnclosures([closed, divider])
-    expect(found).toEqual([])
+    const found = enclosuresOf([closed, divider])
+    expect(found.map((floor) => floor.area)).toEqual([60000, 60000])
   })
 
   it('puts a saved name on the space its point stands in', () => {
@@ -219,7 +216,7 @@ describe('enclosuresOf', () => {
       color: '#ff0000',
       seed: { x: -100, y: 75 },
     }
-    const [free] = freeEnclosures([closed, open], [space])
+    const free = enclosuresOf([closed, open], [space])[1]
     expect(free.space?.name).toBe('Pantry')
     expect(free.space?.color).toBe('#ff0000')
   })
@@ -227,11 +224,13 @@ describe('enclosuresOf', () => {
   it('keeps a name whose space no longer exists rather than moving it', () => {
     const space: Space = { id: 's1', name: 'Pantry', seed: { x: -100, y: 75 } }
     // The run is gone, so nothing encloses the point any more.
-    expect(freeEnclosures([closed], [space])).toEqual([])
+    expect(
+      enclosuresOf([closed], [space]).every((floor) => floor.space === null),
+    ).toBe(true)
   })
 
   it('gives each space its own name when two are saved', () => {
-    const second = room(
+    const second = run(
       'c',
       [
         { x: 400, y: 0 },
@@ -245,15 +244,15 @@ describe('enclosuresOf', () => {
       { id: 's1', name: 'Pantry', seed: { x: -100, y: 75 } },
       { id: 's2', name: 'Porch', seed: { x: 500, y: 75 } },
     ]
-    const names = freeEnclosures([closed, open, second], spaces).map(
-      (enclosure) => enclosure.space?.name,
-    )
+    const names = enclosuresOf([closed, open, second], spaces)
+      .map((enclosure) => enclosure.space?.name)
+      .filter(Boolean)
     expect(names.sort()).toEqual(['Pantry', 'Porch'])
   })
 
   it('keys a space by its corners, and keeps that key across a redraw', () => {
-    const first = freeEnclosures([closed, open])[0].key
-    const again = freeEnclosures([{ ...closed }, { ...open }])[0].key
+    const first = enclosuresOf([closed, open])[1].key
+    const again = enclosuresOf([{ ...closed }, { ...open }])[1].key
     expect(again).toBe(first)
   })
 
@@ -262,16 +261,16 @@ describe('enclosuresOf', () => {
       ...open,
       points: open.points.map((p) => (p.x === -200 ? { ...p, x: -210 } : p)),
     }
-    expect(freeEnclosures([closed, moved])[0].key).not.toBe(
-      freeEnclosures([closed, open])[0].key,
+    expect(enclosuresOf([closed, moved])[1].key).not.toBe(
+      enclosuresOf([closed, open])[1].key,
     )
   })
 })
 
 describe('the walls that close a space in', () => {
-  const closed = room('a', rect(0, 0, 400, 300))
+  const closed = run('a', rect(0, 0, 400, 300))
   // Out from the left wall, round, and back onto it higher up.
-  const open = room(
+  const open = run(
     'b',
     [
       { x: 0, y: 0 },
@@ -282,7 +281,7 @@ describe('the walls that close a space in', () => {
     false,
   )
   // Off the far corner of that run, heading away from the space entirely.
-  const stub = room(
+  const stub = run(
     'c',
     [
       { x: -200, y: 0 },
@@ -290,19 +289,19 @@ describe('the walls that close a space in', () => {
     ],
     false,
   )
-  const space = (rooms: Array<Room>) => freeEnclosures(rooms)[0]
+  const space = (walls: Array<WallRun>) => enclosuresOf(walls)[1]
 
   it('names the run that drew each of its walls, and the room it closed onto', () => {
-    const rooms = [closed, open, stub]
-    expect(enclosureWalls(rooms, space(rooms)).map((r) => r.id)).toEqual([
+    const walls = [closed, open, stub]
+    expect(enclosureWalls(walls, space(walls)).map((r) => r.id)).toEqual([
       'a',
       'b',
     ])
   })
 
   it('leaves out a wall that only touches a corner of it', () => {
-    const rooms = [closed, open, stub]
-    expect(enclosureWalls(rooms, space(rooms)).map((r) => r.id)).not.toContain(
+    const walls = [closed, open, stub]
+    expect(enclosureWalls(walls, space(walls)).map((r) => r.id)).not.toContain(
       'c',
     )
   })
@@ -318,8 +317,8 @@ describe('the walls that close a space in', () => {
 
 describe('enclosureAt', () => {
   it('answers with the space a point stands in', () => {
-    const closed = room('a', rect(0, 0, 400, 300))
-    const open = room(
+    const closed = run('a', rect(0, 0, 400, 300))
+    const open = run(
       'b',
       [
         { x: 0, y: 0 },
@@ -329,22 +328,22 @@ describe('enclosureAt', () => {
       ],
       false,
     )
-    const found = freeEnclosures([closed, open])
-    expect(enclosureAt(found, { x: -100, y: 75 })?.roomId).toBeNull()
-    expect(enclosureAt(found, { x: 200, y: 150 })).toBeNull()
+    const found = enclosuresOf([closed, open])
+    expect(enclosureAt(found, { x: -100, y: 75 })?.area).toBe(30000)
+    expect(enclosureAt(found, { x: 200, y: 150 })?.area).toBe(120000)
   })
 })
 
 describe('the plan a reader brought in', () => {
   // Room 1 closed, and three open walls run out from its left wall and back.
-  const rooms: Array<Room> = [
-    room('room-1', [
+  const walls: Array<WallRun> = [
+    run('room-1', [
       { x: -360.68, y: -411.48 },
       { x: 459.74, y: -411.48 },
       { x: 459.74, y: 182.88 },
       { x: -360.68, y: 182.88 },
     ]),
-    room(
+    run(
       'room-2',
       [
         { x: -360.68, y: -411.48 },
@@ -357,10 +356,9 @@ describe('the plan a reader brought in', () => {
   ]
 
   it('reads the run on the left as a room of its own', () => {
-    const found = enclosuresOf(rooms)
+    const found = enclosuresOf(walls)
     expect(found).toHaveLength(2)
-    expect(found[0].roomId).toBe('room-1')
-    expect(found[1].roomId).toBeNull()
+    expect(found[0].area).toBeGreaterThan(found[1].area)
     expect(found[1].area).toBeCloseTo(360.68 * 304.8, 4)
   })
 })
@@ -368,13 +366,13 @@ describe('the plan a reader brought in', () => {
 describe('what is not a room', () => {
   it('ignores the hairline between two walls drawn a hair apart', () => {
     // Two rooms meant to be flush, whose shared wall was drawn 4 cm out.
-    const left = room('a', rect(0, 0, 400, 300))
-    const right = room('b', rect(404, 0, 400, 300))
+    const left = run('a', rect(0, 0, 400, 300))
+    const right = run('b', rect(404, 0, 400, 300))
     expect(areas([left, right])).toEqual([120_000, 120_000])
   })
 
   it('still finds a narrow room that is a room', () => {
-    const cupboard = room('a', rect(0, 0, 40, 200))
+    const cupboard = run('a', rect(0, 0, 40, 200))
     expect(areas([cupboard])).toEqual([8_000])
   })
 })

@@ -1,11 +1,11 @@
 import {
   FurnitureShape,
+  EnclosureFloor,
   OpeningShape,
-  RoomFloor,
-  RoomWalls,
+  RunWalls,
 } from './shapes.tsx'
-import { freeEnclosures } from '#/lib/planner/enclosures.ts'
-import { planBounds, polygonCentroid } from '#/lib/planner/geometry.ts'
+import { enclosuresOf } from '#/lib/planner/enclosures.ts'
+import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { formatLength } from '#/lib/planner/units.ts'
 import { planWallPath } from '#/lib/planner/walls.ts'
@@ -23,7 +23,7 @@ export function PlanPreview({
   showFurniture?: boolean
   units?: Units
 }) {
-  const bounds = planBounds(project.rooms, project.furniture)
+  const bounds = planBounds(project.walls, project.furniture)
   if (!bounds)
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center gap-2 text-xs">
@@ -59,12 +59,11 @@ export function PlanPreview({
       }
     >
       <g transform={`translate(${tx} ${ty}) scale(${scale})`}>
-        {project.rooms.map((room) => (
-          <RoomFloor
-            key={room.id}
-            room={room}
+        {enclosuresOf(project.walls, project.spaces).map((enclosure) => (
+          <EnclosureFloor
+            key={enclosure.key}
+            enclosure={enclosure}
             selected={false}
-            onPointerDown={() => undefined}
           />
         ))}
         {showFurniture &&
@@ -76,12 +75,12 @@ export function PlanPreview({
               onPointerDown={() => undefined}
             />
           ))}
-        <RoomWalls
-          d={planWallPath(project.rooms, project.openings)}
+        <RunWalls
+          d={planWallPath(project.walls, project.openings)}
           scale={scale}
         />
         {project.openings.map((opening) => {
-          const wall = openingWall(project.rooms, opening)
+          const wall = openingWall(project.walls, opening)
           return wall ? (
             <OpeningShape key={opening.id} opening={opening} wall={wall} />
           ) : null
@@ -111,25 +110,7 @@ export function PlanPreview({
             {formatLength(bounds.h, units)}
           </text>
           {!showFurniture &&
-            project.rooms
-              .filter((room) => room.closed !== false)
-              .map((room) => {
-                const centre = polygonCentroid(room.points)
-                return (
-                  <text
-                    key={room.id}
-                    x={tx + centre.x * scale}
-                    y={ty + centre.y * scale}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    className="fill-muted-foreground"
-                  >
-                    {room.name}
-                  </text>
-                )
-              })}
-          {!showFurniture &&
-            freeEnclosures(project.rooms, project.spaces)
+            enclosuresOf(project.walls, project.spaces)
               .filter((enclosure) => enclosure.space)
               .map((enclosure) => (
                 <text

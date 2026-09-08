@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'bun:test'
 
 import { planWallPath, wallPath } from './walls.ts'
-import type { Opening, Room } from './types.ts'
+import type { Opening, WallRun } from './types.ts'
 
-const top: Room = {
+const top: WallRun = {
   id: 'top',
   name: 'Top',
-  closed: false,
+
   points: [
     { x: 0, y: 0 },
     { x: 100, y: 0 },
   ],
 }
-const right: Room = {
+const right: WallRun = {
   id: 'right',
   name: 'Right',
-  closed: false,
+
   points: [
     { x: 100, y: 0 },
     { x: 100, y: 200 },
@@ -55,7 +55,7 @@ describe('wall joins across separate runs', () => {
     const gap: Opening = {
       id: 'gap',
       kind: 'opening',
-      roomId: 'right',
+      runId: 'right',
       wall: 0,
       t: 0.25,
       width: 100,
@@ -72,7 +72,7 @@ describe('wall joins across separate runs', () => {
       const opening: Opening = {
         id: kind,
         kind,
-        roomId: 'right',
+        runId: 'right',
         wall: 0,
         t: 0.5,
         width: 80,

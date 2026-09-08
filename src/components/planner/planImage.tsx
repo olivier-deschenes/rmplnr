@@ -5,20 +5,14 @@ import {
   EnclosureFloor,
   FurnitureShape,
   OpeningShape,
-  RoomFloor,
-  RoomWalls,
+  RunWalls,
 } from './shapes.tsx'
 import { UnderlayImage } from './underlay.tsx'
-import {
-  EnclosureLabels,
-  FurnitureLabels,
-  RoomLabels,
-  WallDimensions,
-} from './overlay.tsx'
+import { EnclosureLabels, FurnitureLabels, WallDimensions } from './overlay.tsx'
 
 import { downloadFile, projectFileName } from '#/lib/planner/projectExport.ts'
 import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
-import { freeEnclosures } from '#/lib/planner/enclosures.ts'
+import { enclosuresOf } from '#/lib/planner/enclosures.ts'
 import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { planWallPath } from '#/lib/planner/walls.ts'
@@ -78,7 +72,7 @@ export function planImageSize(
   underlay?: Underlay,
 ): ImageSize {
   const bounds = joinedBounds(
-    planBounds(project.rooms, project.furniture),
+    planBounds(project.walls, project.furniture),
     underlay,
   )
   if (!bounds) return { width: 1200, height: 900 }
@@ -123,18 +117,18 @@ function PlanImage({
   underlayHref?: string
 }) {
   const bounds = joinedBounds(
-    planBounds(project.rooms, project.furniture),
+    planBounds(project.walls, project.furniture),
     underlay,
   )
   const size = planImageSize(project, underlay)
   const viewport = imageViewport(bounds, size)
   const placed = project.openings.flatMap((opening) => {
-    const wall = openingWall(project.rooms, opening)
+    const wall = openingWall(project.walls, opening)
     return wall ? [{ opening, wall }] : []
   })
-  const enclosures = freeEnclosures(project.rooms, project.spaces)
+  const enclosures = enclosuresOf(project.walls, project.spaces)
   const dimensions = wallLabels(
-    project.rooms,
+    project.walls,
     project.furniture,
     project.openings,
     viewport,
@@ -143,7 +137,7 @@ function PlanImage({
     enclosures,
   )
   const names = furnitureNames(
-    project.rooms,
+    project.walls,
     project.furniture,
     viewport,
     units,
@@ -167,14 +161,7 @@ function PlanImage({
             href={underlayHref}
           />
         )}
-        {project.rooms.map((room) => (
-          <RoomFloor
-            key={room.id}
-            room={room}
-            selected={false}
-            onPointerDown={() => undefined}
-          />
-        ))}
+
         {enclosures.map((enclosure) => (
           <EnclosureFloor
             key={enclosure.key}
@@ -190,16 +177,14 @@ function PlanImage({
             onPointerDown={() => undefined}
           />
         ))}
-        <RoomWalls
-          d={planWallPath(project.rooms, project.openings)}
+        <RunWalls
+          d={planWallPath(project.walls, project.openings)}
           scale={viewport.scale}
         />
         {placed.map(({ opening, wall }) => (
           <OpeningShape key={opening.id} opening={opening} wall={wall} />
         ))}
       </g>
-
-      <RoomLabels rooms={project.rooms} viewport={viewport} units={units} />
       <EnclosureLabels
         enclosures={enclosures}
         viewport={viewport}

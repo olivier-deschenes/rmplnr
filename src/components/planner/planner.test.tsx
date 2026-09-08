@@ -18,7 +18,7 @@ const project: Project = {
   spaces: [],
   id: PLAN,
   name: 'Plan 1',
-  rooms: [],
+  walls: [],
   furniture: [],
   openings: [],
 }
