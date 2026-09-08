@@ -567,13 +567,9 @@ export function WallDimensions({
  * the edit tool — a square at every corner and a rotate handle above the
  * outline.
  *
- * Dragging a side — anywhere along the wall, or by the bar at its middle —
- * pushes that whole wall out or pulls it in, which is how a room is made
- * bigger without being redrawn. That is a move as much as an edit, so the
- * bands are there under either pointer tool. Dragging a corner reshapes the
- * room around it, and turning it is no different, so those two handlers are
- * not passed under move and their handles are not drawn — there is nothing
- * there to catch by mistake.
+ * Under Move, dragging a side detaches it and carries it at the same length.
+ * Under Edit, dragging a side stretches the adjoining walls. Corner handles
+ * are also available only under Edit.
  *
  * Double-clicking a wall breaks it in two, but that gesture is not wired up
  * here: the press that starts it captures the pointer to the canvas, and the
@@ -641,7 +637,8 @@ export function RunEditor({
         : 0,
       // The normal is a world direction, and the page has the same directions
       // as the world — only bigger — so it names the cursor as it stands.
-      cursor: frame ? resizeCursor(frame.normal, 0) : 'cursor-move',
+      cursor:
+        onVertexDown && frame ? resizeCursor(frame.normal, 0) : 'cursor-move',
     }
   })
 

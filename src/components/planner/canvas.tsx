@@ -220,6 +220,8 @@ type Drag =
   | { mode: 'vertex'; runId: string; index: number }
   | {
       mode: 'wall'
+      detach: boolean
+      detached?: boolean
       runId: string
       index: number
       grab: Point
@@ -852,6 +854,24 @@ export function Canvas() {
         // again and again from wherever the last frame left it.
         const frame = wallAt(drag.origin, drag.index)
         if (!frame) break
+        if (drag.detach) {
+          const start = snapPoint(
+            {
+              x: frame.a.x + world.x - drag.grab.x,
+              y: frame.a.y + world.y - drag.grab.y,
+            },
+            activeSnapStep(state),
+          )
+          if (
+            actions.translateWall(
+              drag.runId,
+              drag.detached ? 0 : drag.index,
+              start,
+            )
+          )
+            drag.detached = true
+          break
+        }
         const across =
           (world.x - drag.grab.x) * frame.normal.x +
           (world.y - drag.grab.y) * frame.normal.y
@@ -1109,6 +1129,7 @@ export function Canvas() {
     begin(
       {
         mode: 'wall',
+        detach: plannerStore.state.tool === 'move',
         runId: current.id,
         index,
         grab: toWorld(event),

@@ -1915,6 +1915,87 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  /** Detach one segment and carry it without changing its neighbours. */
+  translateWall(runId: string, index: number, start: Point): boolean {
+    let moved = false
+    setState((s) => {
+      const run = s.walls.find((r) => r.id === runId)
+      const wall = run && runWallAt(run, index)
+      if (!run || run.locked || !wall || distance(wall.a, start) < 1e-6)
+        return s
+      const dx = start.x - wall.a.x
+      const dy = start.y - wall.a.y
+      const { kind: _kind, attachment: _attachment, ...ordinary } = run
+      const pieces = [
+        {
+          id: crypto.randomUUID(),
+          from: 0,
+          points: run.points.slice(0, index + 1),
+        },
+        { id: run.id, from: index, points: [wall.a, wall.b] },
+        {
+          id: crypto.randomUUID(),
+          from: index + 1,
+          points: run.points.slice(index + 1),
+        },
+      ].filter((piece) => piece.points.length > 1)
+      const remap = (owner: string, wallIndex: number) => {
+        if (owner !== runId) return { runId: owner, wall: wallIndex }
+        const piece = pieces.find(
+          (part) =>
+            wallIndex >= part.from &&
+            wallIndex < part.from + part.points.length - 1,
+        )!
+        return { runId: piece.id, wall: wallIndex - piece.from }
+      }
+      const walls = reflowClosets(
+        s.walls.flatMap((candidate) => {
+          if (candidate.id === runId)
+            return pieces.map((piece) => ({
+              ...ordinary,
+              id: piece.id,
+              points:
+                piece.id === runId
+                  ? translatePolygon(piece.points, dx, dy)
+                  : piece.points,
+            }))
+          return [
+            {
+              ...candidate,
+              ...(candidate.attachment
+                ? {
+                    attachment: {
+                      ...candidate.attachment,
+                      ...remap(
+                        candidate.attachment.runId,
+                        candidate.attachment.wall,
+                      ),
+                    },
+                  }
+                : {}),
+            },
+          ]
+        }),
+      )
+      moved = true
+      return {
+        ...s,
+        history: commit(
+          s,
+          `translate-wall:${runId}`,
+          `Moved a wall of ${run.name}`,
+        ),
+        walls,
+        openings: s.openings.map((opening) => ({
+          ...opening,
+          ...remap(opening.runId, opening.wall),
+        })),
+        selection: { type: 'wall' as const, id: runId, index: 0 },
+      }
+    })
+    return moved
+  },
+
   /**
    * Swap in the outline a wall being pushed has left behind. The corners are
    * the same corners in the same order — only the two at the ends of that wall

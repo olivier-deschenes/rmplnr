@@ -143,7 +143,7 @@ it('gives an opening its jamb handles only under the edit tool', () => {
   expect(opening(false)).toContain('80')
 })
 
-it('lets a wall be pushed under either pointer tool, and reshaped only in edit', () => {
+it('shows move cursors for detached walls and resize cursors for editing', () => {
   const run = (reshaping: boolean) =>
     renderToStaticMarkup(
       <svg>
@@ -160,15 +160,17 @@ it('lets a wall be pushed under either pointer tool, and reshaped only in edit',
   const editing = run(true)
   expect(editing).not.toContain('cursor-grab')
   expect(editing).toContain('cursor-move')
+  expect(editing).toContain('resize')
 
   // Under move the corners and the rotate handle are gone, so nothing there
   // reshapes the room by accident.
   const moving = run(false)
   expect(moving).not.toContain('cursor-grab')
-  expect(moving).not.toContain('cursor-move')
+  expect(moving).toContain('cursor-move')
+  expect(moving).not.toContain('resize')
 
-  // What stays is the side itself: a wall is pushed under either tool. Four
-  // grab bands and the bar on each, one per wall.
-  expect(moving.match(/resize/g)?.length).toBe(editing.match(/resize/g)?.length)
+  // Each wall has a grab band and a bar, with matching tool-specific cursors.
+  expect(moving.match(/cursor-move/g)?.length).toBe(8)
+  expect(editing.match(/resize/g)?.length).toBe(8)
   expect(moving).toContain('<line')
 })

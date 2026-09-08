@@ -150,6 +150,97 @@ describe('walls as the saved model', () => {
     expect(named.find((floor) => floor.space)?.area).toBe(10000)
   })
 
+  for (const index of [0, 1, 2, 3]) {
+    it(`detaches rectangle wall ${index} without stretching its neighbours`, () => {
+      const run = rectangle()
+      actions.sealHistory()
+      const before = plannerStore.state.walls
+      const frame = runWallAt(run, index)!
+      expect(actions.translateWall(run.id, index, frame.a)).toBe(false)
+      expect(plannerStore.state.walls).toBe(before)
+      const start = { x: frame.a.x + 75, y: frame.a.y + 50 }
+      expect(actions.translateWall(run.id, index, start)).toBe(true)
+      const moved = plannerStore.state.walls.find((wall) => wall.id === run.id)!
+      expect(moved.points).toEqual([
+        start,
+        { x: frame.b.x + 75, y: frame.b.y + 50 },
+      ])
+      const remaining = plannerStore.state.walls
+        .filter((wall) => wall.id !== run.id)
+        .flatMap((wall) =>
+          wall.points.slice(0, -1).map((a, i) => [a, wall.points[i + 1]]),
+        )
+      expect(remaining).toEqual(
+        run.points
+          .slice(0, -1)
+          .flatMap((a, i) => (i === index ? [] : [[a, run.points[i + 1]]])),
+      )
+      expect(floors()).toHaveLength(0)
+      actions.translateWall(run.id, 0, { x: start.x + 20, y: start.y + 20 })
+      expect(plannerStore.state.walls).toHaveLength(
+        index === 0 || index === 3 ? 2 : 3,
+      )
+      actions.sealHistory()
+      actions.undo()
+      expect(plannerStore.state.walls).toEqual(before)
+      actions.redo()
+      expect(plannerStore.state.selection).toEqual({
+        type: 'wall',
+        id: run.id,
+        index: 0,
+      })
+    })
+  }
+
+  it('keeps openings on their original segments when a wall detaches', () => {
+    const run = rectangle()
+    for (let wall = 0; wall < 4; wall++)
+      actions.addOpening('door', run.id, wall, 0.5)
+    expect(plannerStore.state.openings).toHaveLength(4)
+    const before = plannerStore.state.openings.map((opening) => ({
+      opening,
+      frame: openingWall(plannerStore.state.walls, opening)!,
+    }))
+    actions.translateWall(run.id, 1, { x: 450, y: 50 })
+    for (const { opening, frame } of before) {
+      const current = plannerStore.state.openings.find(
+        (o) => o.id === opening.id,
+      )!
+      const after = openingWall(plannerStore.state.walls, current)!
+      const delta = opening.wall === 1 ? 50 : 0
+      expect(after.a).toEqual({ x: frame.a.x + delta, y: frame.a.y + delta })
+      expect(after.b).toEqual({ x: frame.b.x + delta, y: frame.b.y + delta })
+      expect(current.width).toBe(opening.width)
+      expect(current.t).toBe(opening.t)
+    }
+  })
+
+  it('leaves a separate connected run in place when moving a wall', () => {
+    const run = {
+      id: 'host',
+      name: 'Host',
+      points: [
+        { x: 0, y: 0 },
+        { x: 400, y: 0 },
+      ],
+    }
+    const branch = {
+      id: 'branch',
+      name: 'Branch',
+      locked: true,
+      points: [
+        { x: 200, y: 0 },
+        { x: 200, y: 200 },
+      ],
+    }
+    open([run, branch])
+    actions.translateWall(run.id, 0, { x: 50, y: 50 })
+    expect(
+      plannerStore.state.walls.find((wall) => wall.id === branch.id),
+    ).toEqual(branch)
+    expect(actions.translateWall(branch.id, 0, { x: 0, y: 0 })).toBe(false)
+  })
+
   it('keeps the first and last endpoint joined while dragging and resizing walls', () => {
     const run = rectangle()
     actions.moveWall(run.id, 0, slideWall(run.points, 0, 30))
