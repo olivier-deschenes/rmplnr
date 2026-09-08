@@ -603,12 +603,17 @@ export function WallDimensions({
 }
 
 /**
- * The handles on a selected room: a square at every corner, every side ready
- * to be pushed, and a rotate handle above the outline.
+ * The handles on a selected room: every side ready to be pushed, and — under
+ * the edit tool — a square at every corner and a rotate handle above the
+ * outline.
  *
- * Dragging a corner reshapes the room around it. Dragging a side — anywhere
- * along the wall, or by the bar at its middle — pushes that whole wall out or
- * pulls it in, which is how a room is made bigger without being redrawn.
+ * Dragging a side — anywhere along the wall, or by the bar at its middle —
+ * pushes that whole wall out or pulls it in, which is how a room is made
+ * bigger without being redrawn. That is a move as much as an edit, so the
+ * bands are there under either pointer tool. Dragging a corner reshapes the
+ * room around it, and turning it is no different, so those two handlers are
+ * not passed under move and their handles are not drawn — there is nothing
+ * there to catch by mistake.
  *
  * Double-clicking a wall breaks it in two, but that gesture is not wired up
  * here: the press that starts it captures the pointer to the canvas, and the
@@ -629,9 +634,9 @@ export function RoomEditor({
   gaps: Array<Array<Span>>
   viewport: Viewport
   selectedWall?: number
-  onVertexDown: (index: number, event: React.PointerEvent) => void
+  onVertexDown?: (index: number, event: React.PointerEvent) => void
   onWallDown: (index: number, event: React.PointerEvent) => void
-  onRotateDown: (event: React.PointerEvent) => void
+  onRotateDown?: (event: React.PointerEvent) => void
 }) {
   const topY = Math.min(...room.points.map((point) => point.y))
   const topWall = room.points
@@ -740,30 +745,35 @@ export function RoomEditor({
         ) : null,
       )}
       {/* Corners last, so the one at the end of a wall wins the pointer. */}
-      {room.points.map((point, i) => (
-        <Square
-          key={`vertex-${i}`}
-          at={worldToScreen(point, viewport)}
-          className="cursor-move"
-          onPointerDown={(event) => onVertexDown(i, event)}
-        />
-      ))}
-      <line
-        x1={top.x}
-        y1={top.y}
-        x2={rotateHandle.x}
-        y2={rotateHandle.y}
-        className="stroke-foreground pointer-events-none"
-        strokeWidth={1}
-      />
-      <circle
-        cx={rotateHandle.x}
-        cy={rotateHandle.y}
-        r={5}
-        className="fill-background stroke-foreground cursor-grab"
-        strokeWidth={1.5}
-        onPointerDown={onRotateDown}
-      />
+      {onVertexDown &&
+        room.points.map((point, i) => (
+          <Square
+            key={`vertex-${i}`}
+            at={worldToScreen(point, viewport)}
+            className="cursor-move"
+            onPointerDown={(event) => onVertexDown(i, event)}
+          />
+        ))}
+      {onRotateDown && (
+        <>
+          <line
+            x1={top.x}
+            y1={top.y}
+            x2={rotateHandle.x}
+            y2={rotateHandle.y}
+            className="stroke-foreground pointer-events-none"
+            strokeWidth={1}
+          />
+          <circle
+            cx={rotateHandle.x}
+            cy={rotateHandle.y}
+            r={5}
+            className="fill-background stroke-foreground cursor-grab"
+            strokeWidth={1.5}
+            onPointerDown={onRotateDown}
+          />
+        </>
+      )}
     </g>
   )
 }

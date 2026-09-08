@@ -155,7 +155,7 @@ const DRAW_TOOLS: Array<{
   {
     tool: 'move',
     icon: IconPointer,
-    label: 'Select and drag things about, at the size and angle they are',
+    label: 'Select, drag things about, and push a room’s walls in and out',
     name: 'Move',
   },
   {

@@ -1,9 +1,14 @@
 import { expect, it } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { FurnitureEditor, OpeningEditor, WallDimensions } from './overlay.tsx'
+import {
+  FurnitureEditor,
+  OpeningEditor,
+  RoomEditor,
+  WallDimensions,
+} from './overlay.tsx'
 
-import type { Furniture, Opening, Viewport } from '#/lib/planner/types.ts'
+import type { Furniture, Opening, Room, Viewport } from '#/lib/planner/types.ts'
 import type { Wall } from '#/lib/planner/openings.ts'
 
 const VIEWPORT: Viewport = { tx: 0, ty: 0, scale: 1 }
@@ -17,6 +22,17 @@ const ITEM: Furniture = {
   w: 160,
   h: 90,
   rotation: 0,
+}
+
+const ROOM: Room = {
+  id: 'room-1',
+  name: 'Living',
+  points: [
+    { x: 0, y: 0 },
+    { x: 400, y: 0 },
+    { x: 400, y: 300 },
+    { x: 0, y: 300 },
+  ],
 }
 
 const WALL: Wall = {
@@ -119,4 +135,35 @@ it('gives an opening its jamb handles only under the edit tool', () => {
   expect(opening(false)).not.toContain('resize')
   // The width still reads out either way.
   expect(opening(false)).toContain('80')
+})
+
+it('lets a wall be pushed under either pointer tool, and reshaped only in edit', () => {
+  const room = (reshaping: boolean) =>
+    renderToStaticMarkup(
+      <svg>
+        <RoomEditor
+          room={ROOM}
+          gaps={ROOM.points.map(() => [])}
+          viewport={VIEWPORT}
+          onWallDown={() => {}}
+          onVertexDown={reshaping ? () => {} : undefined}
+          onRotateDown={reshaping ? () => {} : undefined}
+        />
+      </svg>,
+    )
+
+  const editing = room(true)
+  expect(editing).toContain('cursor-grab')
+  expect(editing).toContain('cursor-move')
+
+  // Under move the corners and the rotate handle are gone, so nothing there
+  // reshapes the room by accident.
+  const moving = room(false)
+  expect(moving).not.toContain('cursor-grab')
+  expect(moving).not.toContain('cursor-move')
+
+  // What stays is the side itself: a wall is pushed under either tool. Four
+  // grab bands and the bar on each, one per wall.
+  expect(moving.match(/resize/g)?.length).toBe(editing.match(/resize/g)?.length)
+  expect(moving).toContain('<line')
 })

@@ -1590,12 +1590,12 @@ export function Canvas() {
                 const room = plannerStore.state.rooms.find(
                   (candidate) => candidate.id === roomId,
                 )
-                // A single wall is a thing to push, and pushing one is an
-                // edit; under move there is nothing to be done with a wall on
-                // its own, so the click takes the room it belongs to. A
-                // closet's walls are never its own either way.
+                // A single wall is a thing to push under either pointer
+                // tool, so the dimension picks out the wall it measures. A
+                // closet's walls are never its own, and the click takes the
+                // closet instead.
                 actions.select(
-                  tool === 'move' || room?.kind === 'closet'
+                  room?.kind === 'closet'
                     ? { type: 'room', id: roomId }
                     : { type: 'wall', id: roomId, index: wall },
                 )
@@ -1633,7 +1633,13 @@ export function Canvas() {
         avoid={spoken}
       />
 
-      {tool === 'edit' &&
+      {/*
+        Pushing a wall is how a room is moved a side at a time, so the bands
+        are handed to both pointer tools. The corners and the rotate handle
+        change the room's shape rather than where it stands, so they stay with
+        the edit tool and are simply not passed under move.
+      */}
+      {isPointerTool(tool) &&
         selectedRoom?.kind !== 'closet' &&
         !selectedRoom?.locked &&
         selectedRoom && (
@@ -1646,9 +1652,9 @@ export function Canvas() {
             selectedWall={
               selection?.type === 'wall' ? selection.index : undefined
             }
-            onVertexDown={onVertexDown}
+            onVertexDown={tool === 'edit' ? onVertexDown : undefined}
             onWallDown={onWallDown}
-            onRotateDown={onRoomRotateHandleDown}
+            onRotateDown={tool === 'edit' ? onRoomRotateHandleDown : undefined}
           />
         )}
       {/*
