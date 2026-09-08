@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { useSelector } from '@tanstack/react-store'
 import {
   IconArrowsExchange,
+  IconBorderSides,
   IconBrush,
   IconLock,
   IconLockOpen,
@@ -44,7 +45,6 @@ import {
   planFloors,
 } from '#/lib/planner/enclosures.ts'
 import { roomWallAt, wallCount } from '#/lib/planner/openings.ts'
-import { wallRemovalAt } from '#/lib/planner/walls.ts'
 import {
   angleBetween,
   normalizeAngle,
@@ -581,6 +581,49 @@ function ContinueWalls({ room }: { room: Room }) {
   )
 }
 
+/**
+ * The button that hands a room back to its walls.
+ *
+ * It is put next to the controls that move and resize the outline, because it
+ * is the answer to the reader who has stopped wanting those: it takes the
+ * outline away and leaves the walls, which are then pushed about one at a time.
+ * Nothing on the plan moves, and the floor keeps its name and its colour, so
+ * the only way to tell it happened is that the room can no longer be dragged
+ * as a piece.
+ */
+function ConvertToWalls({ room }: { room: Room }) {
+  const [error, setError] = useState<string | null>(null)
+  const locked = room.locked === true
+
+  return (
+    <div className="grid gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={locked}
+        aria-label={`Convert ${room.name} to walls`}
+        onClick={() => {
+          const result = plannerStore.actions.convertRoomToWalls(room.id)
+          setError(result.ok ? null : result.error)
+        }}
+      >
+        <IconBorderSides />
+        Convert to walls
+      </Button>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription role="alert">{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
+        Give up the outline and keep the walls, each free to be moved on its
+        own. The walls stay where they are, and the floor they close in keeps
+        this name and colour.
+      </p>
+    </div>
+  )
+}
+
 function RoomPanel({ room, units }: { room: Room; units: Units }) {
   const actions = plannerStore.actions
   const bounds = polygonBounds(room.points)
@@ -701,6 +744,7 @@ function RoomPanel({ room, units }: { room: Room; units: Units }) {
           {formatArea(polygonArea(room.points), units, 2)}
         </dd>
       </dl>
+      <ConvertToWalls room={room} />
       <SelectionActions deletable={!locked} />
     </>
   )
@@ -725,9 +769,12 @@ function WallPanel({
     const result = plannerStore.actions.setWallDimensions(room.id, index, patch)
     return result.ok ? null : formatMeasurementMessage(result.error, units)
   }
+  // Only a run of walls has a wall to give up; a room has to become its walls
+  // first, and the button that does that is on the room.
+  const removable = room.closed === false
   const remove = () => {
     const result = plannerStore.actions.removeWall(room.id, index)
-    // A wall that goes takes this panel with it: the room is what is left to
+    // A wall that goes takes this panel with it: the run is what is left to
     // hold, so there is nothing here to clear the message off.
     setRemoval(result.ok ? null : formatMeasurementMessage(result.error, units))
   }
@@ -764,16 +811,18 @@ function WallPanel({
           </AlertDescription>
         </Alert>
       ) : null}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={locked}
-        aria-label={`Remove wall ${index + 1} of ${room.name}`}
-        onClick={remove}
-      >
-        <IconTrash />
-        Remove wall
-      </Button>
+      {removable ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={locked}
+          aria-label={`Remove wall ${index + 1} of ${room.name}`}
+          onClick={remove}
+        >
+          <IconTrash />
+          Remove wall
+        </Button>
+      ) : null}
       {removal ? (
         <Alert variant="destructive">
           <AlertDescription role="alert">{removal}</AlertDescription>
@@ -788,9 +837,9 @@ function WallPanel({
       <p className="text-muted-foreground text-[13px] leading-relaxed">
         The start corner stays fixed. 0° points right; angles increase
         clockwise.{' '}
-        {room.closed === false
+        {removable
           ? 'You can resize a wall now and keep drawing from the updated endpoint.'
-          : 'Removing a wall leaves the room area intact and turns this entire edge into an open passage.'}
+          : 'To take this wall out, convert the room to walls first: a room is a closed outline, and a room short of a wall is not one.'}
       </p>
     </>
   )
@@ -983,36 +1032,6 @@ function OpeningPanel({
   const wall = roomWallAt(room, opening.wall)
   if (!wall) return null
 
-  if (opening.wallRemoval) {
-    return (
-      <>
-        <SectionTitle>Removed wall</SectionTitle>
-        <p className="text-muted-foreground text-[13px] leading-relaxed">
-          This edge is fully open. It is not drawn and does not block furniture.
-        </p>
-        <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
-          <dt>In</dt>
-          <dd className="text-foreground truncate text-right">{room.name}</dd>
-          <dt>Wall</dt>
-          <dd className="text-foreground text-right tabular-nums">
-            {opening.wall + 1} of {wallCount(room)}
-          </dd>
-          <dt>Opening</dt>
-          <dd className="text-foreground text-right tabular-nums">
-            {formatLength(wall.length, units)}
-          </dd>
-        </dl>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => actions.restoreWall(opening.id)}
-        >
-          Restore wall
-        </Button>
-      </>
-    )
-  }
-
   // Kept as a fraction, shown as the distance from the wall's first corner:
   // the number someone standing in the room with a tape measure would want.
   const offset = opening.t * wall.length
@@ -1181,14 +1200,7 @@ export function Inspector({
     selection?.type === 'wall'
       ? rooms.find((candidate) => candidate.id === selection.id)
       : undefined
-  const removedWall =
-    selection?.type === 'wall'
-      ? wallRemovalAt(rooms, openings, selection.id, selection.index)
-      : undefined
   const openingRoom = opening && rooms.find((r) => r.id === opening.roomId)
-  const removedWallRoom =
-    removedWall &&
-    rooms.find((candidate) => candidate.id === removedWall.roomId)
   const closetHost =
     room?.kind === 'closet' && room.attachment
       ? rooms.find((candidate) => candidate.id === room.attachment?.roomId)
@@ -1211,14 +1223,7 @@ export function Inspector({
           Remounting on selection change clears any half-typed field drafts, and
           keying on the unit too re-reads the fields when the system switches.
         */}
-        {removedWall && removedWallRoom ? (
-          <OpeningPanel
-            key={`${removedWall.id}-${units}`}
-            opening={removedWall}
-            room={removedWallRoom}
-            units={units}
-          />
-        ) : wallRoom && selection?.type === 'wall' ? (
+        {wallRoom && selection?.type === 'wall' ? (
           <WallPanel
             key={`${wallRoom.id}-${selection.index}-${units}`}
             room={wallRoom}

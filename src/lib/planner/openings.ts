@@ -28,7 +28,7 @@ export type Wall = {
 }
 
 type OpeningPlacement = Pick<Opening, 'id' | 'kind' | 'roomId' | 'wall' | 't'> &
-  Partial<Pick<Opening, 'width' | 'hinge' | 'swing' | 'wallRemoval'>>
+  Partial<Pick<Opening, 'width' | 'hinge' | 'swing'>>
 
 /** The wall running from `points[index]` to the point after it. */
 export function wallAt(
@@ -105,14 +105,12 @@ export function pointOnWall(wall: Wall, t: number): Point {
 /** Centre and jambs of an opening, in world coordinates, fitted to its wall. */
 export function openingEnds(
   wall: Wall,
-  opening: Pick<Opening, 't' | 'width' | 'wallRemoval'>,
+  opening: Pick<Opening, 't' | 'width'>,
 ): { centre: Point; start: Point; end: Point; width: number } {
-  const width = opening.wallRemoval
-    ? wall.length
-    : fittedWidth(opening.width, wall.length)
+  const width = fittedWidth(opening.width, wall.length)
   const centre = pointOnWall(
     wall,
-    opening.wallRemoval ? 0.5 : clampT(opening.t, opening.width, wall.length),
+    clampT(opening.t, opening.width, wall.length),
   )
   const half = width / 2
   return {
@@ -132,9 +130,8 @@ export function openingEnds(
 /** The stretch of its wall an opening covers, as a `[from, to]` fraction. */
 export function openingSpan(
   wall: Wall,
-  opening: Pick<Opening, 't' | 'width' | 'wallRemoval'>,
+  opening: Pick<Opening, 't' | 'width'>,
 ): Span {
-  if (opening.wallRemoval) return [0, 1]
   const half = fittedWidth(opening.width, wall.length) / 2 / wall.length
   const t = clampT(opening.t, opening.width, wall.length)
   return [t - half, t + half]
@@ -246,7 +243,6 @@ export function heldOpening(
   before: Array<Point>,
   after: Array<Point>,
 ): Opening {
-  if (opening.wallRemoval) return opening
   const was = wallAt(before, opening.wall)
   const now = wallAt(after, opening.wall)
   if (!was || !now) return opening

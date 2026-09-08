@@ -1168,8 +1168,6 @@ export function Canvas() {
     if (event.button !== 0) return
     event.stopPropagation()
     actions.select({ type: 'opening', id: opening.id })
-    // A removed wall fills its entire edge and has nowhere along it to move.
-    if (opening.wallRemoval) return
     begin({ mode: 'opening', id: opening.id }, event)
   }
 
@@ -1637,18 +1635,16 @@ export function Canvas() {
           onRotateDown={onRotateHandleDown}
         />
       )}
-      {tool === 'select' &&
-        selectedOpening &&
-        !selectedOpening.opening.wallRemoval && (
-          <OpeningEditor
-            opening={selectedOpening.opening}
-            wall={selectedOpening.wall}
-            viewport={viewport}
-            units={units}
-            avoid={written}
-            onEndDown={onOpeningEndDown}
-          />
-        )}
+      {tool === 'select' && selectedOpening && (
+        <OpeningEditor
+          opening={selectedOpening.opening}
+          wall={selectedOpening.wall}
+          viewport={viewport}
+          units={units}
+          avoid={written}
+          onEndDown={onOpeningEndDown}
+        />
+      )}
       {rectDraft && (
         <RectPreview rect={rectDraft} viewport={viewport} units={units} />
       )}

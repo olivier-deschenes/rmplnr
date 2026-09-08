@@ -156,20 +156,26 @@ describe('serializeProject', () => {
     expect(parseProjectFile(serializeProject(project))).toEqual(project)
   })
 
-  it('preserves a wall removal', () => {
-    const removed: Project['openings'][number] = {
-      ...plan().openings[0],
-      id: 'removed-wall-1',
-      kind: 'opening',
-      width: 400,
-      wallRemoval: true,
-    }
-    const project = plan({ openings: [removed] })
-
-    expect(parseProjectFile(serializeProject(project))).toEqual(project)
-    expect(JSON.parse(serializeProject(project)).openings[0].wallRemoval).toBe(
-      true,
+  it('reads a wall a saved file had removed as an ordinary opening', () => {
+    // Plans written while a wall could be made absent carry the flag that said
+    // so. There is no such thing now — a wall is either there or it is not —
+    // so what the file called a removed wall reads back as what it always
+    // drew as: a gap cut end to end through a wall that is still there.
+    const file = JSON.parse(
+      serializeProject(
+        plan({
+          openings: [
+            { ...plan().openings[0], kind: 'opening', width: 400, t: 0.5 },
+          ],
+        }),
+      ),
     )
+    file.openings[0].wallRemoval = true
+
+    const parsed = parseProjectFile(JSON.stringify(file))
+
+    expect(parsed.openings[0]).not.toHaveProperty('wallRemoval')
+    expect(parsed.openings[0]).toMatchObject({ kind: 'opening', width: 400 })
   })
 
   it('changes the serialized content and hash for a lock-only change', async () => {

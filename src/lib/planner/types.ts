@@ -145,12 +145,6 @@ export const OpeningSchema = z.object({
   hinge: z.enum(['start', 'end']),
   /** The side of the wall a door swings towards. */
   swing: z.enum(['in', 'out']),
-  /**
-   * A full-width, untrimmed gap made by removing the wall itself. Kept as an
-   * opening so the room outline remains closed and every system that already
-   * understands gaps (drawing, shared walls and collision) sees the same result.
-   */
-  wallRemoval: z.boolean().optional(),
 })
 
 export const PlanSchema = z.object({

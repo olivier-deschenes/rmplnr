@@ -7,14 +7,17 @@ import {
   projectAlong,
   roomWallAt,
   wallAt,
+  wallSegments,
 } from './openings.ts'
 import { closetSize, heldClosets, reflowClosets } from './closets.ts'
 import {
+  distance,
   editWallGeometry,
   outlineIssue,
-  removeWallGeometry,
+  outwardSign,
 } from './geometry.ts'
 import { OPENING_PRESETS } from './presets.ts'
+import { MIN_SIZE } from './types.ts'
 
 import type { Opening, Point, Room } from './types.ts'
 import type { Span, Wall } from './openings.ts'
@@ -102,29 +105,6 @@ export function sharedWalls(
     }
   }
   return shares
-}
-
-/** A full-width removal that makes this whole physical wall absent. */
-export function wallRemovalAt(
-  rooms: Array<Room>,
-  openings: Array<Opening>,
-  roomId: string,
-  index: number,
-): Opening | undefined {
-  const room = rooms.find((candidate) => candidate.id === roomId)
-  const frame = room && roomWallAt(room, index)
-  if (!frame) return undefined
-
-  return openings.find((opening) => {
-    if (!opening.wallRemoval) return false
-    if (opening.roomId === roomId && opening.wall === index) return true
-    const owner = rooms.find((candidate) => candidate.id === opening.roomId)
-    const source = owner && roomWallAt(owner, opening.wall)
-    const shared = source && sharedSpan(frame, source)
-    return Boolean(
-      shared && Math.abs(shared[0]) < 1e-9 && Math.abs(shared[1] - 1) < 1e-9,
-    )
-  })
 }
 
 /** The rooms this one holds a wall in common with. */
@@ -318,7 +298,7 @@ export function editConnectedWall(
         error: `That change would detach an opening from ${owner?.name ?? 'its room'}.`,
       }
     }
-    if (!opening.wallRemoval && opening.width > wall.length + 1e-6) {
+    if (opening.width > wall.length + 1e-6) {
       return {
         ok: false,
         error: `${OPENING_PRESETS[opening.kind].label} in ${owner.name} is wider than the edited wall.`,
@@ -348,46 +328,84 @@ export function editConnectedWall(
   return { ok: true, rooms: flowedRooms, openings: fittedOpenings }
 }
 
-export type WallRemovalResult =
-  { ok: true; points: Array<Point> } | { ok: false; error: string }
-
 /**
- * The outline a room is left with once one of its walls is taken out, or why
- * that wall has to stay. `removeWallGeometry` settles the shape; what is added
- * here is the room's own say in it — whether it is a closet, whether it is
- * locked, and whether the wall is still there to take.
+ * A closed outline read back as the runs of walls it was drawn as.
  *
- * A wall two rooms hold in common is two leaves laid over each other, and only
- * this room's is taken down. The room on the other side keeps its own, standing
- * exactly where it stood, with whatever it had cut through it: a wall knocked
- * out of one room is not knocked out of its neighbour, and the neighbour is
- * neither reshaped nor asked for permission. What was one wall between them
- * becomes that room's outside wall, which this one has simply stopped meeting.
+ * A room and a run of walls are the same walls written down two ways, and this
+ * is the way back from the first to the second: the outline's own corners,
+ * walked round and back to the one they started at. Not a corner moves, and
+ * the walk keeps exactly the walls the room had — the closing wall included,
+ * which is the whole reason it comes back to where it began rather than
+ * stopping one wall short of it.
  *
- * Anything hanging on the wall that goes — a door, a window, a closet — is read
- * back onto the outline that is left, exactly as when a corner is taken out.
+ * Except for the walls that are not there. A wall opened end to end is a way
+ * through, and `absent` is how the caller says so: the walk steps over it
+ * rather than laying it down, which breaks the loop and leaves a run either
+ * side of the gap. That is the honest answer — the walls that are there are
+ * these, and they no longer close anything — and it is why this returns runs
+ * rather than a run.
+ *
+ * The one thing that cannot be carried straight across is which side of a wall
+ * is the outside. A room settles that by its winding, whichever way round it
+ * was traced; a run has no inside to wind about, so `wallAt` reads its outside
+ * off the one winding it assumes. A room traced the other way is therefore
+ * walked backwards here, which puts its walls back the way round the run
+ * expects and leaves every door swinging and every closet standing exactly
+ * where it stood. `walls` says where each of the room's walls ended up, for
+ * whatever was hanging on it.
  */
-export function removeRoomWall(
-  rooms: Array<Room>,
-  roomId: string,
-  index: number,
-): WallRemovalResult {
-  const room = rooms.find((candidate) => candidate.id === roomId)
-  if (!room) return { ok: false, error: 'This room no longer exists.' }
-  if (room.kind === 'closet') {
-    return {
-      ok: false,
-      error: 'A closet keeps its four walls; resize it instead.',
+export type OpenedRun = {
+  /** This run's corners, in the order it is walked. */
+  points: Array<Point>
+  /** Which wall of the closed outline each of this run's walls came from. */
+  walls: Array<number>
+}
+
+export type OpenedOutline = {
+  /** Whether the outline's walls are walked the other way about. */
+  reversed: boolean
+  /** What is left, in walk order: one run, or several where a wall is absent. */
+  runs: Array<OpenedRun>
+}
+
+export function openOutline(
+  points: Array<Point>,
+  absent: (index: number) => boolean = () => false,
+): OpenedOutline {
+  const count = points.length
+  const reversed = outwardSign(points) < 0
+  // Which wall the walk takes at each step, and which way round it then runs.
+  const order = Array.from({ length: count }, (_, step) =>
+    reversed ? count - 1 - step : step,
+  )
+  const from = (index: number) =>
+    reversed ? points[(index + 1) % count] : points[index]
+  const to = (index: number) =>
+    reversed ? points[index] : points[(index + 1) % count]
+
+  const walked: Array<Array<number>> = []
+  let current: Array<number> | null = null
+  for (const index of order) {
+    if (absent(index)) {
+      current = null
+      continue
     }
+    if (current) current.push(index)
+    else walked.push((current = [index]))
   }
-  if (room.locked) {
-    return { ok: false, error: `Unlock ${room.name} to remove its walls.` }
-  }
-  if (!roomWallAt(room, index)) {
-    return { ok: false, error: 'This wall no longer exists.' }
+  // The walk is a loop, so a run reaching the last wall carries straight on
+  // into the one that set off from the first.
+  if (walked.length > 1 && !absent(order[0]) && !absent(order[count - 1])) {
+    walked[0] = [...walked.pop()!, ...walked[0]]
   }
 
-  return removeWallGeometry(room.points, index)
+  return {
+    reversed,
+    runs: walked.map((walls) => ({
+      points: [from(walls[0]), ...walls.map(to)],
+      walls,
+    })),
+  }
 }
 
 /** What is left of `span` once `gaps` are taken out of it. */
@@ -478,6 +496,32 @@ export function wallGaps(
   }
 
   return gaps
+}
+
+/**
+ * Whether nothing of a wall is left standing.
+ *
+ * A wall opened from end to end is a way through rather than a wall: none of
+ * it is drawn, none of it stops the furniture, and a reader looking at the
+ * plan sees a gap where a wall would be. So it is not one, and anything asking
+ * the plan which walls a room has ought to be told so.
+ *
+ * What is left standing is measured exactly as it is drawn — every opening cut
+ * into this wall, this room's own and those of any room sharing it — and a
+ * scrap too short to be drawn as a wall of its own counts for nothing.
+ */
+export function wallFullyOpen(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+  roomId: string,
+  index: number,
+): boolean {
+  const room = rooms.find((candidate) => candidate.id === roomId)
+  const frame = room && roomWallAt(room, index)
+  if (!frame) return false
+  return wallSegments(frame, wallGaps(rooms, openings, roomId, index)).every(
+    ([a, b]) => distance(a, b) < MIN_SIZE,
+  )
 }
 
 /** A room's walls as path data, with every opening through them cut out. */

@@ -67,7 +67,7 @@ it('shows exact length and angle controls for a selected wall', () => {
   expect(html).toContain('Start corner')
 })
 
-it('offers a remove-wall action, held while the room is locked', () => {
+it('offers a remove-wall action on a run of walls, held while it is locked', () => {
   plannerStore.actions.openProject(PLAN)
   plannerStore.actions.beginRect({ x: 0, y: 0 })
   plannerStore.actions.updateRect({ x: 400, y: 300 })
@@ -75,18 +75,25 @@ it('offers a remove-wall action, held while the room is locked', () => {
   const room = plannerStore.state.rooms[0]
   plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
 
-  // A room lands unlocked, and gives up its walls until it is locked.
+  // A room has no wall to give up: it would stop being a room.
+  const asRoom = renderToStaticMarkup(<Inspector />)
+
+  expect(asRoom).not.toContain('Remove wall')
+  expect(asRoom).toContain('convert the room to walls first')
+
+  plannerStore.actions.convertRoomToWalls(room.id)
+  plannerStore.actions.select({ type: 'wall', id: room.id, index: 0 })
   const unlocked = renderToStaticMarkup(<Inspector />)
 
   expect(unlocked).toContain('Remove wall')
   expect(unlocked).not.toMatch(
-    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
+    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Walls 1"/,
   )
 
   plannerStore.actions.setRoomLocked(room.id, true)
 
   expect(renderToStaticMarkup(<Inspector />)).toMatch(
-    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Room 1"/,
+    /<button[^>]*disabled=""[^>]*aria-label="Remove wall 1 of Walls 1"/,
   )
 })
 
@@ -122,19 +129,22 @@ it('offers a padlock on the space a run of walls closes in', () => {
   expect(locked).toContain('aria-pressed="true"')
 })
 
-it('describes a removed wall and offers to restore it', () => {
+it('offers to convert a room to the walls it was drawn as', () => {
   plannerStore.actions.openProject(PLAN)
   plannerStore.actions.beginRect({ x: 0, y: 0 })
   plannerStore.actions.updateRect({ x: 400, y: 300 })
   plannerStore.actions.commitRect()
   const room = plannerStore.state.rooms[0]
-  plannerStore.actions.removeWall(room.id, 0)
+  plannerStore.actions.select({ type: 'room', id: room.id })
 
-  const html = renderToStaticMarkup(<Inspector />)
+  expect(renderToStaticMarkup(<Inspector />)).toContain('Convert to walls')
 
-  expect(html).toContain('Removed wall')
-  expect(html).toContain('This edge is fully open')
-  expect(html).toContain('Restore wall')
+  // Converting is a change to the outline, and the padlock holds those.
+  plannerStore.actions.setRoomLocked(room.id, true)
+
+  expect(renderToStaticMarkup(<Inspector />)).toMatch(
+    /<button[^>]*disabled=""[^>]*aria-label="Convert Room 1 to walls"/,
+  )
 })
 
 it('offers room rotation controls and holds them while the room is locked', () => {
