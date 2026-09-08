@@ -1,4 +1,9 @@
-import { openingEnds, pointOnWall, roomWallAt } from '#/lib/planner/openings.ts'
+import {
+  openingEnds,
+  pointOnWall,
+  roomWallAt,
+  wallSegments,
+} from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
 import type { CSSProperties, ReactElement } from 'react'
@@ -205,6 +210,46 @@ export function SharedWalls({
           />
         )
       })}
+    </g>
+  )
+}
+
+/**
+ * The one wall the pointer has hold of, laid over the wall in the selection
+ * colour at the wall's own thickness so that what is selected is the wall
+ * itself rather than the little bar in the middle of it.
+ *
+ * Cut at the jambs like the wall underneath, because a doorway is a hole and
+ * selecting the wall does not fill it back in.
+ */
+export function SelectedWall({
+  room,
+  index,
+  gaps,
+  scale,
+}: {
+  room: Room
+  index: number
+  /** What is cut through this wall: the doorways and windows. */
+  gaps: Array<Span>
+  scale: number
+}) {
+  const frame = roomWallAt(room, index)
+  if (!frame) return null
+  return (
+    <g className="pointer-events-none">
+      {wallSegments(frame, gaps).map(([a, b], i) => (
+        <line
+          key={i}
+          x1={a.x}
+          y1={a.y}
+          x2={b.x}
+          y2={b.y}
+          className="stroke-selection"
+          strokeWidth={wallWidth(scale)}
+          strokeLinecap="butt"
+        />
+      ))}
     </g>
   )
 }

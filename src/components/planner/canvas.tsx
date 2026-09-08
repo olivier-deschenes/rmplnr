@@ -13,6 +13,7 @@ import {
   OpeningTarget,
   RoomFloor,
   RoomWalls,
+  SelectedWall,
   SharedWalls,
 } from './shapes.tsx'
 import {
@@ -1520,6 +1521,18 @@ export function Canvas() {
             <SharedWalls
               room={selectedRoom}
               spans={sharedSpansOf(rooms, openings, selectedRoom.id)}
+              scale={viewport.scale}
+            />
+          )}
+          {/*
+            Over the shared-wall marks, so that on a wall which is both, what
+            the pointer has hold of is what shows.
+          */}
+          {selectedRoom && selection?.type === 'wall' && (
+            <SelectedWall
+              room={selectedRoom}
+              index={selection.index}
+              gaps={wallGaps(rooms, openings, selectedRoom.id, selection.index)}
               scale={viewport.scale}
             />
           )}

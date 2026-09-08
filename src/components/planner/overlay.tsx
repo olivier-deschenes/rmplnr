@@ -81,7 +81,12 @@ export const WALL_GRAB = 14
 const BAR_LENGTH = 18
 const BAR_THICKNESS = 5
 
-/** Handle shaped like the wall it pushes: a short bar lying along it. */
+/**
+ * Handle shaped like the wall it pushes: a short bar lying along it. On the
+ * selected wall it keeps its pale fill and takes the selection colour in its
+ * outline, so that it still reads as a handle sitting on the coloured wall
+ * rather than disappearing into it.
+ */
 function Bar({
   at,
   angle,
@@ -105,7 +110,7 @@ function Bar({
       height={BAR_THICKNESS}
       rx={BAR_THICKNESS / 2}
       transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
-      className={`${selected ? 'fill-foreground' : 'fill-background'} stroke-foreground ${className ?? ''}`}
+      className={`fill-background ${selected ? 'stroke-selection' : 'stroke-foreground'} ${className ?? ''}`}
       strokeWidth={1.5}
       onPointerDown={onPointerDown}
     />
@@ -581,12 +586,12 @@ export function WallDimensions({
               text={text}
               className={
                 active
-                  ? 'fill-background text-[10px] font-medium'
+                  ? 'fill-foreground text-[10px] font-medium'
                   : 'fill-muted-foreground text-[10px]'
               }
               plateClassName={
                 active
-                  ? 'fill-foreground stroke-foreground'
+                  ? 'fill-selection stroke-selection'
                   : 'fill-background group-focus-visible:stroke-foreground'
               }
             />

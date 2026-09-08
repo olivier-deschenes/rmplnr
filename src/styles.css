@@ -43,12 +43,20 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   /*
-   * The one colour in an otherwise grey drawing, and it is spent on a single
-   * job: saying that two rooms have found each other. A snap guide and a shared
-   * wall are the plan reporting a relationship rather than drawing a thing, so
-   * they are the one thing that may not be read as ink.
+   * The colour the drawing spends on a single job: saying that two rooms have
+   * found each other. A snap guide and a shared wall are the plan reporting a
+   * relationship rather than drawing a thing, so they may not be read as ink.
    */
   --snap: oklch(0.58 0.19 258);
+  /*
+   * What the pointer has hold of. Selection is not geometry either — it is the
+   * app saying *this one*, and on a wall there is no room to say it with weight
+   * the way a chosen sofa or door says it, because a wall's thickness is
+   * already carrying a measurement. So it is said in colour, and in a warm one,
+   * kept well clear of the snap blue: a selected wall that also happens to be
+   * shared must never read as one more shared wall.
+   */
+  --selection: oklch(0.66 0.17 55);
   /*
    * The sync traffic light, and the only other colours in the app. They report
    * a state rather than draw a thing, so like the snap guide they are allowed
@@ -95,6 +103,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-snap: var(--snap);
+  --color-selection: var(--selection);
   --color-sync-ok: var(--sync-ok);
   --color-sync-warn: var(--sync-warn);
   --color-sync-bad: var(--sync-bad);
