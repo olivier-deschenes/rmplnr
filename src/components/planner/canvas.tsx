@@ -1314,11 +1314,12 @@ export function Canvas() {
     viewport,
     units,
     size,
+    enclosures,
   )
 
   // Where each item's own name is written across it, which is worked out the
   // same way and against the same room labels.
-  const names = furnitureNames(rooms, furniture, viewport, units)
+  const names = furnitureNames(rooms, furniture, viewport, units, enclosures)
 
   // Everything already written on the plan by the time a selection's own
   // readout looks for somewhere to sit. The order is what settles a clash: the
@@ -1345,7 +1346,7 @@ export function Canvas() {
   const spoken =
     clearances.length === 0
       ? written
-      : [...written, ...roomLabelBoxes(rooms, viewport, units)]
+      : [...written, ...roomLabelBoxes(rooms, viewport, units, enclosures)]
 
   // Every room's walls, with the openings of any room sharing them already cut
   // through. Recomputed each render, as the dimensions are: the plans this

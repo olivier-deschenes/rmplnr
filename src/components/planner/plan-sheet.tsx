@@ -244,6 +244,7 @@ export function PlanSheet({
     const wall = openingWall(project.rooms, opening)
     return wall ? [{ opening, wall }] : []
   })
+  const enclosures = freeEnclosures(project.rooms, project.spaces)
   const dimensions = options.dimensions
     ? wallLabels(
         project.rooms,
@@ -252,6 +253,7 @@ export function PlanSheet({
         viewport,
         units,
         page,
+        enclosures,
       )
     : []
   const names = furnitureNames(
@@ -259,6 +261,7 @@ export function PlanSheet({
     project.furniture,
     viewport,
     units,
+    enclosures,
   )
 
   return (
@@ -300,7 +303,7 @@ export function PlanSheet({
               onPointerDown={() => undefined}
             />
           ))}
-          {freeEnclosures(project.rooms, project.spaces).map((enclosure) => (
+          {enclosures.map((enclosure) => (
             <EnclosureFloor
               key={enclosure.key}
               enclosure={enclosure}
@@ -326,10 +329,9 @@ export function PlanSheet({
 
         <RoomLabels rooms={project.rooms} viewport={viewport} units={units} />
         <EnclosureLabels
-          enclosures={freeEnclosures(project.rooms, project.spaces)}
+          enclosures={enclosures}
           viewport={viewport}
           units={units}
-          hint={false}
         />
         <FurnitureLabels labels={names} />
         <WallDimensions labels={dimensions} />

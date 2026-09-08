@@ -1,6 +1,7 @@
 import {
   distance,
   outwardSign,
+  pointInPolygon,
   polygonArea,
   polygonCentroid,
   worldToScreen,
@@ -16,6 +17,7 @@ import { formatArea, formatLength } from './units.ts'
 import { HINGED_KINDS } from './presets.ts'
 import { standingWalls, WALL_THICKNESS } from './walls.ts'
 import type { Span, Wall } from './openings.ts'
+import type { Enclosure } from './enclosures.ts'
 
 import type {
   Furniture,
@@ -214,19 +216,46 @@ function furnitureBox(item: Furniture, vp: Viewport): Box {
   }
 }
 
-/** The name-over-area block `RoomLabels` draws at a room's centroid. */
-function roomLabelBox(room: Room, vp: Viewport, units: Units): Box {
-  const at = worldToScreen(polygonCentroid(room.points), vp)
-  return {
-    // Two lines: the name sits on the centroid, the area 14px below it.
+export type FloorLabel = {
+  name: string
+  area: string | null
+  at: Point
+  box: Box
+}
+
+/** Keep readable labels inside their walls, dropping detail as space runs out. */
+export function floorLabel(
+  points: Array<Point>,
+  name: string,
+  area: number,
+  vp: Viewport,
+  units: Units,
+  centre = polygonCentroid(points),
+): FloorLabel | null {
+  if (!name.trim() || !pointInPolygon(centre, points)) return null
+  const at = worldToScreen(centre, vp)
+  const outline = points.map((point) => worldToScreen(point, vp))
+  const walls = outline.map((point, i) =>
+    wallBox(point, outline[(i + 1) % outline.length], vp.scale),
+  )
+  const fits = (box: Box, padding: number) =>
+    !walls.some((wall) => overlaps(grow(box, padding), wall))
+  const areaText = formatArea(area, units)
+  const full: Box = {
     centre: { x: at.x, y: at.y + 4 },
-    w: Math.max(
-      textWidth(room.name, NAME_FONT),
-      textWidth(formatArea(polygonArea(room.points), units)),
-    ),
+    w: Math.max(textWidth(name, NAME_FONT), textWidth(areaText)),
     h: 30,
     angle: 0,
   }
+  if (fits(full, 16)) return { name, area: areaText, at, box: full }
+
+  const compact: Box = {
+    centre: { x: at.x, y: at.y - 4 },
+    w: textWidth(name, NAME_FONT),
+    h: NAME_HEIGHT,
+    angle: 0,
+  }
+  return fits(compact, 4) ? { name, area: null, at, box: compact } : null
 }
 
 /**
@@ -239,10 +268,25 @@ export function roomLabelBoxes(
   rooms: Array<Room>,
   vp: Viewport,
   units: Units,
+  enclosures: Array<Enclosure> = [],
 ): Array<Box> {
-  return rooms
-    .filter((room) => room.closed !== false)
-    .map((room) => roomLabelBox(room, vp, units))
+  return [
+    ...rooms
+      .filter((room) => room.closed !== false)
+      .map((room) =>
+        floorLabel(room.points, room.name, polygonArea(room.points), vp, units),
+      ),
+    ...enclosures.map((enclosure) =>
+      floorLabel(
+        enclosure.points,
+        enclosure.space?.name ?? '',
+        enclosure.area,
+        vp,
+        units,
+        enclosure.centre,
+      ),
+    ),
+  ].flatMap((label) => (label ? [label.box] : []))
 }
 
 /**
@@ -325,10 +369,9 @@ export function furnitureNames(
   furniture: Array<Furniture>,
   vp: Viewport,
   units: Units,
+  enclosures: Array<Enclosure> = [],
 ): Array<NameLabel> {
-  const taken = rooms
-    .filter((room) => room.closed !== false)
-    .map((room) => roomLabelBox(room, vp, units))
+  const taken = roomLabelBoxes(rooms, vp, units, enclosures)
   const labels: Array<NameLabel> = []
 
   for (const item of furniture) {
@@ -493,6 +536,7 @@ export function wallLabels(
   viewport: Viewport,
   units: Units,
   size: { width: number; height: number },
+  enclosures: Array<Enclosure> = [],
 ): Array<WallLabel> {
   // Two nested areas: walls inside the first are worth labelling, and anything
   // inside the second is close enough to get in such a label's way.
@@ -509,9 +553,7 @@ export function wallLabels(
   // join the list as they are placed, so they clear each other as well.
   const taken: Array<Box> = [
     ...furniture.map((item) => furnitureBox(item, viewport)),
-    ...rooms
-      .filter((room) => room.closed !== false)
-      .map((room) => roomLabelBox(room, viewport, units)),
+    ...roomLabelBoxes(rooms, viewport, units, enclosures),
     ...openings.flatMap((opening) => {
       const box = openingBox(opening, rooms, viewport)
       return box ? [box] : []

@@ -132,6 +132,7 @@ function PlanImage({
     const wall = openingWall(project.rooms, opening)
     return wall ? [{ opening, wall }] : []
   })
+  const enclosures = freeEnclosures(project.rooms, project.spaces)
   const dimensions = wallLabels(
     project.rooms,
     project.furniture,
@@ -139,14 +140,15 @@ function PlanImage({
     viewport,
     units,
     size,
+    enclosures,
   )
   const names = furnitureNames(
     project.rooms,
     project.furniture,
     viewport,
     units,
+    enclosures,
   )
-  const enclosures = freeEnclosures(project.rooms, project.spaces)
 
   return (
     <svg
@@ -202,7 +204,6 @@ function PlanImage({
         enclosures={enclosures}
         viewport={viewport}
         units={units}
-        hint={false}
       />
       <FurnitureLabels labels={names} />
       <WallDimensions labels={dimensions} />
