@@ -51,7 +51,12 @@ import {
   roomLabelBoxes,
   wallLabels,
 } from '#/lib/planner/dimensions.ts'
-import { sharedSpansOf, wallGaps, wallPath } from '#/lib/planner/walls.ts'
+import {
+  planWallPath,
+  sharedSpansOf,
+  wallGaps,
+  wallPath,
+} from '#/lib/planner/walls.ts'
 import {
   SNAP_REACH_PX,
   alignTo,
@@ -1346,10 +1351,7 @@ export function Canvas() {
   // through. Recomputed each render, as the dimensions are: the plans this
   // holds are a handful of rooms, and walls that lagged a drag by a frame would
   // read as the rooms coming apart.
-  const walls = rooms.map((room) => ({
-    id: room.id,
-    d: wallPath(rooms, openings, room),
-  }))
+  const walls = planWallPath(rooms, openings)
 
   // Where the name being typed over stands on the page, if one is: read on
   // every render, so the field rides along with a pan or a zoom.
@@ -1502,9 +1504,7 @@ export function Canvas() {
           trimming by it rather than sitting on top of it.
         */}
         <g className="pointer-events-none">
-          {walls.map((wall) => (
-            <RoomWalls key={wall.id} d={wall.d} scale={viewport.scale} />
-          ))}
+          <RoomWalls d={walls} scale={viewport.scale} />
           {closetGhostRoom && closetGhostOpening && (
             <g className="opacity-40">
               <RoomWalls

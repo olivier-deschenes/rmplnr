@@ -8,7 +8,7 @@ import { freeEnclosures } from '#/lib/planner/enclosures.ts'
 import { planBounds, polygonCentroid } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
 import { formatLength } from '#/lib/planner/units.ts'
-import { wallPath } from '#/lib/planner/walls.ts'
+import { planWallPath } from '#/lib/planner/walls.ts'
 import type { Project, Units } from '#/lib/planner/types.ts'
 
 /** Saved geometry, drawn with the same shapes as the editor. */
@@ -76,13 +76,10 @@ export function PlanPreview({
               onPointerDown={() => undefined}
             />
           ))}
-        {project.rooms.map((room) => (
-          <RoomWalls
-            key={room.id}
-            d={wallPath(project.rooms, project.openings, room)}
-            scale={scale}
-          />
-        ))}
+        <RoomWalls
+          d={planWallPath(project.rooms, project.openings)}
+          scale={scale}
+        />
         {project.openings.map((opening) => {
           const wall = openingWall(project.rooms, opening)
           return wall ? (

@@ -5,10 +5,17 @@ import {
   polygonCentroid,
   worldToScreen,
 } from './geometry.ts'
-import { openingEnds, openingWall, wallCount } from './openings.ts'
+import {
+  openingEnds,
+  openingWall,
+  pointOnWall,
+  roomWallAt,
+  wallCount,
+} from './openings.ts'
 import { formatArea, formatLength } from './units.ts'
 import { HINGED_KINDS } from './presets.ts'
-import { WALL_THICKNESS } from './walls.ts'
+import { standingWalls, WALL_THICKNESS } from './walls.ts'
+import type { Span, Wall } from './openings.ts'
 
 import type {
   Furniture,
@@ -442,6 +449,43 @@ function wallSlots(candidate: Candidate, width: number): Array<Slot> {
   return slots
 }
 
+/** Dimension each stretch between wall junctions, including angled crossings. */
+function dimensionSpans(
+  wall: Wall,
+  standing: Array<[Point, Point]>,
+): Array<Span> {
+  const cuts = [0, wall.length]
+  const tolerance = 1e-6
+  for (const [a, b] of standing) {
+    const length = distance(a, b)
+    if (length < tolerance) continue
+    const ox = (b.x - a.x) / length
+    const oy = (b.y - a.y) / length
+    const cross = wall.tangent.x * oy - wall.tangent.y * ox
+    if (Math.abs(cross) < tolerance) continue
+
+    const dx = a.x - wall.a.x
+    const dy = a.y - wall.a.y
+    const along = (dx * oy - dy * ox) / cross
+    const otherAlong = (dx * wall.tangent.y - dy * wall.tangent.x) / cross
+    if (
+      along > tolerance &&
+      along < wall.length - tolerance &&
+      otherAlong >= -tolerance &&
+      otherAlong <= length + tolerance
+    ) {
+      cuts.push(along)
+    }
+  }
+
+  const ordered = cuts
+    .sort((a, b) => a - b)
+    .filter((cut, i, all) => i === 0 || cut - all[i - 1] > tolerance)
+  return ordered
+    .slice(1)
+    .map((to, i) => [ordered[i] / wall.length, to / wall.length])
+}
+
 export function wallLabels(
   rooms: Array<Room>,
   furniture: Array<Furniture>,
@@ -479,51 +523,59 @@ export function wallLabels(
   // copy of it, and one wall wants one number, so the second room's copy is
   // passed over: same line, same length, already labelled.
   const numbered: Array<{ mid: Point; length: number }> = []
+  const standing = standingWalls(rooms, openings)
 
   for (const room of rooms) {
     const sign = room.closed === false ? 1 : outwardSign(room.points)
-    const screen = room.points.map((p) => worldToScreen(p, viewport))
 
     for (let i = 0; i < wallCount(room); i++) {
-      const next = (i + 1) % room.points.length
-      const a = screen[i]
-      const b = screen[next]
+      const frame = roomWallAt(room, i)
+      if (!frame) continue
+      const a = worldToScreen(frame.a, viewport)
+      const b = worldToScreen(frame.b, viewport)
       const wall = wallBox(a, b, viewport.scale)
       if (!inView(wall, consulted)) continue
       taken.push(wall)
 
-      const length = Math.hypot(b.x - a.x, b.y - a.y)
-      if (length < MIN_WALL_PX || !inView(wall, laidOut)) continue
-
-      const world = distance(room.points[i], room.points[next])
-      const mid = {
-        x: (room.points[i].x + room.points[next].x) / 2,
-        y: (room.points[i].y + room.points[next].y) / 2,
-      }
-      if (
-        numbered.some(
-          (done) =>
-            Math.abs(done.length - world) < 1 &&
-            distance(done.mid, mid) < WALL_THICKNESS,
+      const spans = dimensionSpans(frame, standing)
+      for (const [segment, [from, to]] of spans.entries()) {
+        const start = pointOnWall(frame, from)
+        const end = pointOnWall(frame, to)
+        const world = distance(start, end)
+        const length = world * viewport.scale
+        const part = wallBox(
+          worldToScreen(start, viewport),
+          worldToScreen(end, viewport),
+          viewport.scale,
         )
-      ) {
-        continue
-      }
-      numbered.push({ mid, length: world })
+        if (length < MIN_WALL_PX || !inView(part, laidOut)) continue
 
-      const tangent = { x: (b.x - a.x) / length, y: (b.y - a.y) / length }
-      candidates.push({
-        key: `${room.id}:${i}`,
-        roomId: room.id,
-        roomName: room.name,
-        wall: i,
-        text: formatLength(world, units),
-        mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
-        normal: { x: tangent.y * sign, y: -tangent.x * sign },
-        tangent,
-        angle: uprightAngle(tangent),
-        length,
-      })
+        const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+        if (
+          numbered.some(
+            (done) =>
+              Math.abs(done.length - world) < 1 &&
+              distance(done.mid, mid) < WALL_THICKNESS,
+          )
+        ) {
+          continue
+        }
+        numbered.push({ mid, length: world })
+
+        const tangent = frame.tangent
+        candidates.push({
+          key: `${room.id}:${i}:${segment}`,
+          roomId: room.id,
+          roomName: room.name,
+          wall: i,
+          text: formatLength(world, units),
+          mid: worldToScreen(mid, viewport),
+          normal: { x: tangent.y * sign, y: -tangent.x * sign },
+          tangent,
+          angle: uprightAngle(tangent),
+          length,
+        })
+      }
     }
   }
 

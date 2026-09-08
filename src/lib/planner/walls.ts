@@ -7,6 +7,7 @@ import {
   projectAlong,
   roomWallAt,
   wallAt,
+  wallCount,
   wallSegments,
 } from './openings.ts'
 import { closetSize, heldClosets, reflowClosets } from './closets.ts'
@@ -535,4 +536,54 @@ export function wallPath(
     room.points.map((_, i) => wallGaps(rooms, openings, room.id, i)),
     room.closed !== false,
   )
+}
+
+/** Solid wall segments, with doors, windows and shared openings cut out. */
+export function standingWalls(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+): Array<[Point, Point]> {
+  return rooms.flatMap((room) =>
+    Array.from({ length: wallCount(room) }, (_, index) => {
+      const frame = roomWallAt(room, index)
+      return frame
+        ? wallSegments(frame, wallGaps(rooms, openings, room.id, index))
+        : []
+    }).flat(),
+  )
+}
+
+/**
+ * Draw separate wall runs with the same corner joins as a continuous outline.
+ * Only solid segments meeting at their ends get a join; free ends and opening
+ * jambs retain their butt caps. Keep wallPath separate for per-room hit targets.
+ */
+export function planWallPath(
+  rooms: Array<Room>,
+  openings: Array<Opening>,
+): string {
+  const paths = rooms.map((room) => wallPath(rooms, openings, room))
+  const ends = standingWalls(rooms, openings).flatMap(([a, b]) => [
+    { at: a, from: b },
+    { at: b, from: a },
+  ])
+
+  for (let i = 0; i < ends.length; i++) {
+    const one = ends[i]
+    for (let j = i + 1; j < ends.length; j++) {
+      const other = ends[j]
+      if (distance(one.at, other.at) > 1e-6) continue
+      const dx = one.from.x - one.at.x
+      const dy = one.from.y - one.at.y
+      const ox = other.from.x - other.at.x
+      const oy = other.from.y - other.at.y
+      // Straight or overlapping segments already meet without a corner join.
+      if (Math.abs(dx * oy - dy * ox) < 1e-6) continue
+      paths.push(
+        `M${one.from.x},${one.from.y} L${one.at.x},${one.at.y} L${other.from.x},${other.from.y}`,
+      )
+    }
+  }
+
+  return paths.filter(Boolean).join(' ')
 }

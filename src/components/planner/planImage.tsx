@@ -21,7 +21,7 @@ import { furnitureNames, wallLabels } from '#/lib/planner/dimensions.ts'
 import { freeEnclosures } from '#/lib/planner/enclosures.ts'
 import { planBounds } from '#/lib/planner/geometry.ts'
 import { openingWall } from '#/lib/planner/openings.ts'
-import { wallPath } from '#/lib/planner/walls.ts'
+import { planWallPath } from '#/lib/planner/walls.ts'
 
 import type { Project, Rect, Units, Viewport } from '#/lib/planner/types.ts'
 import type { Underlay } from '#/lib/planner/underlay.ts'
@@ -188,13 +188,10 @@ function PlanImage({
             onPointerDown={() => undefined}
           />
         ))}
-        {project.rooms.map((room) => (
-          <RoomWalls
-            key={room.id}
-            d={wallPath(project.rooms, project.openings, room)}
-            scale={viewport.scale}
-          />
-        ))}
+        <RoomWalls
+          d={planWallPath(project.rooms, project.openings)}
+          scale={viewport.scale}
+        />
         {placed.map(({ opening, wall }) => (
           <OpeningShape key={opening.id} opening={opening} wall={wall} />
         ))}
