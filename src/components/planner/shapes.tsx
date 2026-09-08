@@ -56,12 +56,16 @@ function inked(color: string, alpha: number): CSSProperties {
 export function EnclosureFloor({
   enclosure,
   selected = false,
+  movable = false,
+  moving = false,
   /** False on a plan being printed or exported, which has nobody to prompt. */
   hint = true,
   onPointerDown,
 }: {
   enclosure: Enclosure
   selected?: boolean
+  movable?: boolean
+  moving?: boolean
   hint?: boolean
   onPointerDown?: (event: React.PointerEvent) => void
 }) {
@@ -70,7 +74,15 @@ export function EnclosureFloor({
 
   return (
     <g
-      className={onPointerDown && 'cursor-pointer'}
+      className={
+        onPointerDown
+          ? moving
+            ? 'cursor-grabbing'
+            : movable
+              ? 'cursor-grab'
+              : 'cursor-pointer'
+          : undefined
+      }
       onPointerDown={onPointerDown}
     >
       <polygon

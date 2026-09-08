@@ -31,7 +31,11 @@ import {
 } from './overlay.tsx'
 
 import { activeSnapStep, plannerStore } from '#/lib/planner/store.ts'
-import { enclosureAt, enclosuresOf } from '#/lib/planner/enclosures.ts'
+import {
+  enclosureAt,
+  enclosureGroup,
+  enclosuresOf,
+} from '#/lib/planner/enclosures.ts'
 import {
   closingIssue,
   draftPoints,
@@ -40,7 +44,7 @@ import {
 } from '#/lib/planner/drawing.ts'
 import { snapDrawingPoint } from '#/lib/planner/drawingSnap.ts'
 import type { DrawingSnap } from '#/lib/planner/drawingSnap.ts'
-import type { Enclosure } from '#/lib/planner/enclosures.ts'
+import type { Enclosure, EnclosureGroup } from '#/lib/planner/enclosures.ts'
 import { underlayStore } from '#/lib/planner/underlay.ts'
 import { clearancesFor } from '#/lib/planner/clearances.ts'
 import { DEFAULT_CLOSET, placeCloset } from '#/lib/planner/closets.ts'
@@ -87,12 +91,14 @@ import {
   furnitureCorners,
   pointInPolygon,
   polygonCentroid,
+  polygonBounds,
   resizeRotated,
   rotationFor,
   screenToWorld,
   slideWall,
   snapPoint,
   snapValue,
+  translatePolygon,
   worldToScreen,
 } from '#/lib/planner/geometry.ts'
 
@@ -207,6 +213,7 @@ type Drag =
       moved: boolean
     }
   | { mode: 'move-furniture'; id: string; grab: Point; origin: Furniture }
+  | { mode: 'move-enclosure'; grab: Point; group: EnclosureGroup }
   | { mode: 'move-closet'; id: string; grabT: number }
   | { mode: 'resize'; id: string; handle: Handle }
   | { mode: 'rotate'; id: string; origin: Furniture }
@@ -747,6 +754,29 @@ export function Canvas() {
     const world = toWorld(event)
 
     switch (drag.mode) {
+      case 'move-enclosure': {
+        const dx = world.x - drag.grab.x
+        const dy = world.y - drag.grab.y
+        const points = drag.group.walls.flatMap((run) => run.points)
+        const ids = new Set(drag.group.walls.map((run) => run.id))
+        const fit = alignTo(
+          translatePolygon(points, dx, dy),
+          snapTargets(state.walls.filter((run) => !ids.has(run.id))),
+          SNAP_REACH_PX / state.viewport.scale,
+        )
+        setGuides(fit.guides)
+        const bounds = polygonBounds(points)
+        const grid = snapPoint(
+          { x: bounds.x + dx, y: bounds.y + dy },
+          activeSnapStep(state),
+        )
+        actions.moveEnclosure(
+          drag.group,
+          fit.dx === null ? grid.x - bounds.x : dx + fit.dx,
+          fit.dy === null ? grid.y - bounds.y : dy + fit.dy,
+        )
+        break
+      }
       case 'pan': {
         const screen = toScreen(event)
         const dx = screen.x - drag.startScreen.x
@@ -1277,21 +1307,33 @@ export function Canvas() {
           by a neighbour's floor, which is what drawing each room whole in turn
           would do.
         */}
-        {enclosures.map((enclosure) => (
-          <EnclosureFloor
-            key={enclosure.key}
-            enclosure={enclosure}
-            selected={
-              selection?.type === 'enclosure' && selection.id === enclosure.key
-            }
-            onPointerDown={(event) => {
-              if (event.button === 1 || spaceHeld) return beginPan(event)
-              if (event.button !== 0) return
-              event.stopPropagation()
-              actions.select({ type: 'enclosure', id: enclosure.key })
-            }}
-          />
-        ))}
+        {enclosures.map((enclosure) => {
+          const group = enclosureGroup(walls, enclosures, enclosure)
+          const movable = !group.walls.some((run) => run.locked)
+          return (
+            <EnclosureFloor
+              key={enclosure.key}
+              enclosure={enclosure}
+              movable={movable}
+              moving={dragMode === 'move-enclosure'}
+              selected={
+                selection?.type === 'enclosure' &&
+                selection.id === enclosure.key
+              }
+              onPointerDown={(event) => {
+                if (event.button === 1 || spaceHeld) return beginPan(event)
+                if (event.button !== 0) return
+                event.stopPropagation()
+                actions.select({ type: 'enclosure', id: enclosure.key })
+                if (movable)
+                  begin(
+                    { mode: 'move-enclosure', grab: toWorld(event), group },
+                    event,
+                  )
+              }}
+            />
+          )
+        })}
         {walls.map((run) => (
           <path
             key={`open-${run.id}`}

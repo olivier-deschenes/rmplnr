@@ -467,6 +467,34 @@ export function enclosureWalls(
   })
 }
 
+/** A fixed group captured before a move, so snapping never adds new walls. */
+export type EnclosureGroup = {
+  enclosure: Enclosure
+  walls: Array<WallRun>
+  spaces: Array<Space>
+}
+
+export function enclosureGroup(
+  walls: Array<WallRun>,
+  enclosures: Array<Enclosure>,
+  enclosure: Enclosure,
+): EnclosureGroup {
+  const ids = new Set(enclosureWalls(walls, enclosure).map((run) => run.id))
+  for (const run of walls) {
+    if (run.attachment && ids.has(run.attachment.runId)) ids.add(run.id)
+  }
+  return {
+    enclosure,
+    walls: walls.filter((run) => ids.has(run.id)),
+    spaces: enclosures.flatMap((floor) =>
+      floor.space &&
+      enclosureWalls(walls, floor).every((run) => ids.has(run.id))
+        ? [{ ...floor.space, seed: floor.centre }]
+        : [],
+    ),
+  }
+}
+
 /**
  * Whether a space is held where it is.
  *

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 
 import { currentProjects, plannerStore } from './store.ts'
 import { closetSize, placeCloset } from './closets.ts'
-import { enclosuresOf } from './enclosures.ts'
+import { enclosureAt, enclosureGroup, enclosuresOf } from './enclosures.ts'
 import { openingEnds, openingWall, wallAt } from './openings.ts'
 import {
   parseRmplnrFile,
@@ -1100,6 +1100,159 @@ function openCanted() {
   plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
   plannerStore.actions.openProject(project.id)
 }
+
+describe('moving a closed wall group', () => {
+  function loadGroup() {
+    const project = connectedRectangle()
+    project.spaces = [
+      {
+        id: 'living-label',
+        name: 'Living',
+        color: '#123456',
+        seed: { x: 200, y: 200 },
+      },
+      { id: 'study-label', name: 'Study', seed: { x: 200, y: -100 } },
+    ]
+    project.furniture = [
+      {
+        id: 'chair',
+        kind: 'chair',
+        name: 'Chair',
+        x: 200,
+        y: 200,
+        w: 50,
+        h: 50,
+        rotation: 0,
+      },
+    ]
+    project.walls.push({
+      id: 'separate',
+      name: 'Separate wall',
+      points: [
+        { x: 1000, y: 0 },
+        { x: 1000, y: 300 },
+      ],
+    })
+    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+    plannerStore.actions.openProject(project.id)
+    const floors = enclosuresOf(
+      plannerStore.state.walls,
+      plannerStore.state.spaces,
+    )
+    const floor = floors.find(
+      (candidate) => candidate.space?.name === 'Living',
+    )!
+    plannerStore.actions.select({ type: 'enclosure', id: floor.key })
+    return enclosureGroup(plannerStore.state.walls, floors, floor)
+  }
+
+  it('translates the whole group, labels, openings, and closets in one undo step', () => {
+    const group = loadGroup()
+    const before = plannerStore.state
+    plannerStore.actions.moveEnclosure(group, 100, 50)
+    plannerStore.actions.moveEnclosure(group, 200, 80)
+    plannerStore.actions.sealHistory()
+    const after = plannerStore.state
+
+    for (const run of group.walls) {
+      expect(
+        after.walls.find((candidate) => candidate.id === run.id)?.points,
+      ).toEqual(translatePolygon(run.points, 200, 80))
+    }
+    for (const opening of before.openings) {
+      const from = openingEnds(openingWall(before.walls, opening)!, opening)
+      const to = openingEnds(openingWall(after.walls, opening)!, opening)
+      expect(to.start.x).toBeCloseTo(from.start.x + 200)
+      expect(to.start.y).toBeCloseTo(from.start.y + 80)
+      expect(to.end.x).toBeCloseTo(from.end.x + 200)
+      expect(to.end.y).toBeCloseTo(from.end.y + 80)
+    }
+    const floor = enclosureAt(enclosuresOf(after.walls, after.spaces), {
+      x: group.enclosure.centre.x + 200,
+      y: group.enclosure.centre.y + 80,
+    })!
+    expect(floor.space?.name).toBe('Living')
+    expect(floor.space?.color).toBe('#123456')
+    expect(floor.area).toBeCloseTo(group.enclosure.area)
+    expect(after.selection).toEqual({ type: 'enclosure', id: floor.key })
+    expect(after.furniture).toBe(before.furniture)
+    expect(after.walls.find((run) => run.id === 'separate')).toBe(
+      before.walls.find((run) => run.id === 'separate'),
+    )
+    expect(after.history.past).toHaveLength(before.history.past.length + 1)
+
+    plannerStore.actions.undo()
+    expect(plannerStore.state.walls).toEqual(before.walls)
+    expect(plannerStore.state.spaces).toEqual(before.spaces)
+    expect(plannerStore.state.selection).toEqual(before.selection)
+    plannerStore.actions.redo()
+    expect(plannerStore.state.walls).toEqual(after.walls)
+    expect(plannerStore.state.spaces).toEqual(after.spaces)
+    expect(plannerStore.state.selection).toEqual(after.selection)
+  })
+
+  it('moves an enclosure assembled from separate open runs', () => {
+    const project = connectedRectangle()
+    const points = project.walls[0].points
+    project.walls = points.slice(0, -1).map((point, index) => ({
+      id: `side-${index}`,
+      name: 'Wall',
+      points: [point, points[index + 1]],
+    }))
+    project.openings = []
+    plannerStore.actions.loadLibrary({ version: 1, projects: [project] })
+    plannerStore.actions.openProject(project.id)
+    const floors = enclosuresOf(plannerStore.state.walls)
+    const group = enclosureGroup(plannerStore.state.walls, floors, floors[0])
+    plannerStore.actions.moveEnclosure(group, -75, 25)
+
+    expect(enclosuresOf(plannerStore.state.walls)).toHaveLength(1)
+    expect(enclosuresOf(plannerStore.state.walls)[0].area).toBe(floors[0].area)
+    for (const run of group.walls) {
+      expect(
+        plannerStore.state.walls.find((candidate) => candidate.id === run.id)
+          ?.points,
+      ).toEqual(translatePolygon(run.points, -75, 25))
+    }
+  })
+
+  it('keeps arrow-key repeats on the moved enclosure and folds them into one step', () => {
+    loadGroup()
+    const before = plannerStore.state
+    plannerStore.actions.nudgeSelection(10, 0)
+    plannerStore.actions.nudgeSelection(10, 0)
+    plannerStore.actions.nudgeSelection(0, -10)
+    expect(plannerStore.state.walls[0].points).toEqual(
+      translatePolygon(before.walls[0].points, 20, -10),
+    )
+    expect(plannerStore.state.history.past).toHaveLength(
+      before.history.past.length + 1,
+    )
+    plannerStore.actions.sealHistory()
+    plannerStore.actions.nudgeSelection(10, 0)
+    expect(plannerStore.state.history.past).toHaveLength(
+      before.history.past.length + 2,
+    )
+  })
+
+  it('holds the entire group if a boundary run or attached closet is locked', () => {
+    for (const id of ['room-neighbour', 'closet-rect']) {
+      const group = loadGroup()
+      plannerStore.actions.setRunLocked(id, true)
+      const before = plannerStore.state
+      plannerStore.actions.moveEnclosure(group, 100, 50)
+      plannerStore.actions.nudgeSelection(10, 0)
+      expect(plannerStore.state).toBe(before)
+    }
+  })
+
+  it('does not create history for an unchanged position', () => {
+    const group = loadGroup()
+    const before = plannerStore.state
+    plannerStore.actions.moveEnclosure(group, 0, 0)
+    expect(plannerStore.state).toBe(before)
+  })
+})
 
 describe('locked rooms', () => {
   beforeEach(() => {

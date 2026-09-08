@@ -43,6 +43,7 @@ import {
 import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
 import {
   enclosureAt,
+  enclosureGroup,
   enclosureName,
   enclosureWalls,
   enclosuresOf,
@@ -75,6 +76,7 @@ import {
 } from './types.ts'
 
 import type { AIPlanImport } from './aiPlan.ts'
+import type { EnclosureGroup } from './enclosures.ts'
 import type { ConflictedPlan } from './libraryMerge.ts'
 import type { History, Snapshot } from './history.ts'
 import type { WallGeometryChange } from './geometry.ts'
@@ -268,6 +270,53 @@ function sameOutline(a: Array<Point>, b: Array<Point>): boolean {
 
 function patchLabel(kind: string, id: string, patch: object): string {
   return `${kind}:${id}:${Object.keys(patch).sort().join(',')}`
+}
+
+/** Translate every run in the captured group by the same amount. */
+function movedEnclosure(
+  state: PlannerState,
+  group: EnclosureGroup,
+  dx: number,
+  dy: number,
+): PlannerState {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || !group.walls.length)
+    return state
+  const origins = new Map(group.walls.map((run) => [run.id, run]))
+  if (
+    group.walls.some((origin) => {
+      const run = state.walls.find((candidate) => candidate.id === origin.id)
+      return !run || run.locked
+    })
+  )
+    return state
+  const walls = state.walls.map((run) => {
+    const origin = origins.get(run.id)
+    if (!origin) return run
+    const points = translatePolygon(origin.points, dx, dy)
+    return sameOutline(run.points, points) ? run : { ...run, points }
+  })
+  if (walls.every((run, index) => run === state.walls[index])) return state
+
+  const seeds = new Map(group.spaces.map((space) => [space.id, space.seed]))
+  const spaces = state.spaces.map((space) => {
+    const seed = seeds.get(space.id)
+    return seed ? { ...space, seed: { x: seed.x + dx, y: seed.y + dy } } : space
+  })
+  const floor = enclosureAt(enclosuresOf(walls, spaces), {
+    x: group.enclosure.centre.x + dx,
+    y: group.enclosure.centre.y + dy,
+  })
+  return {
+    ...state,
+    history: commit(
+      state,
+      `move-enclosure:${[...origins.keys()].sort().join(',')}`,
+      `Moved ${enclosureName(group.enclosure)}`,
+    ),
+    walls,
+    spaces,
+    selection: floor ? { type: 'enclosure', id: floor.key } : null,
+  }
 }
 
 /**
@@ -1839,6 +1888,10 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
+  moveEnclosure(group: EnclosureGroup, dx: number, dy: number) {
+    setState((s) => movedEnclosure(s, group, dx, dy))
+  },
+
   moveVertex(runId: string, index: number, point: Point) {
     setState((s) => {
       const run = s.walls.find((r) => r.id === runId)
@@ -2049,9 +2102,14 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     setState((s) => {
       if (!s.selection) return s
       const { type, id } = s.selection
-      // A space is where its walls are; an arrow key on one would have to
-      // choose which of them to push, and there is no answer to that.
-      if (type === 'wall' || type === 'enclosure') return s
+      if (type === 'wall') return s
+      if (type === 'enclosure') {
+        const floors = enclosuresOf(s.walls, s.spaces)
+        const floor = floors.find((candidate) => candidate.key === id)
+        return floor
+          ? movedEnclosure(s, enclosureGroup(s.walls, floors, floor), dx, dy)
+          : s
+      }
       const history = commit(
         s,
         `nudge:${type}:${id}`,

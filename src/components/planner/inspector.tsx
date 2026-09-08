@@ -401,11 +401,8 @@ function EnclosureLockButton({
  * A space the walls close in that was never drawn as a room of its own.
  *
  * It is a room, and the panel treats it as one: a name, a colour, a padlock,
- * and its area read off the walls that close it. What it has not got is a
- * shape of its own to be resized or moved — its walls belong to whatever runs
- * they were drawn as part of, and are edited there, by selecting one. Saying
- * so is the panel's other job, and it is why the padlock here reaches those
- * runs rather than anything of the space's own.
+ * and its area read off the walls that close it. Moving the floor carries its
+ * surrounding wall runs together; individual walls are edited by selecting one.
  */
 function EnclosurePanel({
   enclosure,
@@ -453,6 +450,7 @@ function EnclosurePanel({
         </dd>
       </dl>
       <p className="text-muted-foreground text-[13px] leading-relaxed">
+        Drag inside this room to move its wall group, or use the arrow keys.
         Select a wall to change this room’s shape. Locking this room holds the
         surrounding walls in place.
       </p>
