@@ -485,7 +485,13 @@ export function Canvas() {
 
   const nudge = (delta: readonly [number, number], reach: number) => {
     const step = (activeSnapStep(plannerStore.state) ?? 1) * reach
-    actions.nudgeSelection(delta[0] * step, delta[1] * step)
+    const result = actions.nudgeSelection(delta[0] * step, delta[1] * step)
+    // Held down, an arrow refused is refused thirty times a second, so the
+    // reason is given one standing place rather than a stack of its own copies.
+    if (!result.ok)
+      toast.error(formatMeasurementMessage(result.error, units), {
+        id: 'nudge',
+      })
   }
 
   // Registrations rather than a switch over `event.key`: the manager holds the
@@ -566,12 +572,12 @@ export function Canvas() {
         {
           hotkey: key,
           callback: () => nudge(delta, 1),
-          options: { enabled: selection !== null && selection.type !== 'wall' },
+          options: { enabled: selection !== null },
         },
         {
           hotkey: shifted,
           callback: () => nudge(delta, NUDGE_COARSE),
-          options: { enabled: selection !== null && selection.type !== 'wall' },
+          options: { enabled: selection !== null },
         },
         // A run of arrow-key repeats reads as one nudge, which ends on release.
         // Shift may have been let go of by then or not, so both endings are

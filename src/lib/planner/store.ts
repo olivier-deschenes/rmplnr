@@ -325,15 +325,62 @@ function movedEnclosure(
  * Where the selection lands when it is pushed `dx, dy` across the plan.
  *
  * Not everything moves the way it is pushed. An opening and a closet ride
- * along one wall and take only the part of the push that runs that way; a
- * room carries its walls; furniture goes where it is sent, as far as what is
- * in the way allows. A lone wall is not moved at all — it is pushed square out
- * of itself rather than about the plan, which is `setClearance`'s job.
+ * along one wall and take only the part of the push that runs that way; a lone
+ * wall goes square out of itself and takes only the part of the push that runs
+ * that way; a room carries its walls; furniture goes where it is sent, as far
+ * as what is in the way allows.
  */
-function nudged(state: PlannerState, dx: number, dy: number): PlannerState {
+function nudged(
+  state: PlannerState,
+  dx: number,
+  dy: number,
+  refuse: (error: string) => void = () => {},
+): PlannerState {
   if (!state.selection) return state
   const { type, id } = state.selection
-  if (type === 'wall') return state
+  if (type === 'wall') {
+    // A wall is pushed out of itself rather than about the plan, exactly as a
+    // drag on it is, so the arrow is worth what it carries along the normal
+    // and a push along the wall's own length leaves it where it stands. A
+    // wall that cannot go says why: the arrow has no panel of its own to
+    // print a locked neighbour in, and a key that quietly does nothing is a
+    // key that looks broken.
+    const { index } = state.selection
+    const run = state.walls.find((candidate) => candidate.id === id)
+    const wall = run && runWallAt(run, index)
+    if (!run || !wall) return state
+    if (run.locked) {
+      refuse(`Unlock ${run.name} to move this wall.`)
+      return state
+    }
+    const across = dx * wall.normal.x + dy * wall.normal.y
+    if (across === 0) return state
+    const points = slideWall(run.points, index, across)
+    if (sameOutline(run.points, points)) {
+      refuse('That would leave this wall with nothing to join.')
+      return state
+    }
+    const changed = reshapeConnectedWalls(
+      state.walls,
+      state.openings,
+      id,
+      points,
+    )
+    if (!changed.ok) {
+      refuse(changed.error)
+      return state
+    }
+    return {
+      ...state,
+      history: commit(
+        state,
+        `wall:${id}:${index}`,
+        `Moved a wall of ${run.name}`,
+      ),
+      walls: changed.walls,
+      openings: changed.openings,
+    }
+  }
   if (type === 'enclosure') {
     const floors = enclosuresOf(state.walls, state.spaces)
     const floor = floors.find((candidate) => candidate.key === id)
@@ -2286,8 +2333,23 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
     })
   },
 
-  nudgeSelection(dx: number, dy: number) {
-    setState((s) => nudged(s, dx, dy))
+  /**
+   * Push the selection by an arrow key. Only a wall has a reason to give for
+   * standing still — a room of its own or next door that is locked, or a
+   * corner it would have to leave behind — and only the caller has anywhere to
+   * put it, the plan having no panel that an arrow key opens.
+   */
+  nudgeSelection(
+    dx: number,
+    dy: number,
+  ): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
+    setState((s) =>
+      nudged(s, dx, dy, (error) => {
+        outcome = { ok: false, error }
+      }),
+    )
+    return outcome
   },
 
   /**

@@ -1616,6 +1616,91 @@ describe('a room made bigger', () => {
   })
 })
 
+describe('a held wall pushed by the arrow keys', () => {
+  beforeEach(() => {
+    plannerStore.actions.loadLibrary({
+      version: 1,
+      projects: [connectedRectangle()],
+    })
+    plannerStore.actions.openProject(PLAN_C)
+  })
+
+  const outline = () =>
+    plannerStore.state.walls.find((run) => run.id === 'room-rect')!.points
+
+  it('goes square out of itself and stays put when pushed along its length', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 1 })
+    const before = outline()
+
+    // The right-hand wall slides sideways and nowhere else, so the push up it
+    // is worth nothing at all.
+    plannerStore.actions.nudgeSelection(0, -10)
+    expect(outline()).toBe(before)
+
+    plannerStore.actions.nudgeSelection(10, 0)
+    expect(outline()).toEqual(slideWall(before, 1, 10))
+  })
+
+  it('carries the room next door along the wall the two of them share', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 0 })
+    plannerStore.actions.nudgeSelection(0, 20)
+
+    expect(outline()[0]).toEqual({ x: 0, y: 20 })
+    expect(outline()[1]).toEqual({ x: 400, y: 20 })
+    const neighbour = plannerStore.state.walls.find(
+      (run) => run.id === 'room-neighbour',
+    )!
+    expect(neighbour.points).toContainEqual({ x: 0, y: 20 })
+    expect(neighbour.points).toContainEqual({ x: 400, y: 20 })
+  })
+
+  it('folds a run of repeats into one step to undo', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 1 })
+    const before = plannerStore.state
+    plannerStore.actions.nudgeSelection(10, 0)
+    plannerStore.actions.nudgeSelection(10, 0)
+
+    expect(outline()).toEqual(slideWall(before.walls[0].points, 1, 20))
+    expect(plannerStore.state.history.past).toHaveLength(
+      before.history.past.length + 1,
+    )
+
+    plannerStore.actions.undo()
+    expect(outline()).toEqual(before.walls[0].points)
+  })
+
+  it('holds a wall of a locked room still, and says which lock stopped it', () => {
+    plannerStore.actions.setRunLocked('room-rect', true)
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 1 })
+    const before = plannerStore.state
+
+    expect(plannerStore.actions.nudgeSelection(10, 0)).toEqual({
+      ok: false,
+      error: 'Unlock Living to move this wall.',
+    })
+    expect(plannerStore.state).toBe(before)
+  })
+
+  it('names the room next door when its lock is what holds the wall', () => {
+    plannerStore.actions.setRunLocked('room-neighbour', true)
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 0 })
+    const before = plannerStore.state
+
+    const result = plannerStore.actions.nudgeSelection(0, 20)
+
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.error).toContain('Study')
+    expect(plannerStore.state).toBe(before)
+  })
+
+  it('says nothing about a push a wall has no room to answer', () => {
+    plannerStore.actions.select({ type: 'wall', id: 'room-rect', index: 1 })
+
+    // Along its own length is not a push it refused — it is no push at all.
+    expect(plannerStore.actions.nudgeSelection(0, -10)).toEqual({ ok: true })
+  })
+})
+
 it('removes a wall directly, preserving the other walls and supporting undo', () => {
   openCanted()
   const before = plannerStore.state.walls
