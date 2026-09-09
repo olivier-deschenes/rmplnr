@@ -1,7 +1,11 @@
 import { closeWallPoints } from '#/lib/planner/geometry.ts'
 import { describe, expect, it } from 'bun:test'
 
-import { clearancesFor } from './clearances.ts'
+import {
+  clearanceName,
+  clearancesFor,
+  orderedClearances,
+} from './clearances.ts'
 import { placeCloset } from './closets.ts'
 import { wallAt } from './openings.ts'
 
@@ -189,5 +193,150 @@ describe('closet clearances', () => {
     expect(
       clearancesFor({ type: 'run', id: 'run' }, [ROOM, closet], [], []),
     ).toEqual([])
+  })
+})
+
+describe('wall clearances', () => {
+  it('measures across the room, off the faces of both walls', () => {
+    const found = clearancesFor(
+      { type: 'wall', id: 'run', index: 0 },
+      [ROOM],
+      [],
+      [],
+    )
+    // 300 between the outlines, less half of each wall's thickness.
+    expect(by(found)).toEqual({ back: 288 })
+  })
+
+  it('looks past the walls it turns into at its own corners', () => {
+    // Both side walls run square out of the top one and touch it. A wall that
+    // reported those would never report the room.
+    const found = clearancesFor(
+      { type: 'wall', id: 'run', index: 0 },
+      [ROOM],
+      [],
+      [],
+    )
+    expect(found).toHaveLength(1)
+  })
+
+  it('measures a partition to the wall on either side of it', () => {
+    const partition: WallRun = {
+      id: 'partition',
+      name: 'Partition',
+      points: [
+        { x: 0, y: 120 },
+        { x: 400, y: 120 },
+      ],
+    }
+    const found = clearancesFor(
+      { type: 'wall', id: 'partition', index: 0 },
+      [ROOM, partition],
+      [],
+      [],
+    )
+    expect(by(found)).toEqual({ forward: 108, back: 168 })
+  })
+
+  it('stops at the furniture standing in front of the wall', () => {
+    const found = clearancesFor(
+      { type: 'wall', id: 'run', index: 0 },
+      [ROOM],
+      [box({ y: 60, h: 80 })],
+      [],
+    )
+    expect(by(found).back).toBe(14)
+  })
+
+  it('has nothing to say about a wall that has gone', () => {
+    expect(
+      clearancesFor({ type: 'wall', id: 'run', index: 9 }, [ROOM], [], []),
+    ).toEqual([])
+  })
+})
+
+describe('naming a gap', () => {
+  it('names it by the way it runs on the page', () => {
+    expect(clearanceName({ x: 1, y: 0 })).toBe('Right')
+    expect(clearanceName({ x: 0, y: -1 })).toBe('Up')
+    expect(clearanceName({ x: -1, y: 0 })).toBe('Left')
+    expect(clearanceName({ x: 0, y: 1 })).toBe('Down')
+    expect(clearanceName({ x: 0.7071, y: 0.7071 })).toBe('Down-right')
+  })
+
+  it('turns with the item it belongs to', () => {
+    const upright = clearancesFor(
+      { type: 'furniture', id: 'box' },
+      [ROOM],
+      [box()],
+      [],
+    )
+    const turned = clearancesFor(
+      { type: 'furniture', id: 'box' },
+      [ROOM],
+      [box({ rotation: 90 })],
+      [],
+    )
+    const north = (found: Array<Clearance>) =>
+      clearanceName(found.find((clearance) => clearance.key === 'n')!.dir)
+    expect(north(upright)).toBe('Up')
+    expect(north(turned)).toBe('Right')
+  })
+})
+
+describe('the order gaps are read in', () => {
+  /** The gaps of a door on `wall`, named by the way each one runs. */
+  const sides = (wall: number) =>
+    orderedClearances(
+      clearancesFor(
+        { type: 'opening', id: 'door' },
+        [ROOM],
+        [],
+        [door({ wall })],
+      ),
+    ).map((clearance) => clearanceName(clearance.dir))
+
+  /*
+    ROOM is drawn clockwise, so wall 0 runs left to right and wall 2 runs right
+    to left. Measured order is the wall's own — first jamb, then second — which
+    on wall 2 hands back Right before Left, and would stand the right-hand gap
+    in the left-hand column of a two-column panel.
+  */
+  it('is the same whichever way the wall was drawn', () => {
+    expect(sides(0)).toEqual(['Left', 'Right'])
+    expect(sides(2)).toEqual(['Left', 'Right'])
+  })
+
+  it('names the side each gap is really on', () => {
+    const found = clearancesFor(
+      { type: 'opening', id: 'door' },
+      [ROOM],
+      [],
+      [door({ wall: 2 })],
+    )
+    for (const clearance of found) {
+      // `from` is what closes the gap, `to` the jamb it is measured to.
+      const name = clearanceName(clearance.dir)
+      if (name === 'Left') expect(clearance.from.x).toBeLessThan(clearance.to.x)
+      if (name === 'Right') {
+        expect(clearance.from.x).toBeGreaterThan(clearance.to.x)
+      }
+    }
+  })
+
+  it('keeps a turning item’s gaps in their places', () => {
+    const turned = (rotation: number) =>
+      orderedClearances(
+        clearancesFor(
+          { type: 'furniture', id: 'box' },
+          [ROOM],
+          [box({ rotation })],
+          [],
+        ),
+      ).map((clearance) => clearanceName(clearance.dir))
+
+    expect(turned(0)).toEqual(['Left', 'Right', 'Up', 'Down'])
+    expect(turned(90)).toEqual(['Left', 'Right', 'Up', 'Down'])
+    expect(turned(180)).toEqual(['Left', 'Right', 'Up', 'Down'])
   })
 })

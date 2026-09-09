@@ -20,6 +20,7 @@ import {
   drawnWallIssue,
   rectPolygon,
   screenToWorld,
+  slideWall,
   snapPoint,
   snapValue,
   translatePolygon,
@@ -40,6 +41,7 @@ import {
   settleFurniture,
   settleFurnitureDrop,
 } from './collision.ts'
+import { clearancesFor } from './clearances.ts'
 import { describeAIPlan, layoutBounds, placeRooms } from './aiPlan.ts'
 import {
   enclosureAt,
@@ -316,6 +318,111 @@ function movedEnclosure(
     walls,
     spaces,
     selection: floor ? { type: 'enclosure', id: floor.key } : null,
+  }
+}
+
+/**
+ * Where the selection lands when it is pushed `dx, dy` across the plan.
+ *
+ * Not everything moves the way it is pushed. An opening and a closet ride
+ * along one wall and take only the part of the push that runs that way; a
+ * room carries its walls; furniture goes where it is sent, as far as what is
+ * in the way allows. A lone wall is not moved at all — it is pushed square out
+ * of itself rather than about the plan, which is `setClearance`'s job.
+ */
+function nudged(state: PlannerState, dx: number, dy: number): PlannerState {
+  if (!state.selection) return state
+  const { type, id } = state.selection
+  if (type === 'wall') return state
+  if (type === 'enclosure') {
+    const floors = enclosuresOf(state.walls, state.spaces)
+    const floor = floors.find((candidate) => candidate.key === id)
+    return floor
+      ? movedEnclosure(
+          state,
+          enclosureGroup(state.walls, floors, floor),
+          dx,
+          dy,
+        )
+      : state
+  }
+  const history = commit(
+    state,
+    `nudge:${type}:${id}`,
+    `Moved ${selectionName(state)}`,
+  )
+  if (type === 'opening') {
+    // An opening has one degree of freedom, so an arrow key is read as how
+    // far it pushes the opening along its own wall.
+    const opening = state.openings.find((o) => o.id === id)
+    const wall = opening && openingWall(state.walls, opening)
+    if (!opening || !wall) return state
+    const along = dx * wall.tangent.x + dy * wall.tangent.y
+    return {
+      ...state,
+      history,
+      openings: state.openings.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              t: clampT(o.t + along / wall.length, o.width, wall.length),
+            }
+          : o,
+      ),
+    }
+  }
+  if (type === 'run') {
+    const run = state.walls.find((candidate) => candidate.id === id)
+    if (run?.locked) return state
+    const attachment = run?.attachment
+    if (run?.kind === 'closet' && attachment) {
+      const host = state.walls.find(
+        (candidate) => candidate.id === attachment.runId,
+      )
+      const wall = host && runWallAt(host, attachment.wall)
+      if (!wall) return state
+      const along = dx * wall.tangent.x + dy * wall.tangent.y
+      const size = closetSize(run)
+      const placement = placeCloset(
+        wall,
+        { ...attachment, t: attachment.t + along / wall.length },
+        size.width,
+        size.depth,
+      )
+      return {
+        ...state,
+        history,
+        walls: state.walls.map((candidate) =>
+          candidate.id === id
+            ? {
+                ...candidate,
+                points: placement.points,
+                attachment: placement.attachment,
+              }
+            : candidate,
+        ),
+      }
+    }
+    const walls = state.walls.map((candidate) =>
+      candidate.id === id
+        ? {
+            ...candidate,
+            points: translatePolygon(candidate.points, dx, dy),
+          }
+        : candidate,
+    )
+    return {
+      ...state,
+      history,
+      ...flowedClosets(walls, state.openings),
+    }
+  }
+  return {
+    ...state,
+    history,
+    furniture: state.furniture.map((f) =>
+      f.id === id ? placed(state, f, { ...f, x: f.x + dx, y: f.y + dy }) : f,
+    ),
   }
 }
 
@@ -2180,96 +2287,98 @@ export const plannerStore = createStore(initialState, ({ setState, get }) => ({
   },
 
   nudgeSelection(dx: number, dy: number) {
+    setState((s) => nudged(s, dx, dy))
+  },
+
+  /**
+   * Put the selection where a gap around it measures what was typed.
+   *
+   * The gaps read off a plan are the plan itself said another way — a chair is
+   * where it is because of the room left either side of it, not because of its
+   * distance from an origin nobody drew — so they are given back as something
+   * to set rather than only to read. Naming the gap is enough to say what to
+   * move and which way: it already knows what closes it and from where, so the
+   * thing selected travels along that heading by the difference asked for, and
+   * is stopped by the same walls and neighbours that would stop a drag.
+   *
+   * Gaps are measured off the plan as it stands rather than off anything the
+   * panel is holding, so a number typed against a stale reading either moves
+   * by what is true now or says why it cannot.
+   */
+  setClearance(
+    key: string,
+    wanted: number,
+  ): { ok: true } | { ok: false; error: string } {
+    let outcome: { ok: true } | { ok: false; error: string } = { ok: true }
     setState((s) => {
-      if (!s.selection) return s
-      const { type, id } = s.selection
-      if (type === 'wall') return s
-      if (type === 'enclosure') {
-        const floors = enclosuresOf(s.walls, s.spaces)
-        const floor = floors.find((candidate) => candidate.key === id)
-        return floor
-          ? movedEnclosure(s, enclosureGroup(s.walls, floors, floor), dx, dy)
-          : s
+      if (!Number.isFinite(wanted) || wanted < 0) {
+        outcome = { ok: false, error: 'Enter a gap of zero or more.' }
+        return s
       }
-      const history = commit(
-        s,
-        `nudge:${type}:${id}`,
-        `Moved ${selectionName(s)}`,
-      )
-      if (type === 'opening') {
-        // An opening has one degree of freedom, so an arrow key is read as how
-        // far it pushes the opening along its own wall.
-        const opening = s.openings.find((o) => o.id === id)
-        const wall = opening && openingWall(s.walls, opening)
-        if (!opening || !wall) return s
-        const along = dx * wall.tangent.x + dy * wall.tangent.y
-        return {
-          ...s,
-          history,
-          openings: s.openings.map((o) =>
-            o.id === id
-              ? {
-                  ...o,
-                  t: clampT(o.t + along / wall.length, o.width, wall.length),
-                }
-              : o,
-          ),
-        }
+      const selection = s.selection
+      const gap = clearancesFor(
+        selection,
+        s.walls,
+        s.furniture,
+        s.openings,
+      ).find((candidate) => candidate.key === key)
+      if (!selection || !gap) {
+        outcome = { ok: false, error: 'That gap is no longer there to set.' }
+        return s
       }
-      if (type === 'run') {
-        const run = s.walls.find((candidate) => candidate.id === id)
-        if (run?.locked) return s
-        const attachment = run?.attachment
-        if (run?.kind === 'closet' && attachment) {
-          const host = s.walls.find(
-            (candidate) => candidate.id === attachment.runId,
-          )
-          const wall = host && runWallAt(host, attachment.wall)
-          if (!wall) return s
-          const along = dx * wall.tangent.x + dy * wall.tangent.y
-          const size = closetSize(run)
-          const placement = placeCloset(
-            wall,
-            { ...attachment, t: attachment.t + along / wall.length },
-            size.width,
-            size.depth,
-          )
-          return {
-            ...s,
-            history,
-            walls: s.walls.map((candidate) =>
-              candidate.id === id
-                ? {
-                    ...candidate,
-                    points: placement.points,
-                    attachment: placement.attachment,
-                  }
-                : candidate,
-            ),
+
+      // Closing a gap is travel towards whatever closes it, and opening one is
+      // travel the other way. Either is the difference asked for, exactly.
+      const by = gap.distance - wanted
+      if (selection.type !== 'wall') {
+        return nudged(s, gap.dir.x * by, gap.dir.y * by)
+      }
+
+      const { id, index } = selection
+      const run = s.walls.find((candidate) => candidate.id === id)
+      const wall = run && runWallAt(run, index)
+      if (!run || !wall) {
+        outcome = { ok: false, error: 'This wall no longer exists.' }
+        return s
+      }
+      if (run.locked) {
+        outcome = { ok: false, error: `Unlock ${run.name} to move this wall.` }
+        return s
+      }
+
+      // A wall goes square out of itself and nowhere else, so the push is what
+      // the heading is worth along the way the wall slides: one or the other.
+      const along = by * (gap.dir.x * wall.normal.x + gap.dir.y * wall.normal.y)
+      const points = slideWall(run.points, index, along)
+      if (sameOutline(run.points, points)) {
+        // A wall handed back unmoved is one that had nowhere to go — unless
+        // nothing was asked of it, which is not a failure but a gap already
+        // measuring what it was told to.
+        if (along !== 0) {
+          outcome = {
+            ok: false,
+            error: 'That would leave this wall with nothing to join.',
           }
         }
-        const walls = s.walls.map((candidate) =>
-          candidate.id === id
-            ? {
-                ...candidate,
-                points: translatePolygon(candidate.points, dx, dy),
-              }
-            : candidate,
-        )
-        return {
-          ...s,
-          history,
-          ...flowedClosets(walls, s.openings),
-        }
+        return s
+      }
+      const changed = reshapeConnectedWalls(s.walls, s.openings, id, points)
+      if (!changed.ok) {
+        outcome = { ok: false, error: changed.error }
+        return s
       }
       return {
         ...s,
-        history,
-        furniture: s.furniture.map((f) =>
-          f.id === id ? placed(s, f, { ...f, x: f.x + dx, y: f.y + dy }) : f,
+        history: commit(
+          s,
+          `wall:${id}:${index}`,
+          `Moved a wall of ${run.name}`,
         ),
+        walls: changed.walls,
+        openings: changed.openings,
       }
     })
+    return outcome
   },
 
   addDraftPoint(point: Point): { ok: true } | { ok: false; error: string } {

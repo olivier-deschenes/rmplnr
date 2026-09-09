@@ -140,7 +140,7 @@ export function fits(
 // --- what is in the way -----------------------------------------------------
 
 /** A stretch of wall as the box it fills: its thickness, about its own line. */
-function wallBox(a: Point, b: Point): Array<Point> | null {
+export function wallBox(a: Point, b: Point): Array<Point> | null {
   const length = distance(a, b)
   if (length === 0) return null
   const half = WALL_THICKNESS / 2

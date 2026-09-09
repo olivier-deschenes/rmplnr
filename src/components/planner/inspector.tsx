@@ -42,6 +42,11 @@ import {
 } from '#/lib/planner/enclosures.ts'
 import { runWallAt, wallCount } from '#/lib/planner/openings.ts'
 import {
+  clearanceName,
+  clearancesFor,
+  orderedClearances,
+} from '#/lib/planner/clearances.ts'
+import {
   angleBetween,
   loopsBack,
   normalizeAngle,
@@ -68,6 +73,7 @@ import type {
   Furniture,
   Opening,
   OpeningKind,
+  Selection,
   WallRun,
   StyleBrush,
   Units,
@@ -197,6 +203,82 @@ function LengthField({
       disabled={disabled}
       onCommit={onCommit}
     />
+  )
+}
+
+/**
+ * The room left around the selected thing, on every side that has any — and
+ * every one of them a way to move it.
+ *
+ * A plan is laid out by its gaps far more than by its coordinates: nobody
+ * decides that a bed belongs at x=214, they decide it wants sixty either side
+ * to get past it. So the gaps the drawing already puts up while something is
+ * dragged are written here too, as fields, and typing into one moves the
+ * selection until that gap measures what was asked for. The number that comes
+ * back afterwards is the one that is really there — a piece of furniture
+ * brought up against a wall stops at the wall, and says so by reading zero.
+ *
+ * Each gap is named by the way it runs on the page, because a gap has no name
+ * of its own and the drawing beside the panel is where the reader is looking.
+ * A side already up against something has no gap and no field: there is
+ * nothing there to measure, and nothing to be gained by moving further that
+ * way.
+ */
+function ClearanceFields({
+  selection,
+  units,
+  disabled = false,
+}: {
+  selection: Selection
+  units: Units
+  disabled?: boolean
+}) {
+  const walls = useSelector(plannerStore, (s) => s.walls)
+  const furniture = useSelector(plannerStore, (s) => s.furniture)
+  const openings = useSelector(plannerStore, (s) => s.openings)
+
+  const clearances = clearancesFor(selection, walls, furniture, openings)
+  if (clearances.length === 0) return null
+
+  return (
+    <div className="grid gap-2 border-t pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Gaps</SectionTitle>
+        {/*
+          The unit is said once over the group rather than after every field.
+          Everything else in the panel is named by a noun, which carries one
+          happily — "Width cm" reads. A gap is named by the way it runs, and a
+          direction does not: "Left in", "Down ft + in".
+        */}
+        <span className="text-muted-foreground text-xs">
+          {lengthUnit(units)}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {orderedClearances(clearances).map((clearance) => (
+          <NumberField
+            key={clearance.key}
+            label={clearanceName(clearance.dir)}
+            value={clearance.distance}
+            units={units}
+            min={0}
+            disabled={disabled}
+            onCommit={(next) => {
+              const result = plannerStore.actions.setClearance(
+                clearance.key,
+                next,
+              )
+              return result.ok ? null : result.error
+            }}
+          />
+        ))}
+      </div>
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
+        {disabled
+          ? 'How much room there is on each side.'
+          : 'How much room there is on each side. Type a distance to move this until the gap measures it.'}
+      </p>
+    </div>
   )
 }
 
@@ -502,6 +584,11 @@ function ClosetPanel({
           onCommit={(depth) => actions.updateCloset(run.id, { depth })}
         />
       </div>
+      <ClearanceFields
+        selection={{ type: 'run', id: run.id }}
+        units={units}
+        disabled={run.locked === true}
+      />
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Attached to</dt>
         <dd className="text-foreground truncate text-right">
@@ -644,6 +731,11 @@ function WallPanel({
           </AlertDescription>
         </Alert>
       ) : null}
+      <ClearanceFields
+        selection={{ type: 'wall', id: run.id, index }}
+        units={units}
+        disabled={locked}
+      />
       {removable ? (
         <Button
           variant="outline"
@@ -769,6 +861,10 @@ function FurniturePanel({ item, units }: { item: Furniture; units: Units }) {
         label="Rotation °"
         value={item.rotation}
         onCommit={(rotation) => update({ rotation: normalizeAngle(rotation) })}
+      />
+      <ClearanceFields
+        selection={{ type: 'furniture', id: item.id }}
+        units={units}
       />
       <div className="flex items-center justify-between gap-3 py-1">
         <div className="grid gap-0.5">
@@ -928,6 +1024,10 @@ function OpeningPanel({
           onChange={(swing) => update({ swing: swing as Opening['swing'] })}
         />
       )}
+      <ClearanceFields
+        selection={{ type: 'opening', id: opening.id }}
+        units={units}
+      />
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>In</dt>
         <dd className="text-foreground truncate text-right">{run.name}</dd>

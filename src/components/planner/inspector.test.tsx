@@ -132,3 +132,107 @@ it('shows floor details without room transforms or a conversion step', () => {
   expect(html).not.toContain('Rotate 90°')
   expect(html).not.toContain('Swap width and height')
 })
+
+/** A 400 x 300 room with one box standing in the middle of it. */
+function room() {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.beginRect({ x: 0, y: 0 })
+  plannerStore.actions.updateRect({ x: 400, y: 300 })
+  plannerStore.actions.commitRect()
+  // Dropped at the view centre, which a headless render puts outside the room:
+  // it is stood in the middle by hand, with nothing settling it on the way.
+  plannerStore.actions.setCollide(false)
+  plannerStore.actions.addFurniture('box')
+  const item = plannerStore.state.furniture[0]
+  plannerStore.actions.updateFurniture(item.id, {
+    x: 200,
+    y: 150,
+    w: 100,
+    h: 60,
+  })
+  plannerStore.actions.setCollide(true)
+  return { run: plannerStore.state.walls[0], item }
+}
+
+it('measures the room left on every side of a piece of furniture', () => {
+  const { item } = room()
+  plannerStore.actions.select({ type: 'furniture', id: item.id })
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Gaps')
+  // Named as they lie on the page, so the panel and the drawing agree — and
+  // named by the direction alone, the unit being said once over the group.
+  const labels = [...html.matchAll(/text-xs">([^<]*)</g)].map((m) => m[1])
+  expect(labels).toContain('cm')
+  expect(labels.filter((label) => /^(Left|Right|Up|Down)/.test(label))).toEqual(
+    ['Left', 'Right', 'Up', 'Down'],
+  )
+  expect(html).toContain('Type a distance to move this')
+})
+
+/*
+  A field a reader is aiming at must not move. Gaps are measured in the item's
+  own frame, so turning it deals them out in a different order; the panel puts
+  them back in the same cells.
+*/
+it('keeps each gap in its place when the item is turned', () => {
+  const { item } = room()
+  plannerStore.actions.select({ type: 'furniture', id: item.id })
+  const order = (html: string) =>
+    [...html.matchAll(/text-xs">([^<]*)</g)]
+      .map((m) => m[1])
+      .filter((label) => /^(Left|Right|Up|Down)/.test(label))
+
+  const upright = order(renderToStaticMarkup(<Inspector />))
+
+  plannerStore.actions.updateFurniture(item.id, { rotation: 90 })
+
+  expect(order(renderToStaticMarkup(<Inspector />))).toEqual(upright)
+})
+
+/*
+  Every other field in the panel is named by a noun and carries its unit as a
+  suffix. A gap is named by the way it runs, and "Left ft + in" is not English.
+*/
+it('does not hang a unit off the end of a direction', () => {
+  const { item } = room()
+  plannerStore.actions.setUnits('imperial')
+  plannerStore.actions.select({ type: 'furniture', id: item.id })
+
+  const html = renderToStaticMarkup(<Inspector />)
+
+  expect(html).toContain('Width ft + in')
+  for (const side of ['Left', 'Right', 'Up', 'Down']) {
+    expect(html).not.toContain(`${side} ft + in`)
+  }
+})
+
+it('measures across a selected wall, and holds the fields while it is locked', () => {
+  const { run } = room()
+  plannerStore.actions.select({ type: 'wall', id: run.id, index: 0 })
+
+  const unlocked = renderToStaticMarkup(<Inspector />)
+
+  expect(unlocked).toContain('Gaps')
+  expect(unlocked).toContain('Type a distance to move this')
+
+  plannerStore.actions.setRunLocked(run.id, true)
+  const locked = renderToStaticMarkup(<Inspector />)
+
+  // The numbers stay readable; only the invitation to change them goes.
+  expect(locked).toContain('Gaps')
+  expect(locked).not.toContain('Type a distance to move this')
+})
+
+it('says nothing about gaps where there are none to report', () => {
+  plannerStore.actions.openProject(PLAN)
+  plannerStore.actions.addFurniture('box')
+  plannerStore.actions.select({
+    type: 'furniture',
+    id: plannerStore.state.furniture[0].id,
+  })
+
+  // Nothing has been drawn for the box to stand next to.
+  expect(renderToStaticMarkup(<Inspector />)).not.toContain('Gaps')
+})
