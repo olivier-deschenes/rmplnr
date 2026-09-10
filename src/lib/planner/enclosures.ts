@@ -1,5 +1,6 @@
 import {
   interiorPoint,
+  offsetArea,
   pointInPolygon,
   polygonArea,
   distance,
@@ -48,6 +49,15 @@ const WELD = 1
 const MIN_ENCLOSURE_AREA = 500
 
 /**
+ * How far inside its own centreline a wall's near face stands.
+ *
+ * A loop of centrelines is where the walls were drawn, not where they stop.
+ * Half a wall of each one stands inside the loop, on the floor, which is why
+ * the floor a room has is not the area of the ring that was drawn for it.
+ */
+const FACE = WALL_THICKNESS / 2
+
+/**
  * How far across a loop has to be, at its average, to be a space at all.
  *
  * Two walls drawn a few centimetres apart still read as the one wall they were
@@ -77,8 +87,17 @@ export type Enclosure = {
   key: string
   /** The loop of wall centrelines that closes it in. */
   points: Array<Point>
-  /** Enclosed floor area in cm². */
+  /**
+   * The area of that loop in cm², which is how the plan is laid out and how
+   * one space is told from another — not what the room has underfoot.
+   */
   area: number
+  /**
+   * The floor in cm²: what the loop closes in once the walls standing on it
+   * are taken off, and so the floor there is to stand furniture on. This is
+   * the number a reader is shown, because it is the one they asked for.
+   */
+  floor: number
   /** Somewhere inside it: where its name is written, and what a click hits. */
   centre: Point
   /** The name and colour put on it, once someone has put one on. */
@@ -409,6 +428,17 @@ export function enclosuresOf(
       key: loopKey(loop.points),
       points: loop.points,
       area: loop.area - children.reduce((sum, child) => sum + child.area, 0),
+      // The walls around the room take their half off the floor; the walls
+      // around anything standing in it take theirs off as well, which is why
+      // a hole is measured to its outer face and this floor to its inner one.
+      floor: Math.max(
+        0,
+        offsetArea(loop.points, FACE) -
+          children.reduce(
+            (sum, child) => sum + offsetArea(child.points, -FACE),
+            0,
+          ),
+      ),
       centre,
       space: boundSpace(spaces, taken, loop.points),
     }
@@ -511,15 +541,26 @@ export function enclosureLocked(
   return boundary.length > 0 && boundary.every((run) => run.locked === true)
 }
 
+/**
+ * The floor inside a closet, measured the way a room's is.
+ *
+ * Its front is drawn open, but the wall it is set into is still standing
+ * across it, so all four of its sides give up their half of a wall to it.
+ */
+export function closetFloor(run: WallRun): number {
+  return offsetArea(run.points, FACE)
+}
+
 /** Room count and floor area come exclusively from the walls. */
 export function planFloors(
   walls: Array<WallRun>,
   spaces: Array<Space> = [],
-): { count: number; area: number } {
+): { count: number; area: number; floor: number } {
   const floors = enclosuresOf(walls, spaces)
   return {
     count: floors.length,
-    area: floors.reduce((sum, floor) => sum + floor.area, 0),
+    area: floors.reduce((sum, found) => sum + found.area, 0),
+    floor: floors.reduce((sum, found) => sum + found.floor, 0),
   }
 }
 

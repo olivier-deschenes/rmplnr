@@ -109,6 +109,72 @@ export function polygonArea(points: Array<Point>): number {
   return Math.abs(sum) / 2
 }
 
+/**
+ * What a ring encloses once every one of its edges has moved `by` centimetres
+ * towards the inside, with the corners mitred the way the walls are drawn.
+ *
+ * The answer is `A − P·by + by²·Σtan(φ/2)`, where `φ` is the turn taken at each
+ * corner: every edge gives up a strip of its own length, and each corner then
+ * hands back the wedge two neighbouring strips would otherwise have counted
+ * twice — or, where the ring turns back on itself, takes away the gap they left
+ * between them instead. That is exact for any ring whose offset does not fold
+ * through itself, and it needs no offset ring to be built to measure.
+ *
+ * A negative `by` moves the edges outwards, which is what a hole in a floor
+ * does to the floor around it: the wall closing the hole in stands on the
+ * floor, so the floor loses the hole and the wall around it both.
+ */
+export function offsetArea(points: Array<Point>, by: number): number {
+  // A run closed by writing its first corner down again ends on an edge of no
+  // length. That is the same ring with the same mitres, but an edge going
+  // nowhere has no direction to turn from, so it is dropped before any of the
+  // corners are read.
+  const closed = points.filter((at, i) => {
+    const before = points[(i + points.length - 1) % points.length]
+    return Math.abs(at.x - before.x) > 1e-9 || Math.abs(at.y - before.y) > 1e-9
+  })
+  if (closed.length < 3) return 0
+
+  // Wound one way, so a left turn is a corner the ring closes around whichever
+  // way round its corners were first written down.
+  let sum = 0
+  for (let i = 0; i < closed.length; i++) {
+    const a = closed[i]
+    const b = closed[(i + 1) % closed.length]
+    sum += a.x * b.y - b.x * a.y
+  }
+  const ring = sum >= 0 ? closed : [...closed].reverse()
+
+  let perimeter = 0
+  let corners = 0
+  for (let i = 0; i < ring.length; i++) {
+    const from = ring[(i + ring.length - 1) % ring.length]
+    const at = ring[i]
+    const to = ring[(i + 1) % ring.length]
+    const into = { x: at.x - from.x, y: at.y - from.y }
+    const out = { x: to.x - at.x, y: to.y - at.y }
+    perimeter += Math.hypot(out.x, out.y)
+
+    const cornerTurn = Math.atan2(
+      into.x * out.y - into.y * out.x,
+      into.x * out.x + into.y * out.y,
+    )
+    // A ring that doubles straight back on itself has a spike, not a corner:
+    // it encloses nothing, and its mitre would run off to infinity.
+    if (Math.abs(cornerTurn) < Math.PI - 1e-9) {
+      corners += Math.tan(cornerTurn / 2)
+    }
+  }
+
+  // Each step inwards shortens the ring by `2·corners`, so `perimeter` is what
+  // is left of it at `by` and the moment that reaches nothing the ring has
+  // closed on itself. The reading beyond there is a parabola turning back up,
+  // not a floor, so a room narrower than the walls around it has none.
+  if (by > 0 && perimeter - 2 * by * corners <= 0) return 0
+
+  return Math.max(0, polygonArea(ring) - perimeter * by + by * by * corners)
+}
+
 export function squareMetres(areaCm2: number): number {
   return areaCm2 / 10_000
 }

@@ -143,7 +143,14 @@ describe('walls as the saved model', () => {
         ),
       },
     ]
-    expect(planFloors(walls)).toEqual({ count: 2, area: 120000 })
+    // The floor is measured to the wall faces: 388×288 inside the outer walls,
+    // less the 112² the cupboard and its own walls stand on, plus the 88² of
+    // floor inside the cupboard.
+    expect(planFloors(walls)).toEqual({
+      count: 2,
+      area: 120000,
+      floor: 388 * 288 - 112 * 112 + 88 * 88,
+    })
     const named = enclosuresOf(walls, [
       { id: 'label', name: 'Cupboard', seed: { x: 150, y: 150 } },
     ])

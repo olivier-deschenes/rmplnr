@@ -25,7 +25,7 @@ export function Landing({
 }) {
   const [example] = useState(createStarterPlan)
   const [view, setView] = useState('furnished')
-  const { area, count } = planFloors(example.walls, example.spaces)
+  const { floor, count } = planFloors(example.walls, example.spaces)
 
   return (
     <>
@@ -82,7 +82,7 @@ export function Landing({
             <div>
               <p className="text-sm font-medium">{example.name}</p>
               <p className="text-muted-foreground mt-1 text-xs tabular-nums">
-                {count} rooms · {formatArea(area, units)}
+                {count} rooms · {formatArea(floor, units)}
               </p>
             </div>
             <ToggleGroup

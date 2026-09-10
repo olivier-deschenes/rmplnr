@@ -11,6 +11,7 @@ it('draws chosen colors on rooms and furniture', () => {
         key: 'floor-1',
         centre: { x: 50, y: 25 },
         area: 5000,
+        floor: 5000 - 6 * (200 + 100 * Math.SQRT2) + 36 * (3 + 2 * Math.SQRT2),
         space: {
           id: 'label-1',
           name: 'Living room',
@@ -63,6 +64,7 @@ it('backs a coloured floor and footprint with paper, so nothing shows through', 
         key: 'floor-1',
         centre: { x: 50, y: 25 },
         area: 5000,
+        floor: 5000 - 6 * (200 + 100 * Math.SQRT2) + 36 * (3 + 2 * Math.SQRT2),
         space: {
           id: 'label-1',
           name: 'Living room',

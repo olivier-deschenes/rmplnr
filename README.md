@@ -48,6 +48,11 @@ bun run cf-types:check
 
 - Plans and editor preferences are saved in browser `localStorage`. Geometry is
   stored in centimetres; metric and imperial units only change how it is shown.
+- Walls are drawn on their centrelines, and a wall dimension is the length of
+  that line: the wall of a 4 m room reads 4 m. A floor area is the floor
+  itself — what the room has left once the walls standing on it are taken off,
+  and so what there is to put furniture on. The two differ by half a wall all
+  the way round, which is why they are kept as separate numbers.
 - Single-plan JSON, PNG and SVG exports are downloaded directly by the browser.
   JSON plans can be previewed and imported again. A full-library backup keeps
   every plan ID and can replace the browser's whole local library after review.

@@ -58,7 +58,7 @@ function summary(project: Project, units: Units): string {
   const loose = walls.reduce((sum, run) => sum + run.points.length - 1, 0)
   if (!floors.count)
     return `${loose} wall${loose === 1 ? '' : 's'} · In progress`
-  return `${floors.count} run${floors.count === 1 ? '' : 's'} · ${formatArea(floors.area, units, 1)}`
+  return `${floors.count} run${floors.count === 1 ? '' : 's'} · ${formatArea(floors.floor, units, 1)}`
 }
 
 function Projects() {

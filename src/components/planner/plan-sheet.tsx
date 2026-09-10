@@ -170,7 +170,7 @@ function TitleBlock({
       </text>
       <text x={left} y={top + 26} fontSize={7} fill="#555">
         {floors.count} room{floors.count === 1 ? '' : 's'} ·{' '}
-        {formatArea(floors.area, units)} · {project.furniture.length} item
+        {formatArea(floors.floor, units)} · {project.furniture.length} item
         {project.furniture.length === 1 ? '' : 's'}
       </text>
 

@@ -332,7 +332,7 @@ export function EnclosureLabels({
           label={floorLabel(
             enclosure.points,
             enclosure.space?.name ?? '',
-            enclosure.area,
+            enclosure.floor,
             viewport,
             units,
             enclosure.centre,

@@ -38,6 +38,7 @@ import {
   enclosureLocked,
   enclosureWalls,
   enclosuresOf,
+  closetFloor,
   planFloors,
 } from '#/lib/planner/enclosures.ts'
 import { runWallAt, wallCount } from '#/lib/planner/openings.ts'
@@ -50,7 +51,6 @@ import {
   angleBetween,
   loopsBack,
   normalizeAngle,
-  polygonArea,
 } from '#/lib/planner/geometry.ts'
 import {
   formatArea,
@@ -524,7 +524,7 @@ function EnclosurePanel({
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {formatArea(enclosure.area, units, 2)}
+          {formatArea(enclosure.floor, units, 2)}
         </dd>
         <dt>Walls</dt>
         <dd className="text-foreground text-right tabular-nums">
@@ -596,7 +596,7 @@ function ClosetPanel({
         </dd>
         <dt>Area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {formatArea(polygonArea(run.points), units, 2)}
+          {formatArea(closetFloor(run), units, 2)}
         </dd>
       </dl>
       <SelectionActions duplicate={false} />
@@ -1072,7 +1072,7 @@ function EmptyPanel({ units, nameId }: { units: Units; nameId: string }) {
       <dl className="text-muted-foreground grid grid-cols-2 gap-y-2 text-[13px]">
         <dt>Floor area</dt>
         <dd className="text-foreground text-right tabular-nums">
-          {formatArea(floors.area, units, 2)}
+          {formatArea(floors.floor, units, 2)}
         </dd>
         <dt>Rooms</dt>
         <dd className="text-foreground text-right tabular-nums">

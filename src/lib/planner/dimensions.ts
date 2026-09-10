@@ -273,7 +273,7 @@ export function runLabelBoxes(
       floorLabel(
         enclosure.points,
         enclosure.space?.name ?? '',
-        enclosure.area,
+        enclosure.floor,
         vp,
         units,
         enclosure.centre,

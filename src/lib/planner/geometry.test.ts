@@ -6,6 +6,8 @@ import {
   editWallGeometry,
   wallRunIssue,
   closeWallPoints,
+  offsetArea,
+  polygonArea,
 } from './geometry.ts'
 
 import type { Point } from './types.ts'
@@ -87,5 +89,110 @@ describe('a run of walls walked back round to its start', () => {
       ok: false,
       error: 'That would lay a wall straight back over the one before it.',
     })
+  })
+})
+
+describe('offset area', () => {
+  /** Offset a ring the long way round, to check the arithmetic against it. */
+  function insetByHand(points: Array<Point>, by: number): number {
+    const wound =
+      points.reduce((sum, a, i) => {
+        const b = points[(i + 1) % points.length]
+        return sum + (a.x * b.y - b.x * a.y)
+      }, 0) >= 0
+        ? points
+        : [...points].reverse()
+
+    // Every edge moved `by` inwards, then the corners put back where the
+    // moved edges now cross.
+    const moved = wound.map((a, i) => {
+      const b = wound[(i + 1) % wound.length]
+      const length = Math.hypot(b.x - a.x, b.y - a.y)
+      // Wound as above, the inside of the ring is to the left of every edge.
+      const into = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length }
+      return {
+        a: { x: a.x + into.x * by, y: a.y + into.y * by },
+        b: { x: b.x + into.x * by, y: b.y + into.y * by },
+      }
+    })
+    const corners = moved.map((edge, i) => {
+      const previous = moved[(i + moved.length - 1) % moved.length]
+      const p = {
+        x: previous.b.x - previous.a.x,
+        y: previous.b.y - previous.a.y,
+      }
+      const q = { x: edge.b.x - edge.a.x, y: edge.b.y - edge.a.y }
+      const cross = p.x * q.y - p.y * q.x
+      const t =
+        ((edge.a.x - previous.a.x) * q.y - (edge.a.y - previous.a.y) * q.x) /
+        cross
+      return { x: previous.a.x + p.x * t, y: previous.a.y + p.y * t }
+    })
+    return polygonArea(corners)
+  }
+
+  it('takes a strip off every edge of a rectangle', () => {
+    expect(offsetArea(RECTANGLE, 6)).toBeCloseTo((400 - 12) * (300 - 12), 9)
+  })
+
+  it('gives a wall its own half back on each side when offset outwards', () => {
+    expect(offsetArea(RECTANGLE, -6)).toBeCloseTo((400 + 12) * (300 + 12), 9)
+  })
+
+  it('reads the same whichever way round the corners were written', () => {
+    expect(offsetArea([...IRREGULAR].reverse(), 6)).toBeCloseTo(
+      offsetArea(IRREGULAR, 6),
+      9,
+    )
+  })
+
+  it('agrees with offsetting the ring and measuring what comes out', () => {
+    for (const ring of [RECTANGLE, IRREGULAR]) {
+      for (const by of [-12, -6, 0, 6, 12]) {
+        expect(offsetArea(ring, by)).toBeCloseTo(insetByHand(ring, by), 6)
+      }
+    }
+  })
+
+  it('takes the wedge back off again at a corner that turns inwards', () => {
+    // An L: five corners turning one way and one turning back on itself.
+    const ell: Array<Point> = [
+      { x: 0, y: 0 },
+      { x: 300, y: 0 },
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+      { x: 100, y: 300 },
+      { x: 0, y: 300 },
+    ]
+    expect(offsetArea(ell, 25)).toBeCloseTo(insetByHand(ell, 25), 6)
+    // 70_000 − 1_200·25 + 625·(5 − 1), by hand.
+    expect(offsetArea(ell, 25)).toBeCloseTo(42_500, 9)
+  })
+
+  it('leaves no floor at all in a ring narrower than the offset', () => {
+    expect(offsetArea(RECTANGLE, 400)).toBe(0)
+  })
+
+  it('reads a run closed by repeating its first corner as that ring', () => {
+    expect(offsetArea(closeWallPoints(RECTANGLE), 6)).toBeCloseTo(
+      offsetArea(RECTANGLE, 6),
+      9,
+    )
+    expect(offsetArea(closeWallPoints(IRREGULAR), 6)).toBeCloseTo(
+      offsetArea(IRREGULAR, 6),
+      9,
+    )
+  })
+
+  it('has nothing to measure without a ring', () => {
+    expect(
+      offsetArea(
+        [
+          { x: 0, y: 0 },
+          { x: 10, y: 0 },
+        ],
+        1,
+      ),
+    ).toBe(0)
   })
 })

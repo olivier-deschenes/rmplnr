@@ -5,7 +5,9 @@ import {
   enclosureAt,
   enclosureLocked,
   enclosureWalls,
+  closetFloor,
   enclosuresOf,
+  planFloors,
   wallLoops,
 } from './enclosures.ts'
 
@@ -374,5 +376,62 @@ describe('what is not a room', () => {
   it('still finds a narrow room that is a room', () => {
     const cupboard = run('a', rect(0, 0, 40, 200))
     expect(areas([cupboard])).toEqual([8_000])
+  })
+})
+
+describe('the floor a room actually has', () => {
+  /** Floors of every space found, largest loop first. */
+  function floors(walls: Array<WallRun>, spaces: Array<Space> = []) {
+    return enclosuresOf(walls, spaces).map((found) => found.floor)
+  }
+
+  it('measures to the wall faces, not to the lines they were drawn on', () => {
+    // 400 by 300 of centrelines, with half a 12 cm wall standing inside each.
+    expect(floors([run('a', rect(0, 0, 400, 300))])).toEqual([388 * 288])
+  })
+
+  it('leaves the plan its own centreline area to lay out and nest by', () => {
+    const [only] = enclosuresOf([run('a', rect(0, 0, 400, 300))])
+    expect(only.area).toBe(400 * 300)
+    expect(only.floor).toBeLessThan(only.area)
+  })
+
+  it('gives each of two rooms the half of the party wall it stands on', () => {
+    const left = run('left', rect(0, 0, 200, 300))
+    const right = run('right', rect(200, 0, 200, 300))
+    expect(floors([left, right])).toEqual([188 * 288, 188 * 288])
+  })
+
+  it('takes the walls around a cupboard off the floor it stands on', () => {
+    const outer = run('outer', rect(0, 0, 400, 300))
+    const cupboard = run('cupboard', rect(100, 100, 100, 100))
+    // The room keeps what is inside its own walls, less the whole of what the
+    // cupboard and its walls stand on; the cupboard keeps what is inside its.
+    expect(floors([outer, cupboard]).sort((a, b) => b - a)).toEqual([
+      388 * 288 - 112 * 112,
+      88 * 88,
+    ])
+  })
+
+  it('has no floor to give a room narrower than the walls closing it in', () => {
+    const strip = enclosuresOf([run('strip', rect(0, 0, 10, 400))])
+    for (const found of strip) expect(found.floor).toBe(0)
+  })
+
+  it('measures a closet to its faces, open front and all', () => {
+    // Its front is drawn open, but the wall it is set into still stands there.
+    expect(closetFloor(run('coats', rect(0, 0, 180, 60)))).toBeCloseTo(
+      168 * 48,
+      9,
+    )
+  })
+
+  it('adds the rooms up to the floor the whole plan has', () => {
+    const walls = [
+      run('left', rect(0, 0, 200, 300)),
+      run('right', rect(200, 0, 200, 300)),
+    ]
+    expect(planFloors(walls).floor).toBe(2 * 188 * 288)
+    expect(planFloors(walls).area).toBe(400 * 300)
   })
 })
