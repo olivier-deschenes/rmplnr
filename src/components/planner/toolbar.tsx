@@ -850,7 +850,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
 
       <div
         data-toolbar-section="tools"
-        className="order-3 col-span-2 flex h-14 min-w-0 items-center gap-2 overflow-x-auto border-t px-3 max-sm:h-13 max-sm:gap-0.5 max-sm:px-1"
+        className="order-3 col-span-2 flex h-14 min-w-0 items-center gap-1 overflow-x-auto border-t px-3 max-sm:h-13 max-sm:gap-0.5 max-sm:px-1"
       >
         <ToggleGroup
           type="single"
@@ -907,7 +907,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           })}
         </ToggleGroup>
 
-        <FurnitureCatalogue />
+        <FurnitureCatalogue className="sm:ms-3" />
 
         <Hint label={showFurniture ? 'Hide furniture' : 'Show furniture'}>
           <Toggle
@@ -922,7 +922,7 @@ export function Toolbar({ inspector }: { inspector?: ReactElement }) {
           </Toggle>
         </Hint>
 
-        <Separator orientation="vertical" className="mx-1 max-sm:hidden" />
+        <Separator orientation="vertical" className="mx-2 max-sm:hidden" />
 
         <Hint label={`Snap to ${formatSnapStep(units)}`}>
           <Toggle

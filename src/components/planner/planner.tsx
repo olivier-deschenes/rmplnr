@@ -95,6 +95,10 @@ export function Planner({ projectId }: { projectId: string }) {
     plannerStore,
     (s) => s.restored && !s.projects.some((p) => p.id === projectId),
   )
+  const name = useSelector(
+    plannerStore,
+    (s) => s.projects.find((p) => p.id === projectId)?.name ?? '',
+  )
 
   useEffect(() => {
     if (missing) navigate({ to: '/projects', replace: true })
@@ -107,16 +111,38 @@ export function Planner({ projectId }: { projectId: string }) {
     // every tooltip on the way past.
     <TooltipProvider delayDuration={400}>
       <div className="flex h-dvh flex-col overflow-hidden">
+        {/*
+          The toolbar stands nearly thirty controls between the top of the page
+          and the drawing, so the keyboard is shown the same way past it that
+          the rest of the site shows past its header.
+        */}
+        <a
+          href="#plan-canvas"
+          className="bg-background fixed top-3 left-3 z-50 -translate-y-24 rounded-md border px-4 py-3 text-sm focus:translate-y-0 focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Skip to the plan
+        </a>
         <Toolbar inspector={<MobileInspector />} />
         <div className="flex min-h-0 flex-1">
-          <div className="relative min-w-0 flex-1">
+          {/*
+            The drawing is what this page is, so it holds the main landmark and
+            the page's one heading. The heading is only for readers who cannot
+            see the plan: on screen the name is already up in the toolbar, on
+            the control that renames it.
+          */}
+          <main
+            id="plan-canvas"
+            tabIndex={-1}
+            className="relative min-w-0 flex-1 outline-none"
+          >
+            <h1 className="sr-only">{name}</h1>
             <Canvas />
             <CanvasGuidance
               onProjectImported={(id) =>
                 navigate({ to: '/p/$projectId', params: { projectId: id } })
               }
             />
-          </div>
+          </main>
           <Inspector className="hidden lg:flex" />
         </div>
         <TabConflictDialog />

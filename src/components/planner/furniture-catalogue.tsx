@@ -49,6 +49,7 @@ import {
   FURNITURE_KINDS,
   FURNITURE_PRESETS,
 } from '#/lib/planner/presets.ts'
+import { cn } from '#/lib/utils.ts'
 import { plannerStore } from '#/lib/planner/store.ts'
 import { formatSize } from '#/lib/planner/units.ts'
 
@@ -195,7 +196,7 @@ function PresetEditor({
 }
 
 /** Searchable furniture catalogue and local custom-preset manager. */
-export function FurnitureCatalogue() {
+export function FurnitureCatalogue({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [managing, setManaging] = useState(false)
@@ -258,7 +259,7 @@ export function FurnitureCatalogue() {
           <Button
             variant={tool === 'closet' ? 'default' : 'outline'}
             size="sm"
-            className="h-9 gap-1.5 max-sm:size-11 max-sm:px-0"
+            className={cn('h-9 gap-1.5 max-sm:size-11 max-sm:px-0', className)}
             aria-label="Add furniture or a closet"
           >
             <IconArmchair data-icon="inline-start" />
