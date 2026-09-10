@@ -52,8 +52,9 @@ describe('wall junction dimensions', () => {
     expect(result.map((label) => label.text).sort()).toEqual([
       '200 cm',
       '400 cm',
+      '600 cm',
     ])
-    expect(new Set(result.map((label) => label.key)).size).toBe(2)
+    expect(new Set(result.map((label) => label.key)).size).toBe(3)
     expect(result.every((label) => label.wall === 0)).toBe(true)
     expect(result.find((label) => label.text === '200 cm')?.box.centre.x).toBe(
       200,
@@ -76,7 +77,7 @@ describe('wall junction dimensions', () => {
         hostLabels([wall, branch, crossing])
           .map((label) => label.text)
           .sort(),
-      ).toEqual(['150 cm', '200 cm', '250 cm'])
+      ).toEqual(['150 cm', '200 cm', '250 cm', '600 cm'])
     }
   })
 
@@ -92,7 +93,7 @@ describe('wall junction dimensions', () => {
       hostLabels(rotated)
         .map((label) => label.text)
         .sort(),
-    ).toEqual(['200 cm', '400 cm'])
+    ).toEqual(['200 cm', '400 cm', '600 cm'])
     expect(
       hostLabels(rotated, [], 'imperial').every(
         (label) => !label.text.includes('cm'),
@@ -152,7 +153,7 @@ describe('wall junction dimensions', () => {
       hostLabels([host, branch], [door])
         .map((label) => label.text)
         .sort(),
-    ).toEqual(['200 cm', '400 cm'])
+    ).toEqual(['200 cm', '400 cm', '600 cm'])
   })
 
   it('deduplicates shared walls after splitting them at attachments', () => {
@@ -167,7 +168,32 @@ describe('wall junction dimensions', () => {
     expect(result.map((label) => label.text).sort()).toEqual([
       '200 cm',
       '400 cm',
+      '600 cm',
     ])
+  })
+
+  it('keeps a room’s size on show once a wall is carried across it', () => {
+    // A 400 room with its top wall lifted off the corner and set down a
+    // quarter of the way in. The sides are the same walls they always were.
+    const carried = run('carried', [
+      { x: 0, y: 100 },
+      { x: 400, y: 100 },
+    ])
+    const sides = [
+      run('host', [
+        { x: 0, y: 0 },
+        { x: 0, y: 400 },
+      ]),
+      run('far', [
+        { x: 400, y: 0 },
+        { x: 400, y: 400 },
+      ]),
+    ]
+    expect(
+      hostLabels([...sides, carried])
+        .map((label) => label.text)
+        .sort(),
+    ).toEqual(['100 cm', '300 cm', '400 cm'])
   })
 
   it('measures Plan 2’s bedroom and the wall below it separately', () => {
@@ -193,6 +219,7 @@ describe('wall junction dimensions', () => {
     expect(result.map((label) => label.text).sort()).toEqual([
       '318 cm',
       '351.73 cm',
+      '669.73 cm',
     ])
   })
 })

@@ -442,6 +442,12 @@ type Candidate = {
   tangent: Point
   angle: number
   length: number
+  /**
+   * The first ring of placements this label may take. An overall dimension
+   * starts one ring out, leaving the strip against the wall to the stretches
+   * it spans and taking a leader of its own back to the wall it measures.
+   */
+  ring: number
 }
 
 /** One place a label could sit, and the point on the wall it answers to. */
@@ -460,7 +466,7 @@ function wallSlots(candidate: Candidate, width: number): Array<Slot> {
   const runway = Math.max(0, (length - width) / 2)
   const slots: Array<Slot> = []
 
-  for (let ring = 0; ring < RINGS; ring++) {
+  for (let ring = candidate.ring; ring < RINGS; ring++) {
     const out = GAP + LABEL_HEIGHT / 2 + ring * STEP
     for (const side of [1, -1]) {
       for (const slide of SLIDES) {
@@ -572,8 +578,31 @@ export function wallLabels(
       if (!inView(wall, consulted)) continue
       taken.push(wall)
 
+      // The stretches between the walls meeting this one, and — where there is
+      // more than one of them — the wall's own length over the top of them.
+      // Both are wanted: the stretches say where what stands against the wall
+      // falls, and the overall says how long the wall is regardless, so a room
+      // does not read as a different size because something has been set down
+      // across its side.
       const spans = dimensionSpans(frame, standing)
-      for (const [segment, [from, to]] of spans.entries()) {
+      const measured = spans.map((stretch, segment) => ({
+        key: `${run.id}:${i}:${segment}`,
+        stretch,
+        ring: 0,
+      }))
+      if (spans.length > 1) {
+        measured.push({
+          key: `${run.id}:${i}:overall`,
+          stretch: [0, 1],
+          ring: 1,
+        })
+      }
+
+      for (const {
+        key,
+        stretch: [from, to],
+        ring,
+      } of measured) {
         const start = pointOnWall(frame, from)
         const end = pointOnWall(frame, to)
         const world = distance(start, end)
@@ -599,7 +628,7 @@ export function wallLabels(
 
         const tangent = frame.tangent
         candidates.push({
-          key: `${run.id}:${i}:${segment}`,
+          key,
           runId: run.id,
           runName: run.name,
           wall: i,
@@ -609,6 +638,7 @@ export function wallLabels(
           tangent,
           angle: uprightAngle(tangent),
           length,
+          ring,
         })
       }
     }
@@ -616,7 +646,9 @@ export function wallLabels(
 
   // Longest walls first: they carry the dimensions most worth reading, so they
   // get the strip beside their own line and the short ones work around them.
-  candidates.sort((a, b) => b.length - a.length)
+  // Overall dimensions go after all of them: they are read over the stretches
+  // they cover, and take what room is left once those have their places.
+  candidates.sort((a, b) => a.ring - b.ring || b.length - a.length)
 
   const labels: Array<WallLabel> = []
 

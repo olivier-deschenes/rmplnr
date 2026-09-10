@@ -1,9 +1,4 @@
-import {
-  openingEnds,
-  pointOnWall,
-  runWallAt,
-  wallSegments,
-} from '#/lib/planner/openings.ts'
+import { openingEnds, pointOnWall, runWallAt } from '#/lib/planner/openings.ts'
 import { WALL_THICKNESS } from '#/lib/planner/walls.ts'
 
 import type { CSSProperties, ReactElement } from 'react'
@@ -176,26 +171,23 @@ export function SharedWalls({
  * colour at the wall's own thickness so that what is selected is the wall
  * itself rather than the little bar in the middle of it.
  *
- * Cut at the jambs like the wall underneath, because a doorway is a hole and
- * selecting the wall does not fill it back in.
+ * Drawn from the same pieces as the wall underneath — cut at the jambs,
+ * because a doorway is a hole and selecting the wall does not fill it back in,
+ * and carried into whatever its ends are built into, so the whole of the wall
+ * comes up in the selection colour and none of it is left looking like part of
+ * the wall next door.
  */
 export function SelectedWall({
-  run,
-  index,
-  gaps,
+  segments,
   scale,
 }: {
-  run: WallRun
-  index: number
-  /** What is cut through this wall: the doorways and windows. */
-  gaps: Array<Span>
+  /** The wall as it is drawn: see `drawnWall`. */
+  segments: Array<[Point, Point]>
   scale: number
 }) {
-  const frame = runWallAt(run, index)
-  if (!frame) return null
   return (
     <g className="pointer-events-none">
-      {wallSegments(frame, gaps).map(([a, b], i) => (
+      {segments.map(([a, b], i) => (
         <line
           key={i}
           x1={a.x}

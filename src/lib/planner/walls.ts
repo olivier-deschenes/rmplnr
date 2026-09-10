@@ -42,6 +42,8 @@ const JOIN = WALL_THICKNESS / 2
 const PARALLEL = 0.02
 /** Any less in common than this is a corner touching, not a shared wall. */
 const MIN_SHARE = 20
+/** Two points this much of a wall apart are the same point on it. */
+const TOUCHING = 1e-9
 
 /** A stretch of one room's wall that another room's wall runs along. */
 export type Share = {
@@ -561,9 +563,111 @@ export function standingWalls(
 }
 
 /**
+ * How far each end of a wall carries on past its corner, `[start, end]`, in
+ * centimetres.
+ *
+ * A wall has a body, and the body runs half a wall past each end of the line
+ * the plan keeps it as. In a room the mitre at the corner puts it there; where
+ * one wall is built into another it reaches on to that wall's far face. So a
+ * wall that ends against nothing at all ends half a wall out too, on its own
+ * cap — and a wall carried out of a room is the width the room was, wherever
+ * it is set down, rather than shrinking by a corner the moment it is clear of
+ * the sides it came from.
+ *
+ * Lengths are untouched by any of this: the wall of a 4 m room measures 4 m
+ * whether it is in the room or carried off it. This is its body, not its line.
+ *
+ * What the plan draws is another question, and `planWallPath`'s: a mitred
+ * corner already fills itself in.
+ */
+export function wallOverrun(
+  walls: Array<WallRun>,
+  openings: Array<Opening>,
+  runId: string,
+  index: number,
+): [number, number] {
+  const run = walls.find((candidate) => candidate.id === runId)
+  const frame = run && runWallAt(run, index)
+  if (!frame) return [0, 0]
+  const standing = wallSegments(frame, wallGaps(walls, openings, runId, index))
+  if (standing.length === 0) return [0, 0]
+
+  // Measured against what is built rather than what is drawn on the plan:
+  // there is nothing to carry an end into on the far side of a doorway.
+  const faces = standingWalls(walls, openings)
+    .map(([a, b]) => wallAt([a, b], 0))
+    .filter((face): face is Wall => face !== null)
+
+  const past = (corner: Point, out: Point): number => {
+    let reach = 0
+    let met = false
+    for (const face of faces) {
+      const across = out.x * face.normal.x + out.y * face.normal.y
+      // A wall running the same way as this one meets it end to end, flush.
+      if (Math.abs(across) < PARALLEL) continue
+      // Corner to corner counts, so the tolerance is on the wall's own ends.
+      const along = projectAlong(face, corner)
+      if (along < -TOUCHING || along > 1 + TOUCHING) continue
+      const side = offset(face, corner)
+      if (Math.abs(side) > JOIN) continue
+      met = true
+      reach = Math.max(reach, ((across > 0 ? JOIN : -JOIN) - side) / across)
+    }
+    // An end already flush with the far face of what it meets has arrived; an
+    // end that meets nothing carries its own half a wall.
+    return met ? reach : JOIN
+  }
+
+  const back = { x: -frame.tangent.x, y: -frame.tangent.y }
+  return [
+    distance(standing[0][0], frame.a) < 1e-6 ? past(frame.a, back) : 0,
+    distance(standing[standing.length - 1][1], frame.b) < 1e-6
+      ? past(frame.b, frame.tangent)
+      : 0,
+  ]
+}
+
+/** Shift a point `by` centimetres along `direction`. */
+function carried(point: Point, direction: Point, by: number): Point {
+  return { x: point.x + direction.x * by, y: point.y + direction.y * by }
+}
+
+/**
+ * A wall as it is drawn: the stretches of it left standing between its
+ * openings, with its ends carried on into whatever they are built into.
+ */
+export function drawnWall(
+  walls: Array<WallRun>,
+  openings: Array<Opening>,
+  runId: string,
+  index: number,
+): Array<[Point, Point]> {
+  const run = walls.find((candidate) => candidate.id === runId)
+  const frame = run && runWallAt(run, index)
+  if (!frame) return []
+  const segments: Array<[Point, Point]> = wallSegments(
+    frame,
+    wallGaps(walls, openings, runId, index),
+  )
+  if (segments.length === 0) return segments
+
+  const [start, end] = wallOverrun(walls, openings, runId, index)
+  const last = segments.length - 1
+  const back = { x: -frame.tangent.x, y: -frame.tangent.y }
+  segments[0] = [carried(segments[0][0], back, start), segments[0][1]]
+  segments[last] = [
+    segments[last][0],
+    carried(segments[last][1], frame.tangent, end),
+  ]
+  return segments
+}
+
+/**
  * Draw separate wall runs with the same corner joins as a continuous outline.
- * Only solid segments meeting at their ends get a join; free ends and opening
- * jambs retain their butt caps. Keep wallPath separate for per-room hit targets.
+ * Only solid segments meeting at their ends get a join; opening jambs retain
+ * their butt caps, and a free end standing against a wall crossing it is
+ * carried through to that wall's far face. Keep wallPath separate for per-room
+ * hit targets.
  */
 export function planWallPath(
   walls: Array<WallRun>,
@@ -574,6 +678,8 @@ export function planWallPath(
     { at: a, from: b },
     { at: b, from: a },
   ])
+
+  const mitred: Array<Point> = []
 
   for (let i = 0; i < ends.length; i++) {
     const one = ends[i]
@@ -586,9 +692,34 @@ export function planWallPath(
       const oy = other.from.y - other.at.y
       // Straight or overlapping segments already meet without a corner join.
       if (Math.abs(dx * oy - dy * ox) < 1e-6) continue
+      mitred.push(one.at)
       paths.push(
         `M${one.from.x},${one.from.y} L${one.at.x},${one.at.y} L${other.from.x},${other.from.y}`,
       )
+    }
+  }
+
+  // The last piece of a wall built into another one: the stub between its
+  // corner and the far face of what it runs into, laid on as its own stroke so
+  // that the wall it belongs to keeps the jambs and joins it already has. A
+  // corner the mitre above has already turned is left to it.
+  const turned = (corner: Point) =>
+    mitred.some((at) => distance(at, corner) < 1e-6)
+
+  for (const run of walls) {
+    for (let index = 0; index < wallCount(run); index++) {
+      const frame = runWallAt(run, index)
+      if (!frame) continue
+      const overrun = wallOverrun(walls, openings, run.id, index)
+      const back = { x: -frame.tangent.x, y: -frame.tangent.y }
+      for (const [corner, out, by] of [
+        [frame.a, back, overrun[0]],
+        [frame.b, frame.tangent, overrun[1]],
+      ] as const) {
+        if (by <= 0 || turned(corner)) continue
+        const to = carried(corner, out, by)
+        paths.push(`M${corner.x},${corner.y} L${to.x},${to.y}`)
+      }
     }
   }
 

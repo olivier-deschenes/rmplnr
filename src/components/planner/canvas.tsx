@@ -54,6 +54,7 @@ import {
   wallLabels,
 } from '#/lib/planner/dimensions.ts'
 import {
+  drawnWall,
   planWallPath,
   sharedSpansOf,
   wallGaps,
@@ -1466,9 +1467,12 @@ export function Canvas() {
           */}
           {selectedRun && selection?.type === 'wall' && (
             <SelectedWall
-              run={selectedRun}
-              index={selection.index}
-              gaps={wallGaps(walls, openings, selectedRun.id, selection.index)}
+              segments={drawnWall(
+                walls,
+                openings,
+                selectedRun.id,
+                selection.index,
+              )}
               scale={viewport.scale}
             />
           )}
